@@ -1,0 +1,54 @@
+[project]
+authors = [{name = "Scott Henderson", email = "3924836+scottyhq@users.noreply.github.com"}]
+name = "gaia-cli"
+requires-python = ">= 3.11"
+version = "0.1.0"
+dependencies = [
+  "cyclopts",
+  "geopandas",
+  "requests",
+  "xarray",
+  "xvec",
+  "zarr"
+]
+
+[project.optional-dependencies]
+dev = [
+  "ruff"
+]
+
+[project.scripts]
+gaia = "gaia_cli.cli:app"
+
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+# # linux arm = "linux-aarch64"
+platforms = ["osx-arm64", "linux-64"]
+
+[tool.pixi.pypi-dependencies]
+gaia_cli = { path = ".", editable = true }
+
+[tool.pixi.tasks]
+
+[tool.pixi.environments]
+dev = { features = ["dev"], solve-group = "default" }
+
+[tool.pixi.feature.dev.tasks]
+test = "pytest"
+typecheck = "mypy src/"
+lint = "ruff check src/ --fix ; ruff format src/"
+
+[tool.pixi.dependencies]
+ipykernel = ">=7.2.0,<8"
+rioxarray = ">=0.21.0,<0.22"
+obstore = ">=0.8.2,<0.9"
+boto3 = ">=1.42.47,<2"
+matplotlib-base = ">=3.10.8,<4"
+folium = ">=0.20.0,<0.21"
+matplotlib = ">=3.10.8,<4"
+mapclassify = ">=2.10.0,<3"
+xyzservices = ">=2025.11.0,<2026"
