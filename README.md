@@ -44,7 +44,7 @@ gaia stage -i $AOI -s 2025-12-01 -e 2025-12-20 -o s3://cresst/scratch/skagit-tes
 See [precip-example.ipynb](./precip-example.ipynb)
 
 
-## Design notes:
+## Design ideas:
 
 - We want a single entrypoint for people to open a catalog for a given AOI and time range. We put everything into a [xr.DataTree](https://xarray.pydata.org/en/stable/data-structures.html#data-tree) structure to preserve the original datasets dimensions and coordinates, and have a second step "e.g. create datacube" that merges into a common grid and CRS.
 
@@ -59,3 +59,12 @@ See [precip-example.ipynb](./precip-example.ipynb)
     - Temperature: 'temperature' in degC
     - Wind Speed: 'wind_speed' in m/s
     - Soil Moisture: 'soil_moisture' in m3/m3
+
+
+## GitHub Actions Workflow
+
+Run the data stager as a github action, saving resulting zarr as a build artifact.
+
+```
+gh workflow run stage.yml --field aoi=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json --field start=2025-12-01 --field end=2025-12-20
+```

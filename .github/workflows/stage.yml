@@ -1,0 +1,52 @@
+name: Stage Dataset
+
+on:
+  workflow_dispatch:
+    inputs:
+      subcommand:
+        description: "Stage subcommand to run"
+        required: true
+        type: choice
+        options:
+          - all
+          - synoptic
+          - prism
+          - hrrr
+      aoi:
+        description: "Path or URL to AOI vector file (--input)"
+        required: true
+        type: string
+        default: "https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json"
+      start_date:
+        description: "Start date, e.g. 2025-12-01 (--start)"
+        required: true
+        type: string
+      end_date:
+        description: "End date, e.g. 2025-12-20 (--end)"
+        required: true
+        type: string
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: prefix-dev/setup-pixi@v0.8.8
+        with:
+          cache: true
+
+      - name: Run gaia stage ${{ inputs.subcommand }}
+        env:
+          SYNOPTIC_TOKEN: ${{ secrets.SYNOPTIC_TOKEN }}
+        run: |
+          pixi run gaia stage ${{ inputs.subcommand }} \
+            -i "${{ inputs.aoi }}" \
+            -s "${{ inputs.start_date }}" \
+            -e "${{ inputs.end_date }}" \
+            -o output.zarr
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staged-${{ inputs.subcommand }}-${{ inputs.start_date }}_${{ inputs.end_date }}
+          path: output.zarr
