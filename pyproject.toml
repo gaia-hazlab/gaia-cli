@@ -4,16 +4,18 @@ name = "gaia-cli"
 requires-python = ">= 3.11"
 version = "0.1.0"
 dependencies = [
-  "cyclopts",
-  "geopandas",
+  "cyclopts>=4.10.0,<5",
+  "geopandas>=1.1.3,<2",
   "requests",
   "xarray",
-  "xvec",
-  "zarr"
-]
+  "xvec>=0.5.2,<0.6",
+  "zarr>=3.1.5,<4"
+, "pytest>=9.0.2,<10", "ty>=0.0.23,<0.0.24", "ruff>=0.15.6,<0.16"]
 
 [project.optional-dependencies]
 dev = [
+  "pytest",
+  "ty",
   "ruff"
 ]
 
@@ -32,23 +34,35 @@ platforms = ["osx-arm64", "linux-64"]
 [tool.pixi.pypi-dependencies]
 gaia_cli = { path = ".", editable = true }
 
+# Convenient 'tests' for 12/2025 atmospheric river
 [tool.pixi.tasks]
+skagit-synoptic = "gaia stage synoptic -i https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json -s 2025-12-01 -e 2025-12-02 -o /tmp/skagit-synoptic.zarr"
+skagit-synoptic-s3 = "gaia stage synoptic -i https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json -s 2025-12-01 -e 2025-12-02 -o s3://cresst/scratch/skagit-synoptic.zarr"
+skagit-prism = "gaia stage prism -i https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json -s 2025-12-01 -e 2025-12-20 -o /tmp/skagit-prism.zarr"
+skagit-hrrr = "gaia stage hrrr -i https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json -s 2025-12-01 -e 2025-12-20 -o /tmp/skagit-hrrr.zarr"
+skagit-all = "gaia stage all -i https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json -s 2025-12-01 -e 2025-12-20 -o /tmp/skagit-all.zarr"
+
 
 [tool.pixi.environments]
 dev = { features = ["dev"], solve-group = "default" }
 
 [tool.pixi.feature.dev.tasks]
 test = "pytest"
-typecheck = "mypy src/"
+typecheck = "ty check src/"
 lint = "ruff check src/ --fix ; ruff format src/"
 
 [tool.pixi.dependencies]
 ipykernel = ">=7.2.0,<8"
-rioxarray = ">=0.21.0,<0.22"
-obstore = ">=0.8.2,<0.9"
-boto3 = ">=1.42.47,<2"
+rioxarray = ">=0.22.0,<0.23"
+obstore = ">=0.9.2,<0.10"
+boto3 = ">=1.42.70,<2"
 matplotlib-base = ">=3.10.8,<4"
 folium = ">=0.20.0,<0.21"
 matplotlib = ">=3.10.8,<4"
 mapclassify = ">=2.10.0,<3"
 xyzservices = ">=2025.11.0,<2026"
+odc-stac = ">=0.5.2,<0.6"
+rustac = ">=0.9.8,<0.10"
+pystac-client = ">=0.9.0,<0.10"
+python-dotenv = ">=1.2.2,<2"
+icechunk = ">=1.1.21,<2"

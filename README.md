@@ -36,9 +36,26 @@ Requires SYNOPTIC_TOKEN environment variable (https://docs.synopticdata.com). Re
 Example workflow (Skagit Basin 2025-12 Atmospheric River Event)
 ```bash
 AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
-gaia stage -i $AOI -s 2025-12-01 -e 2025-12-15 -o s3://cresst/test.zarr
+gaia stage -i $AOI -s 2025-12-01 -e 2025-12-20 -o s3://cresst/scratch/skagit-test.zarr
 ```
 
 ## Analysis
 
 See [precip-example.ipynb](./precip-example.ipynb)
+
+
+## Design notes:
+
+- We want a single entrypoint for people to open a catalog for a given AOI and time range. We put everything into a [xr.DataTree](https://xarray.pydata.org/en/stable/data-structures.html#data-tree) structure to preserve the original datasets dimensions and coordinates, and have a second step "e.g. create datacube" that merges into a common grid and CRS.
+
+- We'll use Zarr to serialize to disk. For now, we'll use default chunking and compression.
+
+- Various datasets use different CRS & grids (e.g. PRISM uses lon/lat NAD83, HRRR uses Lambert Conformal Conic NAD83, COP30DEM is WGS84 (G1150)). For now we reproject everything to  WGS84 (G1150) for simplicity.
+
+- Coordinate names vary (longitude vs lon vs x, latitude vs lat vs y). We convert to 'x', 'y', 'time' before saving. If multiple 'time' dimensions exist (e.g. hourly station sampling vs daily reanalysis or satellite products, we'll rename to the dataset name + '_time' (e.g. 'prism_time') to avoid conflicts.
+
+- Standardize variable names and units:
+    - Precipitation: 'precipitation' in mm
+    - Temperature: 'temperature' in degC
+    - Wind Speed: 'wind_speed' in m/s
+    - Soil Moisture: 'soil_moisture' in m3/m3
