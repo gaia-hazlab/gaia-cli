@@ -1,5 +1,5 @@
 name: Stage Dataset
-run-name: staged-${{ inputs.subcommand }}-${{ inputs.start_date }}_${{ inputs.end_date }}
+run-name: ${{ inputs.workflow_name }}-${{ inputs.subcommand }}-${{ inputs.start_date }}_${{ inputs.end_date }}
 
 on:
   workflow_dispatch:
@@ -26,6 +26,15 @@ on:
         description: "End date, e.g. 2025-12-20 (--end)"
         required: true
         type: string
+      workflow_name:
+        description: "Short name to identify workflow and output Zarr (e.g 'Skagit')"
+        required: true
+        type: string
+      copy_to_s3:
+        description: "Whether to copy to S3 Scratch bucket"
+        default: false
+        type: boolean
+
 
 jobs:
   stage:
@@ -36,6 +45,14 @@ jobs:
       - uses: prefix-dev/setup-pixi@v0.9.4
         with:
           cache: true
+
+      - name: Configure AWS Credentials
+        if: ${{ inputs.copy_to_s3 == true }}
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+            aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            aws-region: us-west-2
 
       - name: Run gaia stage ${{ inputs.subcommand }}
         env:
@@ -49,5 +66,16 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: staged-${{ inputs.subcommand }}-${{ inputs.start_date }}_${{ inputs.end_date }}
+          name: ${{ inputs.workflow_name }}-${{ inputs.subcommand }}-${{ inputs.start_date }}_${{ inputs.end_date }}
           path: output.zarr
+
+      - name: Upload to AWS S3
+        if: ${{ inputs.copy_to_s3 == true }}
+        env:
+          WORKFLOW_NAME: ${{ inputs.workflow_name }}
+          SUBCOMMAND: ${{ inputs.subcommand }}
+          START_DATE: ${{ inputs.start_date }}
+          END_DATE: ${{ inputs.end_date }}
+        run: |
+          aws s3 sync output.zarr "s3://cresst/scratch/github-workflows/${WORKFLOW_NAME}-${SUBCOMMAND}-${START_DATE}_${END_DATE}.zarr"
+

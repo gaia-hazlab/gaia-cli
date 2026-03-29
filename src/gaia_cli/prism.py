@@ -121,4 +121,5 @@ def load(
     xarray.DataArray
     """
     ds = open_prism(catalog_url, start=start_date, end=end_date)
-    return io.clip_to_aoi(ds, aoi, reproject=True).compute()
+    da = ds["precipitation"]
+    return io.clip_to_aoi(da, aoi, reproject=True).compute()
