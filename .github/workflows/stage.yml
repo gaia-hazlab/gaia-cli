@@ -1,4 +1,5 @@
 name: Stage Dataset
+run-name: staged-${{ inputs.subcommand }}-${{ inputs.start_date }}_${{ inputs.end_date }}
 
 on:
   workflow_dispatch:

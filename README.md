@@ -65,6 +65,35 @@ See [precip-example.ipynb](./precip-example.ipynb)
 
 Run the data stager as a github action, saving resulting zarr as a build artifact.
 
+```bash
+gh workflow run stage.yml \
+  --field subcommand=synoptic \
+  --field aoi=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json \
+  --field start_date=2025-12-01 \
+  --field end_date=2025-12-10
 ```
-gh workflow run stage.yml --field aoi=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json --field start=2025-12-01 --field end=2025-12-20
+
+```bash
+gh workflow run stage.yml \
+  --field subcommand=hrrr \
+  --field aoi=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json \
+  --field start_date=2025-12-01 \
+  --field end_date=2025-12-10
+```
+
+
+```bash
+gh workflow run stage.yml \
+  --field subcommand=prism \
+  --field aoi=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json \
+  --field start_date=2025-12-01 \
+  --field end_date=2025-12-10
+```
+
+```bash
+gh workflow run stage.yml \
+  --field subcommand=all \
+  --field aoi=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json \
+  --field start_date=2025-12-01 \
+  --field end_date=2025-12-20
 ```

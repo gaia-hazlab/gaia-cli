@@ -41,7 +41,7 @@ def open_prism(
 
     ds = odc.stac.load(items,
                        bands=['ppt'],
-                       crs='EPSG:4326', # Revisit this, we're overwriting EPSG 4269 -> 4326 which should be fine for coarse data
+                       #crs='EPSG:4326', # Revisit this, we're overwriting EPSG 4269 -> 4326 which should be fine for coarse data
                        chunks={})
 
     ds = ds.rename({"ppt": "precipitation", "longitude":"x", "latitude":"y"})
@@ -121,4 +121,4 @@ def load(
     xarray.DataArray
     """
     ds = open_prism(catalog_url, start=start_date, end=end_date)
-    return io.clip_to_aoi(ds, aoi).compute()
+    return io.clip_to_aoi(ds, aoi, reproject=True).compute()
