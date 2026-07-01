@@ -85,7 +85,7 @@ Run the data stager as a github action, saving resulting zarr as a build artifac
 ```bash
 gh workflow run stage.yml \
   --field workflow_name=skagit_test \
-  --field subcommand=synoptic \
+  --field subcommand=all \
   --field aoi=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json \
   --field start_date=2025-12-01 \
   --field end_date=2025-12-02 \
