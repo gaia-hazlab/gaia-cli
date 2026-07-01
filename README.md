@@ -20,23 +20,40 @@ gaia stage --help
 ```
 
 ```
-Usage: gaia stage [ARGS]
+Usage: gaia stage COMMAND
 
-Stage data by reading an AOI, fetching precipitation data, and writing Zarr. Precipitation timeseries is resampled to construct a uniform hourly DataArray.
-Requires SYNOPTIC_TOKEN environment variable (https://docs.synopticdata.com). Requires AWS_PROFILE environment variable if writing to S3.
+Stage datasets clipped to an AOI and time range.
 
-╭─ Parameters ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ INPUT --input -i    Path to a vector file (e.g. GeoJSON, Shapefile) that contains the area-of-interest polygon. The first geometry in the file is used.       │
-│ START --start -s    Start date/time for the timeseries (parseable by pandas.Timestamp).                                                                       │
-│ END --end -e        End date/time for the timeseries (parseable by pandas.Timestamp).                                                                         │
-│ OUTPUT --output -o  Path to write the resulting Zarr store.                                                                                                   │
-╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ all       Stage all precipitation products clipped to an AOI as a single DataTree.                                                                                            │
+│ hrrr      Stage HRRR analysis data clipped to an AOI. The HRRR precipitation rate (kg m-2 s-1) is converted to hourly accumulation (mm).  Requires AWS_PROFILE environment    │
+│           variable if writing to S3.                                                                                                                                          │
+│ prism     Stage PRISM daily precipitation clipped to an AOI.                                                                                                                  │
+│ synoptic  Stage in-situ precipitation from the Synoptic API. Precipitation timeseries is resampled to construct a uniform hourly DataArray. Requires SYNOPTIC_TOKEN           │
+│           environment variable (https://docs.synopticdata.com). Requires AWS_PROFILE environment variable if writing to S3.                                                   │
+╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
+
+
+```
+Usage: gaia stage synoptic [ARGS]
+
+Stage in-situ precipitation from the Synoptic API. Precipitation timeseries is resampled to construct a uniform hourly DataArray. Requires SYNOPTIC_TOKEN environment variable
+(https://docs.synopticdata.com). Requires AWS_PROFILE environment variable if writing to S3.
+
+╭─ Parameters ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ INPUT --input -i    Path to a vector file (e.g. GeoJSON, Shapefile) that contains the area-of-interest polygon. The first geometry in the file is used.                             │
+│ START --start -s    Start date/time for the timeseries (parseable by pandas.Timestamp).                                                                                             │
+│ END --end -e        End date/time for the timeseries (parseable by pandas.Timestamp).                                                                                               │
+│ OUTPUT --output -o  Path to write the resulting Zarr store.                                                                                                                         │
+╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+```
+
 
 Example workflow (Skagit Basin 2025-12 Atmospheric River Event)
 ```bash
 AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
-gaia stage -i $AOI -s 2025-12-01 -e 2025-12-20 -o s3://cresst/scratch/skagit-test.zarr
+gaia stage all -i $AOI -s 2025-12-01 -e 2025-12-20 -o s3://cresst/scratch/skagit-test.zarr
 ```
 
 ## Analysis
@@ -67,33 +84,21 @@ Run the data stager as a github action, saving resulting zarr as a build artifac
 
 ```bash
 gh workflow run stage.yml \
+  --field workflow_name=skagit_test \
   --field subcommand=synoptic \
   --field aoi=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json \
   --field start_date=2025-12-01 \
-  --field end_date=2025-12-10
-```
-
-```bash
-gh workflow run stage.yml \
-  --field subcommand=hrrr \
-  --field aoi=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json \
-  --field start_date=2025-12-01 \
-  --field end_date=2025-12-10
+  --field end_date=2025-12-02 \
+  --field copy_to_s3=false
 ```
 
 
 ```bash
 gh workflow run stage.yml \
-  --field subcommand=prism \
-  --field aoi=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json \
-  --field start_date=2025-12-01 \
-  --field end_date=2025-12-10
-```
-
-```bash
-gh workflow run stage.yml \
+  --field workflow_name=skagit \
   --field subcommand=all \
   --field aoi=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json \
   --field start_date=2025-12-01 \
-  --field end_date=2025-12-20
+  --field end_date=2025-12-30 \
+  --field copy_to_s3=true
 ```
