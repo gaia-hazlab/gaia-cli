@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import xarray as xr
-import xvec
 from cyclopts import Parameter
 from typing import Annotated
 

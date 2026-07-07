@@ -7,7 +7,6 @@ import xarray as xr
 from cyclopts import Parameter
 from shapely.geometry import Point
 from typing import Annotated
-import xvec
 
 from . import io
 

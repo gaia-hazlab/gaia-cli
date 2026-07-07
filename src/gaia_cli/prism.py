@@ -7,7 +7,6 @@ import pystac
 import xarray as xr
 from cyclopts import Parameter
 from typing import Annotated
-import rioxarray
 
 from . import io
 
@@ -15,6 +14,7 @@ DEFAULT_CATALOG = "https://raw.githubusercontent.com/gaia-hazlab/prism-stac/refs
 
 # GDAL settings for efficient remote reading
 odc.stac.configure_rio(cloud_defaults=True)
+
 
 def open_prism(
     catalog_url: str = DEFAULT_CATALOG,
@@ -39,12 +39,14 @@ def open_prism(
     cat = pystac.read_file(catalog_url)
     items = list(cat.get_all_items())
 
-    ds = odc.stac.load(items,
-                       bands=['ppt'],
-                       #crs='EPSG:4326', # Revisit this, we're overwriting EPSG 4269 -> 4326 which should be fine for coarse data
-                       chunks={})
+    ds = odc.stac.load(
+        items,
+        bands=["ppt"],
+        # crs='EPSG:4326', # Revisit this, we're overwriting EPSG 4269 -> 4326 which should be fine for coarse data
+        chunks={},
+    )
 
-    ds = ds.rename({"ppt": "precipitation", "longitude":"x", "latitude":"y"})
+    ds = ds.rename({"ppt": "precipitation", "longitude": "x", "latitude": "y"})
     ds["precipitation"].attrs["units"] = "mm"
     # Use nans instead of -9999
     ds = ds.where(ds.precipitation != ds.precipitation.rio.nodata)
