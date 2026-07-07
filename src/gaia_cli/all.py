@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import xarray as xr
-import xvec
 from cyclopts import Parameter
 from typing import Annotated
 
@@ -15,10 +14,10 @@ from . import synoptic as _synoptic
 
 
 def stage(
-    vectorPath: Annotated[str, Parameter(name=["--input", "-i"])] = None,
-    start_date: Annotated[str, Parameter(name=["--start", "-s"])] = None,
-    end_date: Annotated[str, Parameter(name=["--end", "-e"])] = None,
-    output_path: Annotated[str, Parameter(name=["--output", "-o"])] = None,
+    vectorPath: Annotated[str, Parameter(name=["--input", "-i"])],
+    start_date: Annotated[str, Parameter(name=["--start", "-s"])],
+    end_date: Annotated[str, Parameter(name=["--end", "-e"])],
+    output_path: Annotated[str, Parameter(name=["--output", "-o"])],
     hrrr_variable: Annotated[
         HRRRVariable, Parameter(name=["--hrrr-variable"])
     ] = HRRRVariable.precipitation_surface,

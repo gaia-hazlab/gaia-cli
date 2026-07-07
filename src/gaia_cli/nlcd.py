@@ -15,11 +15,13 @@ def open_nlcd(year: int = 2021) -> xr.DataArray:
         "https://usgs.osn.mghpcc.org/hytest/nlcd/annual-nlcd-cu-c1v1/mosaic/"
         f"Annual_NLCD_LndCov_{year}_CU_C1V1.tif"
     )
-    da = rioxarray.open_rasterio(url, chunks="auto", cache=False)
-    da = da.squeeze("band", drop=True).rename("landcover")
+    # rioxarray's stub is stricter than its runtime API: chunks="auto" is a valid dask spec,
+    # and without group/variable args this always returns a single DataArray, not the full union
+    da = rioxarray.open_rasterio(url, chunks="auto", cache=False)  # ty: ignore[invalid-argument-type]
+    da = da.squeeze("band", drop=True).rename("landcover")  # ty: ignore[unresolved-attribute, invalid-argument-type]
     da.attrs["long_name"] = "Annual NLCD land cover"
     da.attrs["year"] = year
-    return da
+    return da  # ty: ignore[invalid-return-type]
 
 
 def load(aoi: gpd.GeoDataFrame, year: int = 2021) -> xr.DataArray:
@@ -34,8 +36,8 @@ def load(aoi: gpd.GeoDataFrame, year: int = 2021) -> xr.DataArray:
 
 
 def stage(
-    vectorPath: Annotated[str, Parameter(name=["--input", "-i"])] = None,
-    output_path: Annotated[str, Parameter(name=["--output", "-o"])] = None,
+    vectorPath: Annotated[str, Parameter(name=["--input", "-i"])],
+    output_path: Annotated[str, Parameter(name=["--output", "-o"])],
     year: Annotated[int, Parameter(name=["--year", "-y"])] = 2021,
 ):
     """Stage NLCD land cover clipped to an AOI."""

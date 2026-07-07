@@ -154,7 +154,9 @@ def save_xvec_zarr(DA: xr.DataArray, output_path: str):
 
     encoded = DA.to_dataset().xvec.encode_cf()
     encoded, encoding = _prepare_for_zarr(encoded)
-    encoded.to_zarr(store, mode="w-", zarr_format=3, consolidated=False, encoding=encoding)
+    encoded.to_zarr(
+        store, mode="w-", zarr_format=3, consolidated=False, encoding=encoding
+    )
     print(f"Data saved to {output_path} as Xvec-encoded Zarr.")
 
 
@@ -186,7 +188,9 @@ def save_datatree(dt: xr.DataTree, output_path: str):
 
     prepared = xr.DataTree.from_dict(nodes)
     store = _zarr_store_for_path(output_path)
-    prepared.to_zarr(store, mode="w-", zarr_format=3, consolidated=False, encoding=encoding or None)
+    prepared.to_zarr(
+        store, mode="w-", zarr_format=3, consolidated=False, encoding=encoding or None
+    )
     print(f"DataTree saved to {output_path}")
 
 
@@ -221,4 +225,5 @@ def open_s3_zarr(
         skip_signature=anonymous,
     )
     store = ObjectStore(s3, read_only=True)
-    return xr.open_dataset(store, engine="zarr", consolidated=False)
+    # xarray's stub doesn't include zarr v3 stores in filename_or_obj, but the zarr engine accepts them at runtime
+    return xr.open_dataset(store, engine="zarr", consolidated=False)  # ty: ignore[invalid-argument-type]
