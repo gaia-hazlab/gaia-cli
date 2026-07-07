@@ -59,10 +59,10 @@ def open_prism(
 
 
 def stage(
-    vectorPath: Annotated[str, Parameter(name=["--input", "-i"])] = None,
-    start_date: Annotated[str, Parameter(name=["--start", "-s"])] = None,
-    end_date: Annotated[str, Parameter(name=["--end", "-e"])] = None,
-    output_path: Annotated[str, Parameter(name=["--output", "-o"])] = None,
+    vectorPath: Annotated[str, Parameter(name=["--input", "-i"])],
+    start_date: Annotated[str, Parameter(name=["--start", "-s"])],
+    end_date: Annotated[str, Parameter(name=["--end", "-e"])],
+    output_path: Annotated[str, Parameter(name=["--output", "-o"])],
     catalog_url: Annotated[str, Parameter(name=["--catalog"])] = DEFAULT_CATALOG,
 ):
     """Stage PRISM daily *precipitation* clipped to an AOI.

@@ -34,8 +34,8 @@ def load(aoi: gpd.GeoDataFrame, year: int = 2021) -> xr.DataArray:
 
 
 def stage(
-    vectorPath: Annotated[str, Parameter(name=["--input", "-i"])] = None,
-    output_path: Annotated[str, Parameter(name=["--output", "-o"])] = None,
+    vectorPath: Annotated[str, Parameter(name=["--input", "-i"])],
+    output_path: Annotated[str, Parameter(name=["--output", "-o"])],
     year: Annotated[int, Parameter(name=["--year", "-y"])] = 2021,
 ):
     """Stage NLCD land cover clipped to an AOI."""
