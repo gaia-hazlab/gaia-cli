@@ -36,7 +36,7 @@ def open_prism(
     -------
     xarray.Dataset
     """
-    cat = pystac.read_file(catalog_url)
+    cat = pystac.Catalog.from_file(catalog_url)
     items = list(cat.get_all_items())
 
     ds = odc.stac.load(

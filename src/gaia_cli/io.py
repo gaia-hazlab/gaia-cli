@@ -225,4 +225,5 @@ def open_s3_zarr(
         skip_signature=anonymous,
     )
     store = ObjectStore(s3, read_only=True)
-    return xr.open_dataset(store, engine="zarr", consolidated=False)
+    # xarray's stub doesn't include zarr v3 stores in filename_or_obj, but the zarr engine accepts them at runtime
+    return xr.open_dataset(store, engine="zarr", consolidated=False)  # ty: ignore[invalid-argument-type]
