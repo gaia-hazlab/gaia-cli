@@ -5,8 +5,10 @@ import rioxarray
 import xarray as xr
 from cyclopts import Parameter
 from typing import Annotated
+from xarray.backends.file_manager import FILE_CACHE
 
 from . import io
+
 
 def open_nlcd(year: int = 2021) -> xr.DataArray:
     url = (
@@ -42,5 +44,10 @@ def stage(
     aoi = io.load_aoi(vectorPath)
     clipped = load(aoi, year=year)
     io.save_zarr(clipped, output_path)
+
+    # Close cached remote rasterio/GDAL handles opened by rioxarray so their
+    # cleanup doesn't run during interpreter shutdown, where it can crash
+    # sys.excepthook on Python 3.14.
+    FILE_CACHE.clear()
 
     print("DONE!")
