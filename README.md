@@ -56,6 +56,12 @@ AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GI
 gaia stage all -i $AOI -s 2025-12-01 -e 2025-12-20 -o s3://cresst/scratch/skagit-test.zarr
 ```
 
+Example static landcover staging (NLCD 2021)
+```bash
+AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
+gaia stage nlcd -i $AOI -o /tmp/skagit-nlcd-2021.zarr --year 2021
+```
+
 ## Analysis
 
 See [precip-example.ipynb](./precip-example.ipynb)
