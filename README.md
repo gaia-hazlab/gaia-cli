@@ -62,6 +62,19 @@ AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GI
 gaia stage nlcd -i $AOI -o /tmp/skagit-nlcd-2021.zarr --year 2021
 ```
 
+Example DEM staging from OpenTopography
+```bash
+AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
+gaia stage dem -i $AOI -o /tmp/skagit-dem-usgs10m.zarr --dem-type USGS10m
+```
+
+When reopening raster Zarr outputs, use `decode_coords="all"` so CRS metadata is restored:
+```python
+import xarray as xr
+
+ds = xr.open_zarr("/tmp/skagit-dem-usgs10m.zarr", consolidated=False, decode_coords="all")
+```
+
 ## Analysis
 
 See [precip-example.ipynb](./precip-example.ipynb)

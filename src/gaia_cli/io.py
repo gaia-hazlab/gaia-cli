@@ -104,7 +104,14 @@ def _prepare_for_zarr(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
         ds = ds.load()
         # Tell to_zarr to write each variable as a single chunk
         encoding = {
-            name: {"chunks": var.shape}
+            name: {
+                **(
+                    {"grid_mapping": var.encoding["grid_mapping"]}
+                    if "grid_mapping" in var.encoding
+                    else {}
+                ),
+                "chunks": var.shape,
+            }
             for name, var in ds.data_vars.items()
             if var.dims
         }
