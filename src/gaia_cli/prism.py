@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 import geopandas as gpd
 import numpy as np
 import odc.stac
 import pystac
 import xarray as xr
 from cyclopts import Parameter
-from typing import Annotated
 
 from . import io
 
@@ -64,6 +65,7 @@ def stage(
     end_date: Annotated[str, Parameter(name=["--end", "-e"])],
     output_path: Annotated[str, Parameter(name=["--output", "-o"])],
     catalog_url: Annotated[str, Parameter(name=["--catalog"])] = DEFAULT_CATALOG,
+    overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
 ):
     """Stage PRISM daily *precipitation* clipped to an AOI.
 
@@ -83,6 +85,8 @@ def stage(
         Path to write the resulting Zarr store.
     catalog_url : str
         URL of the PRISM STAC catalog JSON.
+    overwrite : bool
+        Replace the output store if it already exists. Default False.
 
     Examples
     --------
@@ -90,11 +94,11 @@ def stage(
         $ AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
         $ gaia stage prism -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit_prism.zarr
     """
-    io.check_s3_env(output_path)
+    io.check_output(output_path, overwrite)
 
     aoi = io.load_aoi(vectorPath)
     clipped = load(aoi, start_date, end_date, catalog_url)
-    io.save_zarr(clipped, output_path)
+    io.save_zarr(clipped, output_path, overwrite=overwrite)
 
     print("DONE!")
 

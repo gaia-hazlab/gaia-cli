@@ -34,11 +34,16 @@ on:
         description: "Whether to copy to S3 Scratch bucket"
         default: false
         type: boolean
-
+      overwrite:
+        description: "Overwrite existing Zarr store in S3 (only applies if copying to S3)"
+        default: false
+        type: boolean
 
 jobs:
   stage:
     runs-on: ubuntu-latest
+    env:
+      S3_DEST: s3://gaia/scratch/github-workflows/${{ inputs.workflow_name }}-${{ inputs.subcommand }}-${{ inputs.start_date }}_${{ inputs.end_date }}.zarr
     steps:
       - uses: actions/checkout@v7
 
@@ -53,6 +58,14 @@ jobs:
             aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
             aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
             aws-region: us-west-2
+
+      - name: Check S3 destination
+        if: ${{ inputs.copy_to_s3 == true && inputs.overwrite == false }}
+        run: |
+          if aws s3 ls "${S3_DEST}/" > /dev/null 2>&1; then
+            echo "::error::${S3_DEST} already exists. Re-run with 'overwrite' checked to replace it."
+            exit 1
+          fi
 
       - name: Run gaia stage ${{ inputs.subcommand }}
         env:
@@ -72,10 +85,11 @@ jobs:
       - name: Upload to AWS S3
         if: ${{ inputs.copy_to_s3 == true }}
         env:
-          WORKFLOW_NAME: ${{ inputs.workflow_name }}
-          SUBCOMMAND: ${{ inputs.subcommand }}
-          START_DATE: ${{ inputs.start_date }}
-          END_DATE: ${{ inputs.end_date }}
+          OVERWRITE: ${{ inputs.overwrite }}
         run: |
-          aws s3 sync output.zarr "s3://cresst/scratch/github-workflows/${WORKFLOW_NAME}-${SUBCOMMAND}-${START_DATE}_${END_DATE}.zarr"
+          if [ "${OVERWRITE}" = "true" ]; then
+            aws s3 sync --delete output.zarr "${S3_DEST}"
+          else
+            aws s3 sync output.zarr "${S3_DEST}"
+          fi
 

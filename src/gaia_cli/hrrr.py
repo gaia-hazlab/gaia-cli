@@ -70,8 +70,14 @@ def open_hrrr(
     -------
     xarray.Dataset
     """
+    # Pin the AWS endpoint so an AWS_PROFILE with a custom endpoint_url
+    # (e.g. for writing output elsewhere) doesn't redirect this public read.
     storage = icechunk.s3_storage(
-        bucket=bucket, prefix=prefix, region=region, anonymous=True
+        bucket=bucket,
+        prefix=prefix,
+        region=region,
+        anonymous=True,
+        endpoint_url=f"https://s3.{region}.amazonaws.com",
     )
     repo = icechunk.Repository.open(storage)
     session = repo.readonly_session("main")
@@ -86,6 +92,7 @@ def stage(
     variable: Annotated[
         HRRRVariable, Parameter(name=["--variable", "-v"])
     ] = HRRRVariable.precipitation_surface,
+    overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
 ):
     """Stage HRRR analysis data clipped to an AOI.
     The HRRR precipitation rate (kg m-2 s-1) is converted to hourly
@@ -104,6 +111,8 @@ def stage(
         Path to write the resulting Zarr store.
     variable : HRRRVariable
         HRRR variable name to extract. Default ``precipitation-surface``.
+    overwrite : bool
+        Replace the output store if it already exists. Default False.
 
     Examples
     --------
@@ -111,11 +120,11 @@ def stage(
         $ AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
         $ gaia stage hrrr -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit_hrrr.zarr
     """
-    io.check_s3_env(output_path)
+    io.check_output(output_path, overwrite)
 
     aoi = io.load_aoi(vectorPath)
     clipped = load(aoi, start_date, end_date, variable)
-    io.save_zarr(clipped, output_path)
+    io.save_zarr(clipped, output_path, overwrite=overwrite)
 
     print("DONE!")
 

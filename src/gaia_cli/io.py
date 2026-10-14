@@ -1,7 +1,12 @@
 import os
+import sys
 
+import boto3
 import geopandas as gpd
+import obstore
+import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
+import xvec  # noqa: F401  registers the .xvec accessor
 from obstore.auth.boto3 import Boto3CredentialProvider
 from obstore.store import S3Store, from_url
 from zarr.storage import ObjectStore
@@ -64,19 +69,49 @@ def clip_to_aoi(
     return da.rio.clip(aoi.geometry)
 
 
+def _s3_store_for_path(output_path: str):
+    # obstore doesn't read endpoint_url from ~/.aws/config, so resolve it
+    # via boto3 to support S3-compatible stores (e.g. Ceph) set in AWS_PROFILE.
+    endpoint = boto3.Session().client("s3").meta.endpoint_url
+    return from_url(
+        output_path,
+        credential_provider=Boto3CredentialProvider(),
+        region="us-west-2",
+        endpoint=endpoint,
+        virtual_hosted_style_request=False,
+    )
+
+
 def _zarr_store_for_path(output_path: str):
     """Return a Zarr-compatible store for *output_path*.
 
     Handles both local paths and ``s3://`` URLs.
     """
     if output_path.startswith("s3://"):
-        s3writable = from_url(
-            output_path,
-            credential_provider=Boto3CredentialProvider(),
-            region="us-west-2",
-        )
-        return ObjectStore(s3writable)
+        return ObjectStore(_s3_store_for_path(output_path))
     return output_path
+
+
+def output_exists(output_path: str) -> bool:
+    """Return True if anything already exists at *output_path* (local or ``s3://``)."""
+    if output_path.startswith("s3://"):
+        store = _s3_store_for_path(output_path)
+        first_chunk = next(iter(obstore.list(store, chunk_size=1)), [])
+        return len(first_chunk) > 0
+    return os.path.exists(output_path)
+
+
+def check_output(output_path: str, overwrite: bool = False):
+    """Exit early if S3 credentials are missing or *output_path* already exists.
+
+    Pass ``overwrite=True`` to allow replacing an existing store.
+    """
+    check_s3_env(output_path)
+    if not overwrite and output_exists(output_path):
+        sys.exit(
+            f"Error: output path '{output_path}' already exists. "
+            "Use --overwrite to replace it."
+        )
 
 
 def check_s3_env(output_path: str):
@@ -113,7 +148,7 @@ def _prepare_for_zarr(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
     return ds, {}
 
 
-def save_zarr(ds: xr.Dataset | xr.DataArray, output_path: str):
+def save_zarr(ds: xr.Dataset | xr.DataArray, output_path: str, overwrite: bool = False):
     """Write an xarray Dataset or DataArray to a Zarr store.
 
     Datasets smaller than 10 MB are loaded into memory (no chunking on
@@ -125,6 +160,8 @@ def save_zarr(ds: xr.Dataset | xr.DataArray, output_path: str):
         The gridded (raster) data to save.
     output_path : str
         Filesystem path or ``s3://`` URL.
+    overwrite : bool, optional
+        If True, replace any existing store at *output_path*. Default False.
     """
     if isinstance(ds, xr.DataArray):
         ds = ds.to_dataset(name=ds.name or "data")
@@ -132,11 +169,17 @@ def save_zarr(ds: xr.Dataset | xr.DataArray, output_path: str):
     ds, encoding = _prepare_for_zarr(ds)
 
     store = _zarr_store_for_path(output_path)
-    ds.to_zarr(store, mode="w-", zarr_format=3, consolidated=False, encoding=encoding)
+    ds.to_zarr(
+        store,
+        mode="w" if overwrite else "w-",
+        zarr_format=3,
+        consolidated=False,
+        encoding=encoding,
+    )
     print(f"Data saved to {output_path}")
 
 
-def save_xvec_zarr(DA: xr.DataArray, output_path: str):
+def save_xvec_zarr(DA: xr.DataArray, output_path: str, overwrite: bool = False):
     """Save a station DataArray as an xvec-encoded Zarr store.
 
     Parameters
@@ -145,6 +188,8 @@ def save_xvec_zarr(DA: xr.DataArray, output_path: str):
         Point-geometry data with a ``station`` / ``geometry`` dimension.
     output_path : str
         Filesystem path or ``s3://`` URL.
+    overwrite : bool, optional
+        If True, replace any existing store at *output_path*. Default False.
     """
     store = _zarr_store_for_path(output_path)
 
@@ -155,12 +200,16 @@ def save_xvec_zarr(DA: xr.DataArray, output_path: str):
     encoded = DA.to_dataset().xvec.encode_cf()
     encoded, encoding = _prepare_for_zarr(encoded)
     encoded.to_zarr(
-        store, mode="w-", zarr_format=3, consolidated=False, encoding=encoding
+        store,
+        mode="w" if overwrite else "w-",
+        zarr_format=3,
+        consolidated=False,
+        encoding=encoding,
     )
     print(f"Data saved to {output_path} as Xvec-encoded Zarr.")
 
 
-def save_datatree(dt: xr.DataTree, output_path: str):
+def save_datatree(dt: xr.DataTree, output_path: str, overwrite: bool = False):
     """Write an :class:`xarray.DataTree` to a Zarr store.
 
     Each leaf node in the tree that is small enough (≤ 10 MB) is loaded
@@ -172,6 +221,8 @@ def save_datatree(dt: xr.DataTree, output_path: str):
         Hierarchical dataset.
     output_path : str
         Filesystem path or ``s3://`` URL.
+    overwrite : bool, optional
+        If True, replace any existing store at *output_path*. Default False.
     """
     # Walk the tree and prepare each leaf node
     nodes: dict[str, xr.Dataset] = {}
@@ -189,7 +240,11 @@ def save_datatree(dt: xr.DataTree, output_path: str):
     prepared = xr.DataTree.from_dict(nodes)
     store = _zarr_store_for_path(output_path)
     prepared.to_zarr(
-        store, mode="w-", zarr_format=3, consolidated=False, encoding=encoding or None
+        store,
+        mode="w" if overwrite else "w-",
+        zarr_format=3,
+        consolidated=False,
+        encoding=encoding or None,
     )
     print(f"DataTree saved to {output_path}")
 

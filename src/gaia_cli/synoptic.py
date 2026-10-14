@@ -1,4 +1,5 @@
 import os
+from typing import Annotated
 
 import geopandas as gpd
 import pandas as pd
@@ -6,12 +7,12 @@ import requests
 import xarray as xr
 from cyclopts import Parameter
 from shapely.geometry import Point
-from typing import Annotated
 
 from . import io
 
 TOKEN = os.environ.get("SYNOPTIC_TOKEN")
 SYNOPTIC_API = "https://api.synopticdata.com/v2"
+RESET_MM = 10  # drops in raw gauge accumulation larger than this are treated as resets
 
 
 def _check_token():
@@ -20,6 +21,31 @@ def _check_token():
             "SYNOPTIC_TOKEN environment variable not set. "
             "Please set it to your Synoptic API token."
         )
+
+
+def _check_response(data: dict):
+    # Synoptic returns HTTP 200 for API errors, with details in SUMMARY
+    summary = data.get("SUMMARY", {})
+    if summary.get("RESPONSE_CODE") != 1:
+        raise RuntimeError(
+            f"Synoptic API error {summary.get('RESPONSE_CODE')}: "
+            f"{summary.get('RESPONSE_MESSAGE')}"
+        )
+
+
+def accumulate_raw_precip(series: pd.Series) -> pd.Series:
+    """Convert raw gauge accumulation to accumulation since the first timestamp.
+
+    Fallback for when Synoptic derived precip (``precip=1``) is unavailable.
+    Small decreases are treated as sensor jitter and large decreases
+    (> ``RESET_MM``) as gauge resets. Precipitation falling between the last
+    observation before a reset and the first one after it is not counted.
+    """
+    s = pd.to_numeric(series, errors="coerce").dropna()
+    segment = (s.diff() < -RESET_MM).cumsum()
+    s = s.groupby(segment).cummax()
+    increments = s.diff().clip(lower=0).fillna(0)
+    return increments.cumsum().reindex(series.index)
 
 
 def get_station_metadata(aoi: gpd.GeoDataFrame, bbox=False, buffer=0):
@@ -64,19 +90,21 @@ def get_station_metadata(aoi: gpd.GeoDataFrame, bbox=False, buffer=0):
     precip_vars = ["precip_accum"]  # NOTE: there are a lot! e.g. hourly etc
 
     # API requires search by Bounding Box
-    params = dict(  # state="wa",
+    params = {  # state="wa",
         # NOTE: may be best to do point in polygon first to get list of stations to avoid larger bbox!
         # stid Single or comma separated list of SynopticLabs station IDs. Use a ! before any value to exclude matching stations
-        bbox=",".join(map(str, aoi.total_bounds)),  # minx,miny,maxx,maxy
-        token=TOKEN,
-        status="active",
-        sensorvars=True,  # return sensor variable info
-        hfmetars=0,  # exclude 5min NOAA METARs sampling
-        vars=",".join(precip_vars),  # restrict to precip only
-        output="geojson",
-    )
+        "bbox": ",".join(map(str, aoi.total_bounds)),  # minx,miny,maxx,maxy
+        "token": TOKEN,
+        "status": "active",
+        "sensorvars": True,  # return sensor variable info
+        "hfmetars": 0,  # exclude 5min NOAA METARs sampling
+        "vars": ",".join(precip_vars),  # restrict to precip only
+        "output": "geojson",
+    }
     response = requests.get(url, params=params)
     data = response.json()
+    if "features" not in data:  # geojson output only includes SUMMARY on error
+        _check_response(data)
     gfp = gpd.GeoDataFrame.from_features(data["features"], crs="EPSG:4326")
 
     # Reduce to stations only within AOI Polygon
@@ -121,21 +149,32 @@ def get_station_timeseries(station_list: list, start_date: str, end_date: str):
     endpoint = "/stations/timeseries"
     url = SYNOPTIC_API + endpoint
 
-    params = dict(
-        token=TOKEN,
-        stid=",".join(map(str, station_list)),
-        start=start,
-        end=end,
+    params = {
+        "token": TOKEN,
+        "stid": ",".join(map(str, station_list)),
+        "start": start,
+        "end": end,
         # vars = 'precip' # 'Querying too many station hours. 195840.0 hours were requested.' ...
-        vars="precip_accum",  # works, and gives hourly sampling
-        precip=1,  # Enable derived precip (precip_accumulated_set_1d, precip_intervals_set_1d)
+        "vars": "precip_accum",  # works, and gives hourly sampling
+        "precip": 1,  # Enable derived precip (precip_accumulated_set_1d, precip_intervals_set_1d)
         # precip =0, (default) 'precip_accum_set_1' (Millimeters) cumulative sum of the interval values for the requested time period, in this case hourly timestamps
-        obtimezone="UTC",  # ensure UTC returns
-    )
+        "obtimezone": "UTC",  # ensure UTC returns
+    }
 
     response = requests.get(url, params=params)
     response.raise_for_status()
-    return response.json()
+    data = response.json()
+
+    # Derived precip requires a paid Synoptic tier, fall back to raw accumulation
+    if data.get("SUMMARY", {}).get("RESPONSE_CODE") == 403:
+        print("Synoptic derived precip unavailable, computing from raw accumulation")
+        params.pop("precip")
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
+
+    _check_response(data)
+    return data
 
 
 def construct_uniform_datarray(data: dict):
@@ -176,6 +215,12 @@ def construct_uniform_datarray(data: dict):
         df_station = df_station.set_index("date_time")
         df_station.index.name = "time"
 
+        varname = "precip_accumulated_set_1d"
+        if varname not in df_station:
+            df_station[varname] = accumulate_raw_precip(
+                df_station["precip_accum_set_1"]
+            )
+
         # Check if already hourly (median interval ~1 hour)
         time_diff = df_station.index.to_series().diff().dropna()
         median_interval = time_diff.median()
@@ -191,7 +236,6 @@ def construct_uniform_datarray(data: dict):
         df_station = df_station.resample("h").bfill(limit=1)
 
         # Convert to DataArray
-        varname = "precip_accumulated_set_1d"
         da_station = df_station[varname].to_xarray()
 
         # Assign coordinates
@@ -219,6 +263,7 @@ def stage(
     start_date: Annotated[str, Parameter(name=["--start", "-s"])],
     end_date: Annotated[str, Parameter(name=["--end", "-e"])],
     output_path: Annotated[str, Parameter(name=["--output", "-o"])],
+    overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
 ):
     """Stage in-situ precipitation from the Synoptic API.
     Precipitation timeseries is resampled to construct a uniform hourly DataArray.
@@ -236,6 +281,8 @@ def stage(
         End date/time for the timeseries (parseable by pandas.Timestamp).
     output_path : str
         Path to write the resulting Zarr store.
+    overwrite : bool
+        Replace the output store if it already exists. Default False.
 
     Examples
     --------
@@ -248,13 +295,13 @@ def stage(
     None
     """
     _check_token()
-    io.check_s3_env(output_path)
+    io.check_output(output_path, overwrite)
 
     aoi = io.load_aoi(vectorPath)
     DA = load(aoi, start_date, end_date)
 
     # Save as xvec-encoded Zarr (point geometries)
-    io.save_xvec_zarr(DA, output_path)
+    io.save_xvec_zarr(DA, output_path, overwrite=overwrite)
 
     print("DONE!")
 

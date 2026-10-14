@@ -41,3 +41,33 @@ def test_save_zarr_roundtrip(tmp_path):
     result = xr.open_zarr(output_path, consolidated=False)
 
     np.testing.assert_array_equal(result["precip"].values, ds["precip"].values)
+
+
+def test_io_registers_accessors():
+    da = xr.DataArray([1])
+    assert hasattr(da, "rio")
+    assert hasattr(da, "xvec")
+
+
+def test_check_output_exits_if_exists(tmp_path):
+    output_path = tmp_path / "exists.zarr"
+    output_path.mkdir()
+    with pytest.raises(SystemExit, match="--overwrite"):
+        io.check_output(str(output_path))
+
+
+def test_check_output_overwrite_ok(tmp_path):
+    output_path = tmp_path / "exists.zarr"
+    output_path.mkdir()
+    io.check_output(str(output_path), overwrite=True)
+    io.check_output(str(tmp_path / "new.zarr"))
+
+
+def test_save_zarr_overwrite(tmp_path):
+    output_path = str(tmp_path / "test.zarr")
+    io.save_zarr(xr.Dataset({"precip": (("time",), np.arange(5.0))}), output_path)
+    io.save_zarr(
+        xr.Dataset({"precip": (("time",), np.zeros(3))}), output_path, overwrite=True
+    )
+    result = xr.open_zarr(output_path, consolidated=False)
+    np.testing.assert_array_equal(result["precip"].values, np.zeros(3))

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 import geopandas as gpd
 import rioxarray
 import xarray as xr
 from cyclopts import Parameter
-from typing import Annotated
 from xarray.backends.file_manager import FILE_CACHE
 
 from . import io
@@ -39,13 +40,14 @@ def stage(
     vectorPath: Annotated[str, Parameter(name=["--input", "-i"])],
     output_path: Annotated[str, Parameter(name=["--output", "-o"])],
     year: Annotated[int, Parameter(name=["--year", "-y"])] = 2021,
+    overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
 ):
     """Stage NLCD land cover clipped to an AOI."""
-    io.check_s3_env(output_path)
+    io.check_output(output_path, overwrite)
 
     aoi = io.load_aoi(vectorPath)
     clipped = load(aoi, year=year)
-    io.save_zarr(clipped, output_path)
+    io.save_zarr(clipped, output_path, overwrite=overwrite)
 
     # Close cached remote rasterio/GDAL handles opened by rioxarray so their
     # cleanup doesn't run during interpreter shutdown, where it can crash

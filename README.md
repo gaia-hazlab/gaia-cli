@@ -49,17 +49,41 @@ Stage in-situ precipitation from the Synoptic API. Precipitation timeseries is r
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
+### Examples
+
 
 Example workflow (Skagit Basin 2025-12 Atmospheric River Event)
 ```bash
 AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
-gaia stage all -i $AOI -s 2025-12-01 -e 2025-12-20 -o s3://cresst/scratch/skagit-test.zarr
+gaia stage all -i $AOI -s 2025-12-01 -e 2025-12-20 -o /tmp/skagit-test.zarr
 ```
 
 Example static landcover staging (NLCD 2021)
 ```bash
 AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
-gaia stage nlcd -i $AOI -o /tmp/skagit-nlcd-2021.zarr --year 2021
+gaia stage nlcd -i $AOI -o s3://gaia/scratch/skagit-nlcd-2021.zarr --year 2021
+```
+
+### Output to S3
+
+Zarr outputs are well-suited to S3-compatible object stores (e.g. AWS S3, MinIO, etc.). The examples below write to a University of Washington object store called [Kopah](https://hyak.uw.edu/docs/systems/kopah/overview/). We output to a `scratch` prefix that has a 30-day lifecycle policy (any uploaded file is deleted after 30 days). You must have credentials to write to this bucket, credentials can be configured by setting environment variables `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` or by using the AWS config files:
+
+`~/.aws/config`:
+```
+[profile kopah]
+endpoint_url = https://s3.kopah.uw.edu
+request_checksum_calculation = when_required
+response_checksum_validation = when_required
+s3 =
+    payload_signing_enabled = false
+    checksum_algorithm = crc32
+```
+
+`~/.aws/credentials`:
+```
+[kopah]
+aws_access_key_id = YOUR_ACCESS_KEY
+aws_secret_access_key = YOUR_SECRET_KEY
 ```
 
 ## Analysis
