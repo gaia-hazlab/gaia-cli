@@ -1,4 +1,5 @@
 import os
+from typing import Annotated
 
 import geopandas as gpd
 import pandas as pd
@@ -6,12 +7,12 @@ import requests
 import xarray as xr
 from cyclopts import Parameter
 from shapely.geometry import Point
-from typing import Annotated
 
 from . import io
 
 TOKEN = os.environ.get("SYNOPTIC_TOKEN")
 SYNOPTIC_API = "https://api.synopticdata.com/v2"
+RESET_MM = 10  # drops in raw gauge accumulation larger than this are treated as resets
 
 
 def _check_token():
@@ -20,6 +21,31 @@ def _check_token():
             "SYNOPTIC_TOKEN environment variable not set. "
             "Please set it to your Synoptic API token."
         )
+
+
+def _check_response(data: dict):
+    # Synoptic returns HTTP 200 for API errors, with details in SUMMARY
+    summary = data.get("SUMMARY", {})
+    if summary.get("RESPONSE_CODE") != 1:
+        raise RuntimeError(
+            f"Synoptic API error {summary.get('RESPONSE_CODE')}: "
+            f"{summary.get('RESPONSE_MESSAGE')}"
+        )
+
+
+def accumulate_raw_precip(series: pd.Series) -> pd.Series:
+    """Convert raw gauge accumulation to accumulation since the first timestamp.
+
+    Fallback for when Synoptic derived precip (``precip=1``) is unavailable.
+    Small decreases are treated as sensor jitter and large decreases
+    (> ``RESET_MM``) as gauge resets. Precipitation falling between the last
+    observation before a reset and the first one after it is not counted.
+    """
+    s = pd.to_numeric(series, errors="coerce").dropna()
+    segment = (s.diff() < -RESET_MM).cumsum()
+    s = s.groupby(segment).cummax()
+    increments = s.diff().clip(lower=0).fillna(0)
+    return increments.cumsum().reindex(series.index)
 
 
 def get_station_metadata(aoi: gpd.GeoDataFrame, bbox=False, buffer=0):
@@ -77,6 +103,8 @@ def get_station_metadata(aoi: gpd.GeoDataFrame, bbox=False, buffer=0):
     )
     response = requests.get(url, params=params)
     data = response.json()
+    if "features" not in data:  # geojson output only includes SUMMARY on error
+        _check_response(data)
     gfp = gpd.GeoDataFrame.from_features(data["features"], crs="EPSG:4326")
 
     # Reduce to stations only within AOI Polygon
@@ -135,7 +163,18 @@ def get_station_timeseries(station_list: list, start_date: str, end_date: str):
 
     response = requests.get(url, params=params)
     response.raise_for_status()
-    return response.json()
+    data = response.json()
+
+    # Derived precip requires a paid Synoptic tier, fall back to raw accumulation
+    if data.get("SUMMARY", {}).get("RESPONSE_CODE") == 403:
+        print("Synoptic derived precip unavailable, computing from raw accumulation")
+        params.pop("precip")
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
+
+    _check_response(data)
+    return data
 
 
 def construct_uniform_datarray(data: dict):
@@ -176,6 +215,12 @@ def construct_uniform_datarray(data: dict):
         df_station = df_station.set_index("date_time")
         df_station.index.name = "time"
 
+        varname = "precip_accumulated_set_1d"
+        if varname not in df_station:
+            df_station[varname] = accumulate_raw_precip(
+                df_station["precip_accum_set_1"]
+            )
+
         # Check if already hourly (median interval ~1 hour)
         time_diff = df_station.index.to_series().diff().dropna()
         median_interval = time_diff.median()
@@ -191,7 +236,6 @@ def construct_uniform_datarray(data: dict):
         df_station = df_station.resample("h").bfill(limit=1)
 
         # Convert to DataArray
-        varname = "precip_accumulated_set_1d"
         da_station = df_station[varname].to_xarray()
 
         # Assign coordinates

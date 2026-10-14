@@ -70,8 +70,14 @@ def open_hrrr(
     -------
     xarray.Dataset
     """
+    # Pin the AWS endpoint so an AWS_PROFILE with a custom endpoint_url
+    # (e.g. for writing output elsewhere) doesn't redirect this public read.
     storage = icechunk.s3_storage(
-        bucket=bucket, prefix=prefix, region=region, anonymous=True
+        bucket=bucket,
+        prefix=prefix,
+        region=region,
+        anonymous=True,
+        endpoint_url=f"https://s3.{region}.amazonaws.com",
     )
     repo = icechunk.Repository.open(storage)
     session = repo.readonly_session("main")

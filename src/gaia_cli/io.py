@@ -1,7 +1,10 @@
 import os
 
+import boto3
 import geopandas as gpd
+import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
+import xvec  # noqa: F401  registers the .xvec accessor
 from obstore.auth.boto3 import Boto3CredentialProvider
 from obstore.store import S3Store, from_url
 from zarr.storage import ObjectStore
@@ -70,10 +73,15 @@ def _zarr_store_for_path(output_path: str):
     Handles both local paths and ``s3://`` URLs.
     """
     if output_path.startswith("s3://"):
+        # obstore doesn't read endpoint_url from ~/.aws/config, so resolve it
+        # via boto3 to support S3-compatible stores (e.g. Ceph) set in AWS_PROFILE.
+        endpoint = boto3.Session().client("s3").meta.endpoint_url
         s3writable = from_url(
             output_path,
             credential_provider=Boto3CredentialProvider(),
             region="us-west-2",
+            endpoint=endpoint,
+            virtual_hosted_style_request=False,
         )
         return ObjectStore(s3writable)
     return output_path

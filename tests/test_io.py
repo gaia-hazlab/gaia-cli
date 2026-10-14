@@ -41,3 +41,9 @@ def test_save_zarr_roundtrip(tmp_path):
     result = xr.open_zarr(output_path, consolidated=False)
 
     np.testing.assert_array_equal(result["precip"].values, ds["precip"].values)
+
+
+def test_io_registers_accessors():
+    da = xr.DataArray([1])
+    assert hasattr(da, "rio")
+    assert hasattr(da, "xvec")
