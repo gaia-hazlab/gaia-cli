@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 import geopandas as gpd
 import rioxarray
 import xarray as xr
 from cyclopts import Parameter
-from typing import Annotated
 from xarray.backends.file_manager import FILE_CACHE
 
 from . import io

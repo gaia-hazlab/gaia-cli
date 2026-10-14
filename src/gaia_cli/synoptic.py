@@ -90,17 +90,17 @@ def get_station_metadata(aoi: gpd.GeoDataFrame, bbox=False, buffer=0):
     precip_vars = ["precip_accum"]  # NOTE: there are a lot! e.g. hourly etc
 
     # API requires search by Bounding Box
-    params = dict(  # state="wa",
+    params = {  # state="wa",
         # NOTE: may be best to do point in polygon first to get list of stations to avoid larger bbox!
         # stid Single or comma separated list of SynopticLabs station IDs. Use a ! before any value to exclude matching stations
-        bbox=",".join(map(str, aoi.total_bounds)),  # minx,miny,maxx,maxy
-        token=TOKEN,
-        status="active",
-        sensorvars=True,  # return sensor variable info
-        hfmetars=0,  # exclude 5min NOAA METARs sampling
-        vars=",".join(precip_vars),  # restrict to precip only
-        output="geojson",
-    )
+        "bbox": ",".join(map(str, aoi.total_bounds)),  # minx,miny,maxx,maxy
+        "token": TOKEN,
+        "status": "active",
+        "sensorvars": True,  # return sensor variable info
+        "hfmetars": 0,  # exclude 5min NOAA METARs sampling
+        "vars": ",".join(precip_vars),  # restrict to precip only
+        "output": "geojson",
+    }
     response = requests.get(url, params=params)
     data = response.json()
     if "features" not in data:  # geojson output only includes SUMMARY on error
@@ -149,17 +149,17 @@ def get_station_timeseries(station_list: list, start_date: str, end_date: str):
     endpoint = "/stations/timeseries"
     url = SYNOPTIC_API + endpoint
 
-    params = dict(
-        token=TOKEN,
-        stid=",".join(map(str, station_list)),
-        start=start,
-        end=end,
+    params = {
+        "token": TOKEN,
+        "stid": ",".join(map(str, station_list)),
+        "start": start,
+        "end": end,
         # vars = 'precip' # 'Querying too many station hours. 195840.0 hours were requested.' ...
-        vars="precip_accum",  # works, and gives hourly sampling
-        precip=1,  # Enable derived precip (precip_accumulated_set_1d, precip_intervals_set_1d)
+        "vars": "precip_accum",  # works, and gives hourly sampling
+        "precip": 1,  # Enable derived precip (precip_accumulated_set_1d, precip_intervals_set_1d)
         # precip =0, (default) 'precip_accum_set_1' (Millimeters) cumulative sum of the interval values for the requested time period, in this case hourly timestamps
-        obtimezone="UTC",  # ensure UTC returns
-    )
+        "obtimezone": "UTC",  # ensure UTC returns
+    }
 
     response = requests.get(url, params=params)
     response.raise_for_status()

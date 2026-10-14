@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 import geopandas as gpd
 import numpy as np
 import odc.stac
 import pystac
 import xarray as xr
 from cyclopts import Parameter
-from typing import Annotated
 
 from . import io
 

@@ -4,11 +4,11 @@ A CLI following https://packaging.python.org/en/latest/guides/creating-command-l
 
 import cyclopts
 
-from .synoptic import stage as stage_synoptic
-from .prism import stage as stage_prism
-from .hrrr import stage as stage_hrrr
 from .all import stage as stage_all
+from .hrrr import stage as stage_hrrr
 from .nlcd import stage as stage_nlcd
+from .prism import stage as stage_prism
+from .synoptic import stage as stage_synoptic
 
 app = cyclopts.App()
 

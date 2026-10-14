@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-import xarray as xr
-from cyclopts import Parameter
 from typing import Annotated
 
-from . import io
-from .hrrr import HRRRVariable
+import xarray as xr
+from cyclopts import Parameter
+
 from . import hrrr as _hrrr
+from . import io
 from . import prism as _prism
 from . import synoptic as _synoptic
+from .hrrr import HRRRVariable
 
 
 def stage(
