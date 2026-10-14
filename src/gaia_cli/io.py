@@ -135,6 +135,13 @@ def _prepare_for_zarr(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
     shape equal to the full variable shape so that ``to_zarr`` doesn't
     re-introduce its own default chunking.
     """
+    # Fixed-width numpy strings (<U*) have no Zarr v3 spec; store as variable-length UTF-8
+    ds = ds.assign_coords(
+        {k: v.astype(object) for k, v in ds.coords.items() if v.dtype.kind == "U"}
+    )
+    ds = ds.assign(
+        {k: v.astype(object) for k, v in ds.data_vars.items() if v.dtype.kind == "U"}
+    )
     if ds.nbytes <= _CHUNK_TARGET_BYTES:
         ds = ds.load()
         # Tell to_zarr to write each variable as a single chunk
