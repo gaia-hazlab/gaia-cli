@@ -21,6 +21,7 @@ def stage(
     hrrr_variable: Annotated[
         HRRRVariable, Parameter(name=["--hrrr-variable"])
     ] = HRRRVariable.precipitation_surface,
+    overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
 ):
     """Stage **all** precipitation products clipped to an AOI as a single DataTree.
 
@@ -43,6 +44,8 @@ def stage(
         Path to write the resulting Zarr store.
     hrrr_variable : HRRRVariable
         HRRR variable to extract. Default ``precipitation-surface``.
+    overwrite : bool
+        Replace the output store if it already exists. Default False.
 
     Examples
     --------
@@ -50,7 +53,7 @@ def stage(
         $ AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
         $ gaia stage all -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit_all.zarr
     """
-    io.check_s3_env(output_path)
+    io.check_output(output_path, overwrite)
     aoi = io.load_aoi(vectorPath)
 
     # ---- load each product ------------------------------------------------
@@ -81,5 +84,5 @@ def stage(
     )
 
     # ---- save -------------------------------------------------------------
-    io.save_datatree(dt, output_path)
+    io.save_datatree(dt, output_path, overwrite=overwrite)
     print("DONE!")

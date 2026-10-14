@@ -263,6 +263,7 @@ def stage(
     start_date: Annotated[str, Parameter(name=["--start", "-s"])],
     end_date: Annotated[str, Parameter(name=["--end", "-e"])],
     output_path: Annotated[str, Parameter(name=["--output", "-o"])],
+    overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
 ):
     """Stage in-situ precipitation from the Synoptic API.
     Precipitation timeseries is resampled to construct a uniform hourly DataArray.
@@ -280,6 +281,8 @@ def stage(
         End date/time for the timeseries (parseable by pandas.Timestamp).
     output_path : str
         Path to write the resulting Zarr store.
+    overwrite : bool
+        Replace the output store if it already exists. Default False.
 
     Examples
     --------
@@ -292,13 +295,13 @@ def stage(
     None
     """
     _check_token()
-    io.check_s3_env(output_path)
+    io.check_output(output_path, overwrite)
 
     aoi = io.load_aoi(vectorPath)
     DA = load(aoi, start_date, end_date)
 
     # Save as xvec-encoded Zarr (point geometries)
-    io.save_xvec_zarr(DA, output_path)
+    io.save_xvec_zarr(DA, output_path, overwrite=overwrite)
 
     print("DONE!")
 
