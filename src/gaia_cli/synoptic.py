@@ -16,6 +16,9 @@ log = logging.getLogger(__name__)
 TOKEN = os.environ.get("SYNOPTIC_TOKEN")
 SYNOPTIC_API = "https://api.synopticdata.com/v2"
 RESET_MM = 10  # drops in raw gauge accumulation larger than this are treated as resets
+# Oldest report used for an hourly value: just under an hour, so an hour with no
+# report of its own is NaN rather than a copy of the previous hour
+REPORT_TOLERANCE = pd.Timedelta(hours=1) - pd.Timedelta(seconds=1)
 
 
 def _check_token():
@@ -196,14 +199,17 @@ def construct_uniform_datarray(data: dict):
     xarray.DataArray
         A 2D (time x station) DataArray of hourly accumulated precipitation
         values. Each station is assigned coordinates for ``station``,
-        ``elevation``, and ``geometry`` (a shapely Point).
+        ``elevation``, and ``geometry`` (a shapely Point), and each value a
+        ``report_time`` coordinate: the time of the report it came from.
 
     Notes
     -----
-    The function resamples station data to hourly timestamps using a
-    backward-fill with a one-step limit (``bfill(limit=1)``) to avoid
-    propagating values through long gaps. Stations with different time
-    coverage are concatenated using ``join='outer'``.
+    The value at each hour is the accumulation at the latest report at or
+    before that hour, less than an hour old; hours without such a report are
+    NaN. Stations that report off the hour (e.g. at :28) therefore lag the
+    clock hour by up to an hour, which ``report_time`` records. See
+    ``docs/precip-timing.md``. Stations with different time coverage are
+    concatenated using ``join='outer'``.
     """
 
     data_arrays = []
@@ -224,8 +230,10 @@ def construct_uniform_datarray(data: dict):
                 df_station["precip_accum_set_1"]
             )
 
+        accum = df_station[varname].dropna()
+
         # Check if already hourly (median interval ~1 hour)
-        time_diff = df_station.index.to_series().diff().dropna()
+        time_diff = accum.index.to_series().diff().dropna()
         median_interval = time_diff.median()
 
         if median_interval != pd.Timedelta(hours=1):
@@ -235,14 +243,22 @@ def construct_uniform_datarray(data: dict):
                 station["NAME"],
                 median_interval,
             )
-            # Resample to hourly - use forward fill for accumulated precip (last known value)
 
-        # I think this is more honest to the data, as it doesn't propagate values forward when there are multiple missing timestamps in a row, which could be the case if a station goes offline for a period of time.
-        # 0:28 -> 0:00, but if multiple adjacent timesteps are missing, the rest get NaNs
-        df_station = df_station.resample("h").bfill(limit=1)
+        # Each hour takes the accumulation at the latest report at or before it,
+        # so a value never includes precipitation that fell after its timestamp.
+        # Reports an hour or more old are not carried forward, so hours without a
+        # recent report stay NaN. See docs/precip-timing.md
+        hours = pd.date_range(
+            accum.index[0].ceil("h"), accum.index[-1].ceil("h"), freq="h", name="time"
+        )
+        report_time = accum.index.to_series().reindex(
+            hours, method="ffill", tolerance=REPORT_TOLERANCE
+        )
+        accum = accum.reindex(hours, method="ffill", tolerance=REPORT_TOLERANCE)
 
         # Convert to DataArray
-        da_station = df_station[varname].to_xarray()
+        da_station = accum.to_xarray()
+        da_station = da_station.assign_coords(report_time=("time", report_time.values))
 
         # Assign coordinates
         # NOTE: Synoptic API always returns elevation in feet
