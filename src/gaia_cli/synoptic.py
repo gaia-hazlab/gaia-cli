@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Annotated
 
@@ -9,6 +10,8 @@ from cyclopts import Parameter
 from shapely.geometry import Point
 
 from . import io
+
+log = logging.getLogger(__name__)
 
 TOKEN = os.environ.get("SYNOPTIC_TOKEN")
 SYNOPTIC_API = "https://api.synopticdata.com/v2"
@@ -113,7 +116,7 @@ def get_station_metadata(aoi: gpd.GeoDataFrame, bbox=False, buffer=0):
             aoi.geometry = aoi.geometry.buffer(buffer)
         gfp = gfp[gfp.geometry.within(aoi.geometry.iloc[0])]
 
-    print(f"Found {len(gfp)} stations with precip data in the area of interest.")
+    log.info("found %d stations with precip data in the AOI", len(gfp))
 
     return gfp
 
@@ -167,7 +170,7 @@ def get_station_timeseries(station_list: list, start_date: str, end_date: str):
 
     # Derived precip requires a paid Synoptic tier, fall back to raw accumulation
     if data.get("SUMMARY", {}).get("RESPONSE_CODE") == 403:
-        print("Synoptic derived precip unavailable, computing from raw accumulation")
+        log.info("derived precip unavailable, computing from raw accumulation")
         params.pop("precip")
         response = requests.get(url, params=params)
         response.raise_for_status()
@@ -226,8 +229,11 @@ def construct_uniform_datarray(data: dict):
         median_interval = time_diff.median()
 
         if median_interval != pd.Timedelta(hours=1):
-            print(
-                f"Station {station['STID']} ({station['NAME']}): original interval = {median_interval}, resampling to hourly"
+            log.debug(
+                "Station %s (%s): original interval = %s, resampling to hourly",
+                station["STID"],
+                station["NAME"],
+                median_interval,
             )
             # Resample to hourly - use forward fill for accumulated precip (last known value)
 
@@ -303,7 +309,7 @@ def stage(
     # Save as xvec-encoded Zarr (point geometries)
     io.save_xvec_zarr(DA, output_path, overwrite=overwrite)
 
-    print("DONE!")
+    log.info("Done")
 
 
 def load(aoi: gpd.GeoDataFrame, start_date: str, end_date: str) -> xr.DataArray:
@@ -323,6 +329,8 @@ def load(aoi: gpd.GeoDataFrame, start_date: str, end_date: str) -> xr.DataArray:
     xarray.DataArray
     """
     _check_token()
+    log.info("querying station metadata from %s", SYNOPTIC_API)
     stations_gdf = get_station_metadata(aoi)
+    log.info("fetching timeseries for %d station(s)", len(stations_gdf))
     data = get_station_timeseries(stations_gdf.stid.to_list(), start_date, end_date)
     return construct_uniform_datarray(data)

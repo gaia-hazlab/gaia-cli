@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from enum import Enum
 from typing import Annotated
 
@@ -9,6 +10,8 @@ import xarray as xr
 from cyclopts import Parameter
 
 from . import io
+
+log = logging.getLogger(__name__)
 
 DEFAULT_BUCKET = "dynamical-noaa-hrrr"
 DEFAULT_PREFIX = "noaa-hrrr-analysis/v0.2.0.icechunk/"
@@ -79,6 +82,7 @@ def open_hrrr(
         anonymous=True,
         endpoint_url=f"https://s3.{region}.amazonaws.com",
     )
+    log.info("opening dynamical.org Icechunk repo s3://%s/%s", bucket, prefix)
     repo = icechunk.Repository.open(storage)
     session = repo.readonly_session("main")
     return xr.open_zarr(session.store, chunks=None)
@@ -126,7 +130,7 @@ def stage(
     clipped = load(aoi, start_date, end_date, variable)
     io.save_zarr(clipped, output_path, overwrite=overwrite)
 
-    print("DONE!")
+    log.info("Done")
 
 
 def load(
@@ -134,10 +138,13 @@ def load(
     start_date: str,
     end_date: str,
     variable: HRRRVariable = HRRRVariable.precipitation_surface,
-) -> xr.DataArray:
-    """Load HRRR analysis data clipped to *aoi*.
+) -> xr.Dataset:
+    """Load HRRR analysis data clipped to *aoi* on its native Lambert Conformal grid.
 
     Precipitation rate (kg m⁻² s⁻¹) is converted to hourly accumulation (mm).
+    Averaged variables (``step_type="avg"``) cover the hour ending at ``time``,
+    i.e. ``(time - 1h, time]``; instantaneous ones are valid at ``time``
+    (see docs/hrrr.md).
 
     Parameters
     ----------
@@ -152,22 +159,45 @@ def load(
 
     Returns
     -------
-    xarray.DataArray
+    xarray.Dataset
+        The variable, plus CF ``time_bounds`` for averaged variables.
     """
     ds = open_hrrr()
     da = ds[variable.value].sel(time=slice(start_date, end_date))
+    step_type = da.attrs.get("step_type")
 
-    # HRRR is Lambert Conformal → clip_box, reproject, then clip to polygon
-    clipped = io.clip_to_aoi(da, aoi, reproject=True)
+    clipped = io.clip_to_aoi(da, aoi)
+    log.info(
+        "HRRR %s: reading %d hour(s) x %d x %d cells (%s to %s)",
+        variable.value,
+        clipped.sizes["time"],
+        clipped.sizes["y"],
+        clipped.sizes["x"],
+        str(clipped.time.values[0])[:16],
+        str(clipped.time.values[-1])[:16],
+    )
+    # Read now (rather than lazily during the Zarr write) so timings are attributable
+    clipped = clipped.load()
 
     # Convert precipitation rate (kg m⁻² s⁻¹ ≡ mm/s) → hourly accumulation (mm)
     if variable == HRRRVariable.precipitation_surface:
         clipped = clipped.rename("precipitation")
         clipped = clipped * 3600
         clipped.attrs = {
-            "long_name": "Hourly precipitation",
+            "long_name": "Precipitation",  # period given by time_bounds
             "units": "mm",
             "comment": "Converted from precipitation_surface (kg m-2 s-1) × 3600 s",
         }
+        cell_methods = "time: sum"
+    else:
+        cell_methods = "time: mean"
 
-    return clipped
+    if step_type == "avg":
+        return io.with_time_bounds(
+            clipped,
+            start_hours=-1,
+            end_hours=0,
+            cell_methods=cell_methods,
+        )
+    clipped.attrs["cell_methods"] = "time: point"
+    return clipped.to_dataset(name=clipped.name or variable.value)
