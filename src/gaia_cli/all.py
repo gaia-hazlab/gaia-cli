@@ -79,6 +79,7 @@ def stage(
     da_synoptic = da_synoptic.swap_dims({"station": "geometry"})
     da_synoptic = da_synoptic.xvec.set_geom_indexes("geometry", crs="EPSG:4326")
     ds_synoptic = da_synoptic.to_dataset().xvec.encode_cf()
+    ds_synoptic.attrs = _synoptic.source_attrs(da_synoptic)
 
     dt = xr.DataTree.from_dict(
         {

@@ -14,6 +14,8 @@ from obstore.auth.boto3 import Boto3CredentialProvider
 from obstore.store import S3Store, from_url
 from zarr.storage import ObjectStore
 
+from . import provenance
+
 log = logging.getLogger(__name__)
 
 
@@ -225,6 +227,7 @@ def save_zarr(ds: xr.Dataset | xr.DataArray, output_path: str, overwrite: bool =
         ds = ds.to_dataset(name=ds.name or "data")
 
     ds, encoding = _prepare_for_zarr(ds)
+    ds.attrs = provenance.stamp(ds.attrs)
 
     store = _zarr_store_for_path(output_path)
     log.info("Writing Zarr to %s", output_path)
@@ -239,7 +242,12 @@ def save_zarr(ds: xr.Dataset | xr.DataArray, output_path: str, overwrite: bool =
     log.info("Saved %s", output_path)
 
 
-def save_xvec_zarr(DA: xr.DataArray, output_path: str, overwrite: bool = False):
+def save_xvec_zarr(
+    DA: xr.DataArray,
+    output_path: str,
+    overwrite: bool = False,
+    attrs: dict | None = None,
+):
     """Save a station DataArray as an xvec-encoded Zarr store.
 
     Parameters
@@ -250,6 +258,9 @@ def save_xvec_zarr(DA: xr.DataArray, output_path: str, overwrite: bool = False):
         Filesystem path or ``s3://`` URL.
     overwrite : bool, optional
         If True, replace any existing store at *output_path*. Default False.
+    attrs : dict, optional
+        Dataset (source provenance) attributes; *DA*'s own attrs stay on the
+        variable.
     """
     store = _zarr_store_for_path(output_path)
     log.info("Writing Zarr to %s", output_path)
@@ -260,6 +271,7 @@ def save_xvec_zarr(DA: xr.DataArray, output_path: str, overwrite: bool = False):
 
     encoded = DA.to_dataset().xvec.encode_cf()
     encoded, encoding = _prepare_for_zarr(encoded)
+    encoded.attrs = provenance.stamp(attrs or {})
     encoded.to_zarr(
         store,
         mode="w" if overwrite else "w-",
@@ -300,6 +312,7 @@ def save_datatree(dt: xr.DataTree, output_path: str, overwrite: bool = False):
         nodes[path] = ds
 
     prepared = xr.DataTree.from_dict(nodes)
+    prepared.attrs = provenance.stamp_tree(prepared)
     store = _zarr_store_for_path(output_path)
     log.info("Writing Zarr to %s", output_path)
     prepared.to_zarr(

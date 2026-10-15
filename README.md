@@ -103,6 +103,23 @@ aws_secret_access_key = YOUR_SECRET_KEY
 
 See [precip-example.ipynb](./precip-example.ipynb)
 
+## Provenance
+
+Every store records where its data came from, using STAC field names. The
+root group says when the store was created, by which gaia-cli commit
+(`gaia:cli-version`) and with what command. Each product group (or the root of
+a single-product store) carries its upstream `title`, `license`, `providers`,
+`version` and `links`:
+
+```python
+dt = xr.open_datatree("skagit_all.zarr", engine="zarr")
+dt.attrs["gaia:cli-version"]
+dt["rasters/hrrr"].attrs["license"]  # 'CC-BY-4.0'
+```
+
+Products have different licenses, so check each group's `license` and `links`
+before sharing a store. See [docs/provenance-metadata.md](docs/provenance-metadata.md).
+
 
 ## Design ideas:
 

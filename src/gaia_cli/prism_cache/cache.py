@@ -164,6 +164,10 @@ class PrismCache:
         except FileNotFoundError:
             return None
 
+    def read_collection(self) -> dict | None:
+        """Return the cache's root STAC Collection, or None if not written."""
+        return self._get_json(stac.COLLECTION_KEY)
+
     def read_item(self, var: str, date: dt.date, res: str = "800m") -> dict | None:
         """Return the STAC item for one grid, or None if not cached."""
         return self._get_json(f"{self.key(var, date, res)}.json")

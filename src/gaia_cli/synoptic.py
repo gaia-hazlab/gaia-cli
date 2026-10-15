@@ -9,7 +9,7 @@ import xarray as xr
 from cyclopts import Parameter
 from shapely.geometry import Point
 
-from . import io
+from . import io, provenance
 
 log = logging.getLogger(__name__)
 
@@ -19,6 +19,32 @@ RESET_MM = 10  # drops in raw gauge accumulation larger than this are treated as
 # Oldest report used for an hourly value: just under an hour, so an hour with no
 # report of its own is NaN rather than a copy of the previous hour
 REPORT_TOLERANCE = pd.Timedelta(hours=1) - pd.Timedelta(seconds=1)
+PROVENANCE = {
+    "title": "Synoptic Data station precipitation",
+    "description": "Hourly precipitation accumulation at weather stations, "
+    "from the Synoptic Data API.",
+    "license": "other",
+    "gaia:license-note": "Synoptic redistributes data from many station "
+    "networks with differing terms; check https://synopticdata.com and the "
+    "networks' terms before sharing.",
+    "providers": [
+        {
+            "name": "Synoptic Data PBC",
+            "roles": ["host", "processor", "licensor"],
+            "url": "https://synopticdata.com",
+        }
+    ],
+    "version": "v2",  # API version
+    "processing:lineage": "precip_accum reports de-reset, then each hour "
+    "labelled with the latest prior report (see report_time)",
+}
+
+
+def source_attrs(da: xr.DataArray) -> dict:
+    """Provenance attributes for station data *da* (from :func:`load`)."""
+    # The API URL never includes the request parameters, which hold the token
+    via = provenance.link("via", f"{SYNOPTIC_API}/stations/timeseries")
+    return {**PROVENANCE, "links": [via], **provenance.time_extent(da)}
 
 
 def _check_token():
@@ -323,7 +349,7 @@ def stage(
     DA = load(aoi, start_date, end_date)
 
     # Save as xvec-encoded Zarr (point geometries)
-    io.save_xvec_zarr(DA, output_path, overwrite=overwrite)
+    io.save_xvec_zarr(DA, output_path, overwrite=overwrite, attrs=source_attrs(DA))
 
     log.info("Done")
 

@@ -9,13 +9,14 @@ import icechunk
 import xarray as xr
 from cyclopts import Parameter
 
-from . import io
+from . import io, provenance
 
 log = logging.getLogger(__name__)
 
 DEFAULT_BUCKET = "dynamical-noaa-hrrr"
 DEFAULT_PREFIX = "noaa-hrrr-analysis/v0.2.0.icechunk/"
 DEFAULT_REGION = "us-west-2"
+STAC_COLLECTION = "https://stac.dynamical.org/noaa-hrrr-analysis/collection.json"
 
 
 class HRRRVariable(str, Enum):
@@ -72,6 +73,8 @@ def open_hrrr(
     Returns
     -------
     xarray.Dataset
+        With the Icechunk snapshot read in ``attrs["gaia:icechunk-snapshot"]``
+        and the repository URL in ``encoding["source"]``.
     """
     # Pin the AWS endpoint so an AWS_PROFILE with a custom endpoint_url
     # (e.g. for writing output elsewhere) doesn't redirect this public read.
@@ -85,7 +88,30 @@ def open_hrrr(
     log.info("opening dynamical.org Icechunk repo s3://%s/%s", bucket, prefix)
     repo = icechunk.Repository.open(storage)
     session = repo.readonly_session("main")
-    return xr.open_zarr(session.store, chunks=None)
+    ds = xr.open_zarr(session.store, chunks=None)
+    ds.attrs["gaia:icechunk-snapshot"] = session.snapshot_id
+    ds.encoding["source"] = f"s3://{bucket}/{prefix}"
+    return ds
+
+
+def source_attrs(ds: xr.Dataset) -> dict:
+    """Provenance attributes for data read from *ds* (from :func:`open_hrrr`).
+
+    Copied from dynamical.org's STAC collection, except ``version`` and
+    ``license``, which come from the store itself: the collection describes
+    dynamical's latest version, which may be newer than ``DEFAULT_PREFIX``.
+    """
+    attrs = provenance.from_stac_collection(STAC_COLLECTION)
+    for key, upstream in (("version", "dataset_version"), ("license", "license")):
+        if upstream in ds.attrs:
+            attrs[key] = ds.attrs[upstream]
+    if "gaia:icechunk-snapshot" in ds.attrs:
+        attrs["gaia:icechunk-snapshot"] = ds.attrs["gaia:icechunk-snapshot"]
+    if "source" in ds.encoding:
+        attrs["links"].append(
+            provenance.link("via", ds.encoding["source"], title="Icechunk repository")
+        )
+    return attrs
 
 
 def stage(
@@ -160,7 +186,8 @@ def load(
     Returns
     -------
     xarray.Dataset
-        The variable, plus CF ``time_bounds`` for averaged variables.
+        The variable, plus CF ``time_bounds`` for averaged variables, with
+        provenance attributes (see :func:`source_attrs`).
     """
     ds = open_hrrr()
     da = ds[variable.value].sel(time=slice(start_date, end_date))
@@ -193,11 +220,18 @@ def load(
         cell_methods = "time: mean"
 
     if step_type == "avg":
-        return io.with_time_bounds(
+        out = io.with_time_bounds(
             clipped,
             start_hours=-1,
             end_hours=0,
             cell_methods=cell_methods,
         )
-    clipped.attrs["cell_methods"] = "time: point"
-    return clipped.to_dataset(name=clipped.name or variable.value)
+    else:
+        clipped.attrs["cell_methods"] = "time: point"
+        out = clipped.to_dataset(name=clipped.name or variable.value)
+    out.attrs = {
+        **source_attrs(ds),
+        "processing:lineage": f"{variable.value} clipped to the AOI on its native grid",
+        **provenance.time_extent(out),
+    }
+    return out

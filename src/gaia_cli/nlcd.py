@@ -9,16 +9,54 @@ import xarray as xr
 from cyclopts import Parameter
 from xarray.backends.file_manager import FILE_CACHE
 
-from . import io
+from . import io, provenance
 
 log = logging.getLogger(__name__)
 
 
-def open_nlcd(year: int = 2021) -> xr.DataArray:
-    url = (
+def _url(year: int) -> str:
+    return (
         "https://usgs.osn.mghpcc.org/hytest/nlcd/annual-nlcd-cu-c1v1/mosaic/"
         f"Annual_NLCD_LndCov_{year}_CU_C1V1.tif"
     )
+
+
+def source_attrs(year: int) -> dict:
+    """Provenance attributes for the *year* NLCD land cover mosaic."""
+    return {
+        "title": "Annual NLCD land cover",
+        "description": "USGS Annual National Land Cover Database (Collection 1 "
+        "v1) land cover, conterminous US, 30 m.",
+        "license": "other",  # U.S. public domain has no SPDX identifier
+        "providers": [
+            {
+                "name": "U.S. Geological Survey",
+                "roles": ["producer", "licensor"],
+                "url": "https://www.usgs.gov/centers/eros/science/annual-national-land-cover-database",
+            },
+            {
+                "name": "USGS HyTEST",
+                "roles": ["host"],
+                "url": "https://usgs.osn.mghpcc.org",
+            },
+        ],
+        "version": "C1V1",
+        "start_datetime": f"{year}-01-01T00:00:00Z",
+        "end_datetime": f"{year}-12-31T23:59:59Z",
+        "processing:lineage": "clipped to the AOI on the native grid",
+        "links": [
+            provenance.link("via", _url(year), type="image/tiff; application=geotiff"),
+            provenance.link(
+                "license",
+                "https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits",
+                type="text/html",
+            ),
+        ],
+    }
+
+
+def open_nlcd(year: int = 2021) -> xr.DataArray:
+    url = _url(year)
     log.info("NLCD: opening %s", url)
     # rioxarray's stub is stricter than its runtime API: chunks="auto" is a valid dask spec,
     # and without group/variable args this always returns a single DataArray, not the full union
@@ -51,7 +89,9 @@ def stage(
 
     aoi = io.load_aoi(vectorPath)
     clipped = load(aoi, year=year)
-    io.save_zarr(clipped, output_path, overwrite=overwrite)
+    ds = clipped.to_dataset()
+    ds.attrs = source_attrs(year)
+    io.save_zarr(ds, output_path, overwrite=overwrite)
 
     # Close cached remote rasterio/GDAL handles opened by rioxarray so their
     # cleanup doesn't run during interpreter shutdown, where it can crash
