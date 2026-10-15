@@ -71,3 +71,17 @@ def test_save_zarr_overwrite(tmp_path):
     )
     result = xr.open_zarr(output_path, consolidated=False)
     np.testing.assert_array_equal(result["precip"].values, np.zeros(3))
+
+
+def test_save_datatree_writes_fill_value_chunks(tmp_path):
+    # Kopah answers anonymous GETs for missing chunks with 403, so chunks equal
+    # to the fill value (HRRR's spatial_ref is 0) must still be written
+    da = xr.DataArray(
+        np.ones((2, 2)), coords={"y": [1.0, 0.0], "x": [0.0, 1.0]}, dims=("y", "x"), name="v"
+    ).rio.write_crs("EPSG:32610")
+    da = da.assign_coords(spatial_ref=0)
+    path = tmp_path / "t.zarr"
+
+    io.save_datatree(xr.DataTree.from_dict({"a": da.to_dataset()}), str(path))
+
+    assert (path / "a" / "spatial_ref" / "c").exists()
