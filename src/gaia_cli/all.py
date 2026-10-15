@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
+import pandas as pd
 import xarray as xr
 from cyclopts import Parameter
 
@@ -12,6 +14,8 @@ from . import io
 from . import prism as _prism
 from . import synoptic as _synoptic
 from .hrrr import HRRRVariable
+
+log = logging.getLogger(__name__)
 
 
 def stage(
@@ -58,23 +62,23 @@ def stage(
     aoi = io.load_aoi(vectorPath)
 
     # ---- load each product ------------------------------------------------
-    print("Loading Synoptic station data …")
+    log.info("Loading Synoptic station data")
     da_synoptic = _synoptic.load(aoi, start_date, end_date)
 
-    print("Loading PRISM gridded data …")
-    da_prism = _prism.load(aoi, start_date, end_date)
+    log.info("Loading PRISM gridded data")
+    ds_prism = _prism.load(aoi, start_date, end_date)
 
-    print("Loading HRRR analysis data …")
-    da_hrrr = _hrrr.load(aoi, start_date, end_date, variable=hrrr_variable)
+    log.info("Loading HRRR analysis data")
+    # Start 11 h early so the first PRISM day, (start-1 12:00, start 12:00] UTC,
+    # has all 24 hour-ending HRRR values
+    hrrr_start = (pd.Timestamp(start_date) - pd.Timedelta(hours=11)).isoformat()
+    ds_hrrr = _hrrr.load(aoi, hrrr_start, end_date, variable=hrrr_variable)
 
     # ---- assemble DataTree ------------------------------------------------
     # Synoptic point data needs xvec CF encoding for Zarr compatibility
     da_synoptic = da_synoptic.swap_dims({"station": "geometry"})
     da_synoptic = da_synoptic.xvec.set_geom_indexes("geometry", crs="EPSG:4326")
     ds_synoptic = da_synoptic.to_dataset().xvec.encode_cf()
-
-    ds_prism = da_prism.to_dataset(name=da_prism.name or "precipitation")
-    ds_hrrr = da_hrrr.to_dataset(name=da_hrrr.name or "data")
 
     dt = xr.DataTree.from_dict(
         {
@@ -86,4 +90,4 @@ def stage(
 
     # ---- save -------------------------------------------------------------
     io.save_datatree(dt, output_path, overwrite=overwrite)
-    print("DONE!")
+    log.info("Done")

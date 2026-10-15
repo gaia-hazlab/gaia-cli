@@ -35,7 +35,8 @@ src/gaia_cli/
   cli.py        # CLI app & subcommand registration
   io.py         # Shared I/O: AOI loading, clipping, Zarr writing
   synoptic.py   # Synoptic API station precipitation
-  prism.py      # PRISM daily precipitation (STAC)
+  prism.py      # PRISM daily grids (from the S3 cache, via in-memory STAC)
+  prism_cache/  # Rolling S3 cache of unzipped PRISM COGs (no other gaia_cli imports)
   hrrr.py       # HRRR analysis precipitation (Icechunk)
   all.py        # "stage all" – loads every product into an xr.DataTree
 

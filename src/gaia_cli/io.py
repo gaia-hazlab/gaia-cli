@@ -1,8 +1,10 @@
+import logging
 import os
 import sys
 
 import boto3
 import geopandas as gpd
+import numpy as np
 import obstore
 import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
@@ -10,6 +12,8 @@ import xvec  # noqa: F401  registers the .xvec accessor
 from obstore.auth.boto3 import Boto3CredentialProvider
 from obstore.store import S3Store, from_url
 from zarr.storage import ObjectStore
+
+log = logging.getLogger(__name__)
 
 
 def load_aoi(vector_path: str) -> gpd.GeoDataFrame:
@@ -31,13 +35,12 @@ def clip_to_aoi(
     da: xr.DataArray,
     aoi: gpd.GeoDataFrame,
     *,
-    reproject: bool = False,
+    all_touched: bool = True,
 ) -> xr.DataArray:
-    """Clip an xarray DataArray to an area of interest.
+    """Clip an xarray DataArray to an area of interest in its native CRS.
 
-    For data in a non-EPSG:4326 CRS (e.g. HRRR Lambert Conformal), set
-    ``reproject=True`` to first clip to a generous bounding box, reproject
-    to EPSG:4326, and then clip to the exact AOI polygon.
+    The AOI is reprojected to the raster's CRS; the raster itself is never
+    resampled. Reprojection to a common grid is left to ``gaia align``.
 
     Parameters
     ----------
@@ -45,28 +48,45 @@ def clip_to_aoi(
         Raster data with rioxarray spatial metadata.
     aoi : geopandas.GeoDataFrame
         Area of interest polygon(s).
-    reproject : bool, optional
-        If True, clip_box → reproject to EPSG:4326 → clip to polygon.
-        Default is False (direct clip).
+    all_touched : bool, optional
+        Keep every cell the AOI touches (default True), so later area-weighted
+        regridding has full coverage along the AOI boundary.
 
     Returns
     -------
     xarray.DataArray
     """
-    if reproject:
-        bounds = aoi.total_bounds  # minx, miny, maxx, maxy
-        # Generous bounding box to avoid edge artefacts after reprojection
-        pad = 5
-        da = da.rio.clip_box(
-            minx=bounds[0] - pad,
-            miny=bounds[1] - pad,
-            maxx=bounds[2] + pad,
-            maxy=bounds[3] + pad,
-            crs="EPSG:4326",
-        )
-        da = da.rio.reproject("EPSG:4326")
+    aoi_native = aoi.to_crs(da.rio.crs)
+    minx, miny, maxx, maxy = aoi_native.total_bounds
+    # Pad by one cell so clip_box never drops partially-covered edge cells
+    rx, ry = (abs(r) for r in da.rio.resolution())
+    da = da.rio.clip_box(minx - rx, miny - ry, maxx + rx, maxy + ry)
+    return da.rio.clip(aoi_native.geometry, all_touched=all_touched)
 
-    return da.rio.clip(aoi.geometry)
+
+def with_time_bounds(
+    da: xr.DataArray,
+    start_hours: float,
+    end_hours: float,
+    cell_methods: str,
+) -> xr.Dataset:
+    """Return *da* as a Dataset with a CF ``time_bounds`` variable.
+
+    Each value at ``time`` covers ``(time + start_hours, time + end_hours]``.
+    ``cell_methods`` (e.g. ``"time: sum"``) says how values combine over time;
+    ``gaia align`` uses both to aggregate products onto a common time step.
+    """
+    ds = da.to_dataset(name=da.name or "data")
+    ds[ds.time.name].attrs["bounds"] = "time_bounds"
+    start, end = (
+        np.timedelta64(round(h * 3600), "s") for h in (start_hours, end_hours)
+    )
+    bounds = np.stack([ds.time.values + start, ds.time.values + end], axis=-1)
+    ds["time_bounds"] = (("time", "nv"), bounds)
+    for var in ds.data_vars.values():
+        if "time" in var.dims and var.name != "time_bounds":
+            var.attrs["cell_methods"] = cell_methods
+    return ds
 
 
 def _s3_store_for_path(output_path: str):
@@ -125,6 +145,10 @@ def check_s3_env(output_path: str):
 
 
 _CHUNK_TARGET_BYTES = 10 * 1024 * 1024  # 10 MB
+# Every save passes write_empty_chunks=True: zarr otherwise skips chunks that
+# hold only the fill value (e.g. spatial_ref = 0, all-NaN chunks), and Kopah
+# answers anonymous GETs for missing keys with 403 rather than 404, which
+# readers treat as an error instead of as fill value.
 
 
 def _prepare_for_zarr(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
@@ -135,6 +159,21 @@ def _prepare_for_zarr(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
     shape equal to the full variable shape so that ``to_zarr`` doesn't
     re-introduce its own default chunking.
     """
+    # Fixed-width numpy strings (<U*) have no Zarr v3 spec; store as variable-length UTF-8
+    ds = ds.assign_coords(
+        {k: v.astype(object) for k, v in ds.coords.items() if v.dtype.kind == "U"}
+    )
+    ds = ds.assign(
+        {k: v.astype(object) for k, v in ds.data_vars.items() if v.dtype.kind == "U"}
+    )
+    # Store the CF grid_mapping link in attrs, not encoding: xarray never writes
+    # an encoding grid_mapping, yet uses it to drop spatial_ref from the
+    # "coordinates" attr, so spatial_ref would reopen as a data variable.
+    if "spatial_ref" in ds.coords:
+        for var in ds.data_vars.values():
+            if {"x", "y"} <= set(var.dims):
+                var.encoding.pop("grid_mapping", None)
+                var.attrs["grid_mapping"] = "spatial_ref"
     if ds.nbytes <= _CHUNK_TARGET_BYTES:
         ds = ds.load()
         # Tell to_zarr to write each variable as a single chunk
@@ -169,14 +208,16 @@ def save_zarr(ds: xr.Dataset | xr.DataArray, output_path: str, overwrite: bool =
     ds, encoding = _prepare_for_zarr(ds)
 
     store = _zarr_store_for_path(output_path)
+    log.info("Writing Zarr to %s", output_path)
     ds.to_zarr(
         store,
         mode="w" if overwrite else "w-",
         zarr_format=3,
         consolidated=False,
+        write_empty_chunks=True,
         encoding=encoding,
     )
-    print(f"Data saved to {output_path}")
+    log.info("Saved %s", output_path)
 
 
 def save_xvec_zarr(DA: xr.DataArray, output_path: str, overwrite: bool = False):
@@ -192,6 +233,7 @@ def save_xvec_zarr(DA: xr.DataArray, output_path: str, overwrite: bool = False):
         If True, replace any existing store at *output_path*. Default False.
     """
     store = _zarr_store_for_path(output_path)
+    log.info("Writing Zarr to %s", output_path)
 
     # TODO: consider different naming conventions for geometry coordinate and station dimension
     DA = DA.swap_dims({"station": "geometry"})
@@ -204,9 +246,10 @@ def save_xvec_zarr(DA: xr.DataArray, output_path: str, overwrite: bool = False):
         mode="w" if overwrite else "w-",
         zarr_format=3,
         consolidated=False,
+        write_empty_chunks=True,
         encoding=encoding,
     )
-    print(f"Data saved to {output_path} as Xvec-encoded Zarr.")
+    log.info("Saved %s (xvec-encoded)", output_path)
 
 
 def save_datatree(dt: xr.DataTree, output_path: str, overwrite: bool = False):
@@ -239,14 +282,22 @@ def save_datatree(dt: xr.DataTree, output_path: str, overwrite: bool = False):
 
     prepared = xr.DataTree.from_dict(nodes)
     store = _zarr_store_for_path(output_path)
+    log.info("Writing Zarr to %s", output_path)
     prepared.to_zarr(
         store,
         mode="w" if overwrite else "w-",
         zarr_format=3,
         consolidated=False,
+        write_empty_chunks=True,
         encoding=encoding or None,
     )
-    print(f"DataTree saved to {output_path}")
+    log.info("Saved %s", output_path)
+
+
+def open_datatree(input_path: str) -> xr.DataTree:
+    """Open a staged Zarr store (local path or ``s3://`` URL) as a DataTree."""
+    store = _zarr_store_for_path(input_path)
+    return xr.open_datatree(store, engine="zarr", zarr_format=3, consolidated=False)
 
 
 def open_s3_zarr(

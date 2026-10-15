@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 import geopandas as gpd
@@ -10,12 +11,15 @@ from xarray.backends.file_manager import FILE_CACHE
 
 from . import io
 
+log = logging.getLogger(__name__)
+
 
 def open_nlcd(year: int = 2021) -> xr.DataArray:
     url = (
         "https://usgs.osn.mghpcc.org/hytest/nlcd/annual-nlcd-cu-c1v1/mosaic/"
         f"Annual_NLCD_LndCov_{year}_CU_C1V1.tif"
     )
+    log.info("NLCD: opening %s", url)
     # rioxarray's stub is stricter than its runtime API: chunks="auto" is a valid dask spec,
     # and without group/variable args this always returns a single DataArray, not the full union
     da = rioxarray.open_rasterio(url, chunks="auto", cache=False)  # ty: ignore[invalid-argument-type]
@@ -54,4 +58,4 @@ def stage(
     # sys.excepthook on Python 3.14.
     FILE_CACHE.clear()
 
-    print("DONE!")
+    log.info("Done")

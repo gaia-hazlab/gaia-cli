@@ -58,6 +58,11 @@ AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GI
 gaia stage all -i $AOI -s 2025-12-01 -e 2025-12-20 -o /tmp/skagit-test.zarr
 ```
 
+`stage` keeps every raster on its native grid and time step. To compare products, align them onto one grid (default: the coarsest, HRRR 3 km) and one time step (default: the coarsest, PRISM days) in a new store. See [docs/reprojecting.md](docs/reprojecting.md):
+```bash
+gaia align -i /tmp/skagit-test.zarr -o /tmp/skagit-test-aligned.zarr --aoi $AOI
+```
+
 Example static landcover staging (NLCD 2021)
 ```bash
 AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
