@@ -4,6 +4,7 @@ A CLI following https://packaging.python.org/en/latest/guides/creating-command-l
 
 import logging
 import os
+import sys
 
 import cyclopts
 
@@ -14,6 +15,7 @@ from .nlcd import stage as stage_nlcd
 from .prism import fill as prism_fill
 from .prism import rebuild_catalog as prism_rebuild_catalog
 from .prism import stage as stage_prism
+from .provenance import set_command
 from .synoptic import stage as stage_synoptic
 
 app = cyclopts.App()
@@ -69,6 +71,7 @@ def configure_logging():
 
 def main():
     configure_logging()
+    set_command(sys.argv[1:])
     app()
 
 

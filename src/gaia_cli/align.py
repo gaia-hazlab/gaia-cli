@@ -14,7 +14,7 @@ import numpy as np
 import xarray as xr
 from cyclopts import Parameter
 
-from . import io, regrid
+from . import io, provenance, regrid
 
 log = logging.getLogger(__name__)
 
@@ -100,6 +100,8 @@ def aggregate_time(
     result.time.attrs["bounds"] = "time_bounds"
     if "spatial_ref" in ds.coords:
         result = result.assign_coords(spatial_ref=ds.spatial_ref)
+    if "start_datetime" in ds.attrs:
+        result.attrs.update(provenance.time_extent(result))
     return result
 
 
@@ -285,5 +287,6 @@ def run(
     aligned = align(
         dt, like=like, time_like=time_like, crs=crs, res=res, method=method, aoi=aoi
     )
+    aligned.attrs = provenance.derived_from(aligned.attrs, input_path)
     io.save_datatree(aligned, output_path, overwrite=overwrite)
     log.info("Done")

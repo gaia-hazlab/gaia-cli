@@ -10,7 +10,7 @@ import odc.stac
 import xarray as xr
 from cyclopts import Parameter
 
-from . import io, prism_cache
+from . import io, prism_cache, provenance
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +48,7 @@ def open_prism(
     Returns
     -------
     xarray.Dataset
+        With provenance attributes from the cache's STAC collection.
     """
     if start is None:
         raise ValueError("start date is required")
@@ -59,6 +60,9 @@ def open_prism(
 
     ds = odc.stac.load(items, bands=list(variables), chunks={})
     ds = ds.rename({"longitude": "x", "latitude": "y"})
+    ds.attrs = provenance.collection_attrs(
+        cache.read_collection(), f"{cache.href_base}/{prism_cache.COLLECTION_KEY}"
+    )
 
     dates = [t.date() for t in ds.time.to_index().to_pydatetime()]
     for var in variables:
@@ -147,7 +151,8 @@ def load(
     Returns
     -------
     xarray.Dataset
-        One variable per PRISM variable plus CF ``time_bounds``.
+        One variable per PRISM variable plus CF ``time_bounds``, with
+        provenance attributes.
     """
     ds = open_prism(variables, start=start_date, end=end_date)
     parts = []
@@ -169,7 +174,13 @@ def load(
                 cell_methods=CELL_METHODS.get(var, "time: mean"),
             )
         )
-    return xr.merge(parts, combine_attrs="drop_conflicts")
+    out = xr.merge(parts, combine_attrs="drop_conflicts")
+    out.attrs = {
+        **ds.attrs,
+        "processing:lineage": "clipped to the AOI on the native grid; -9999 → NaN",
+        **provenance.time_extent(out),
+    }
+    return out
 
 
 def fill(

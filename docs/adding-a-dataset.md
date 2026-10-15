@@ -38,13 +38,22 @@ Examples: `prism.py`, `hrrr.py`.
    accumulations. `gaia align` relies on this to aggregate in time. Document
    the source's conventions in `docs/<dataset>.md` (see
    [prism.md](prism.md), [hrrr.md](hrrr.md)).
-5. **Implement `load()`** returning the clipped `xr.Dataset`, and
+5. **Record provenance.** Set the returned Dataset's `attrs` to the
+   source's STAC fields: at least `title`, `license`, `providers` and
+   `links` (a `license` link plus `via` or `derived_from` to the source),
+   with `version` if the source has one and
+   `provenance.time_extent(ds)`. If the source publishes a STAC collection,
+   start from `provenance.from_stac_collection(url)` (see `hrrr.py`);
+   otherwise write them out (see `nlcd.py`). `io.save_*` adds the run
+   attributes (`created`, `gaia:cli-version`, `gaia:command`); see
+   [provenance-metadata.md](provenance-metadata.md).
+6. **Implement `load()`** returning the clipped `xr.Dataset`, and
    **`stage()`** wiring it to the CLI (`cyclopts.Parameter` annotated
    args for `--input/-i`, `--start/-s`, `--end/-e`, `--output/-o`, plus any
    dataset-specific flags such as `--catalog` or `--variable`). Call
    `io.check_s3_env(output_path)` before loading, and `io.save_zarr(...)` to
    write the result.
-6. Register the command in `cli.py`:
+7. Register the command in `cli.py`:
    ```python
    from .newdataset import stage as stage_newdataset
    stage_app.command(stage_newdataset, name="newdataset")
@@ -64,8 +73,11 @@ Example: `synoptic.py`.
    (`xr.concat(..., dim="station", join="outer")`), so gaps between
    stations with different coverage become `NaN` rather than raising.
 3. **Implement `load()`** returning that `xr.DataArray`, and **`stage()`**
-   with the same CLI parameter conventions as gridded datasets. Call
-   `io.save_xvec_zarr(DA, output_path)` instead of `save_zarr` — this
+   with the same CLI parameter conventions as gridded datasets. A
+   DataArray's `attrs` describe the variable, so provide the source's
+   provenance through a separate `source_attrs(da)` function (see
+   `synoptic.py`). Call `io.save_xvec_zarr(DA, output_path,
+   attrs=source_attrs(DA))` instead of `save_zarr` — this
    swaps the `station` dim for `geometry`, sets an Xvec geometry index
    (`crs="EPSG:4326"`), and CF-encodes it (`xvec.encode_cf()`) so geometries
    round-trip through Zarr.
@@ -86,7 +98,8 @@ Zarr store. To make a new dataset compatible with `stage all`:
    - Vector: apply the same xvec encoding steps as `save_xvec_zarr`
      (`swap_dims({"station": "geometry"})` →
      `xvec.set_geom_indexes("geometry", crs="EPSG:4326")` →
-     `to_dataset().xvec.encode_cf()`)
+     `to_dataset().xvec.encode_cf()`), then set
+     `ds.attrs = _newdataset.source_attrs(da)`
 4. Add it to the `xr.DataTree.from_dict({...})` call under an appropriate
    group path — `rasters/<name>` for gridded data, `stations/<name>` for
    vector timeseries.
