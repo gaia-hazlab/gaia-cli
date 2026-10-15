@@ -28,17 +28,23 @@ Examples: `prism.py`, `hrrr.py`.
    - Time dim: `time` (rename to `<dataset>_time` only if it would collide
      with another time dimension in a combined tree)
    - Variable name + units, e.g. `precipitation` in `mm`
-3. **Clip to the AOI** using `io.clip_to_aoi(da, aoi, reproject=...)`. Set
-   `reproject=True` if the source CRS isn't already EPSG:4326 (e.g. HRRR's
-   Lambert Conformal grid) — this clips to a padded bounding box first,
-   reprojects, then clips to the exact polygon.
-4. **Implement `load()`** returning the clipped `xr.DataArray`, and
+3. **Clip to the AOI** using `io.clip_to_aoi(da, aoi)`. This reprojects the
+   AOI into the raster's CRS and keeps every touched cell; the raster stays
+   on its **native grid**. Don't reproject in `stage`: putting products on a
+   common grid is `gaia align`'s job (see [reprojecting.md](reprojecting.md)).
+4. **Describe the time step.** If each value covers a period rather than an
+   instant, return `io.with_time_bounds(da, start_hours, end_hours,
+   cell_methods)`, e.g. `(-1, 0, "time: sum")` for hour-ending
+   accumulations. `gaia align` relies on this to aggregate in time. Document
+   the source's conventions in `docs/<dataset>.md` (see
+   [prism.md](prism.md), [hrrr.md](hrrr.md)).
+5. **Implement `load()`** returning the clipped `xr.Dataset`, and
    **`stage()`** wiring it to the CLI (`cyclopts.Parameter` annotated
    args for `--input/-i`, `--start/-s`, `--end/-e`, `--output/-o`, plus any
    dataset-specific flags such as `--catalog` or `--variable`). Call
    `io.check_s3_env(output_path)` before loading, and `io.save_zarr(...)` to
    write the result.
-5. Register the command in `cli.py`:
+6. Register the command in `cli.py`:
    ```python
    from .newdataset import stage as stage_newdataset
    stage_app.command(stage_newdataset, name="newdataset")
