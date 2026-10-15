@@ -10,6 +10,7 @@ import cyclopts
 
 from .align import run as align
 from .all import stage as stage_all
+from .catalog import rebuild as catalog_rebuild
 from .hrrr import stage as stage_hrrr
 from .nlcd import stage as stage_nlcd
 from .prism import fill as prism_fill
@@ -34,6 +35,11 @@ stage_app.command(stage_nlcd, name="nlcd")
 
 # gaia align ...
 app.command(align, name="align")
+
+# gaia catalog rebuild ...
+catalog_app = cyclopts.App(name="catalog", help="STAC catalog of staged stores.")
+app.command(catalog_app)
+catalog_app.command(catalog_rebuild, name="rebuild")
 
 # gaia prism {fill,rebuild-catalog} ...
 prism_app = cyclopts.App(name="prism", help="Manage the gaia PRISM cache.")

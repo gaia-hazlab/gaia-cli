@@ -1,7 +1,10 @@
+import json
 import logging
 import os
+import posixpath
 import sys
 import warnings
+from pathlib import Path
 
 import boto3
 import geopandas as gpd
@@ -11,7 +14,7 @@ import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
 import xvec  # noqa: F401  registers the .xvec accessor
 from obstore.auth.boto3 import Boto3CredentialProvider
-from obstore.store import S3Store, from_url
+from obstore.store import LocalStore, S3Store, from_url
 from zarr.storage import ObjectStore
 
 from . import provenance
@@ -130,6 +133,30 @@ def _zarr_store_for_path(output_path: str):
     return output_path
 
 
+def object_store(path: str):
+    """An obstore store rooted at *path* (local directory or ``s3://`` URL)."""
+    if path.startswith("s3://"):
+        return _s3_store_for_path(path)
+    return LocalStore(Path(path).resolve())
+
+
+def write_json(path: str, doc: dict):
+    """Write *doc* as JSON to *path* (local or ``s3://``)."""
+    parent, name = posixpath.split(path)
+    obstore.put(object_store(parent or "."), name, json.dumps(doc, indent=1).encode())
+
+
+def item_path(output_path: str) -> str:
+    """Path of the STAC Item written next to the store at *output_path*."""
+    return output_path.rstrip("/").removesuffix(".zarr") + ".json"
+
+
+def _write_item(output_path: str, tree: xr.DataTree):
+    store_name = posixpath.basename(output_path.rstrip("/"))
+    write_json(item_path(output_path), provenance.stac_item(tree, store_name))
+    log.info("Wrote STAC item %s", item_path(output_path))
+
+
 def output_exists(output_path: str) -> bool:
     """Return True if anything already exists at *output_path* (local or ``s3://``)."""
     if output_path.startswith("s3://"):
@@ -240,6 +267,7 @@ def save_zarr(ds: xr.Dataset | xr.DataArray, output_path: str, overwrite: bool =
         encoding=encoding,
     )
     log.info("Saved %s", output_path)
+    _write_item(output_path, xr.DataTree(ds))
 
 
 def save_xvec_zarr(
@@ -281,6 +309,7 @@ def save_xvec_zarr(
         encoding=encoding,
     )
     log.info("Saved %s (xvec-encoded)", output_path)
+    _write_item(output_path, xr.DataTree(encoded))
 
 
 def save_datatree(dt: xr.DataTree, output_path: str, overwrite: bool = False):
@@ -324,6 +353,7 @@ def save_datatree(dt: xr.DataTree, output_path: str, overwrite: bool = False):
         encoding=encoding or None,
     )
     log.info("Saved %s", output_path)
+    _write_item(output_path, prepared)
 
 
 def open_datatree(input_path: str) -> xr.DataTree:

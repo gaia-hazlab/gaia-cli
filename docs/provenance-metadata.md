@@ -31,7 +31,7 @@ There are two kinds of attributes.
 | `created` | Write time, RFC 3339 UTC (STAC common metadata). |
 | `gaia:cli-version` | Commit SHA of the gaia-cli that wrote the store (see below). |
 | `gaia:command` | The `gaia …` command line. Only present when the CLI wrote the store, not when `io.save_*` is called from Python. |
-| `stac_extensions` | Schema URLs for the STAC extensions whose fields appear in the store. |
+| `stac_extensions` | Schema URLs for the STAC extensions whose fields appear in the root group (omitted if none). |
 | `gaia:license-note` | Present when the product groups have different licenses. The root then has no `license`. |
 | `gaia:inputs` | `gaia align` only: the run attributes and `href` of each input store, oldest first. |
 | `links` | `gaia align` only: a `derived_from` link to the input store. |
@@ -139,3 +139,6 @@ outage never stops a staging run.
 - No AOI geometry or link in the attributes.
 - No versions of dependencies such as xarray or zarr; only gaia-cli is recorded.
 - No flag for uncommitted changes in the working tree.
+
+Each store also gets a STAC Item next to it, built from these attributes; see
+[stac-catalog.md](stac-catalog.md).

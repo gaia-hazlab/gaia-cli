@@ -15,20 +15,26 @@ import json
 import logging
 import shlex
 import subprocess
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 
+import geopandas as gpd
 import pandas as pd
 import requests
+import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
+import xvec  # noqa: F401  registers the .xvec accessor
 
 log = logging.getLogger(__name__)
 
-STAC_EXTENSIONS = [
-    "https://stac-extensions.github.io/processing/v1.2.0/schema.json",
-    "https://stac-extensions.github.io/version/v1.2.0/schema.json",
-    "https://stac-extensions.github.io/scientific/v1.0.0/schema.json",
-]
+# STAC extension schema -> field prefix that marks its use. An extension's
+# schema rejects an object that declares it without any of its fields.
+STAC_EXTENSIONS = {
+    "https://stac-extensions.github.io/processing/v1.2.0/schema.json": "processing:",
+    "https://stac-extensions.github.io/version/v1.2.0/schema.json": "version",
+    "https://stac-extensions.github.io/scientific/v1.0.0/schema.json": "sci:",
+    "https://stac-extensions.github.io/xarray-assets/v1.0.0/schema.json": "xarray:",
+}
 # Fields and link relations copied from an upstream STAC collection
 COLLECTION_FIELDS = (
     "title",
@@ -40,6 +46,7 @@ COLLECTION_FIELDS = (
     "sci:citation",
 )
 COLLECTION_LINK_RELS = {"license", "about", "cite-as"}
+ZARR = "application/vnd+zarr"
 RUN_KEYS = ("created", "gaia:cli-version", "gaia:command", "stac_extensions")
 MULTIPLE_LICENSES_NOTE = (
     "Products in this store have different licenses; check each group's "
@@ -88,12 +95,21 @@ def _iso(t) -> str:
     return pd.Timestamp(t).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def extensions(*field_sets: Iterable[str]) -> list[str]:
+    """Schema URLs of the STAC extensions used by any of the given fields."""
+    fields = [f for fs in field_sets for f in fs]
+    return [
+        url
+        for url, prefix in STAC_EXTENSIONS.items()
+        if any(f.startswith(prefix) for f in fields)
+    ]
+
+
 def run_attrs() -> dict:
     """Attributes describing this run of gaia-cli."""
     attrs = {
         "created": _iso(dt.datetime.now(dt.UTC)),
         "gaia:cli-version": cli_version(),
-        "stac_extensions": STAC_EXTENSIONS,
     }
     if command is not None:
         attrs["gaia:command"] = command
@@ -102,7 +118,11 @@ def run_attrs() -> dict:
 
 def stamp(attrs: Mapping) -> dict:
     """*attrs* plus fresh run attributes, for a store's root group."""
-    return {**attrs, **run_attrs()}
+    out = {k: v for k, v in attrs.items() if k != "stac_extensions"}
+    out.update(run_attrs())
+    if exts := extensions(out):
+        out["stac_extensions"] = exts
+    return out
 
 
 def stamp_tree(tree: xr.DataTree) -> dict:
@@ -180,3 +200,108 @@ def from_stac_collection(href: str) -> dict:
         log.warning("could not read STAC collection %s (%s)", href, e)
         collection = None
     return collection_attrs(collection, href)
+
+
+def _bbox(ds: xr.Dataset) -> list[float] | None:
+    """WGS84 bounds of *ds*'s raster grid or CF-encoded point geometries."""
+    if "geometry_container" in ds:  # xvec.encode_cf output
+        decoded = ds.xvec.decode_cf()
+        crs = decoded.xindexes["geometry"].crs
+        geoms = gpd.GeoSeries(decoded.geometry.values, crs=crs).to_crs(4326)
+        return list(geoms.total_bounds)
+    if {"x", "y"} <= set(ds.dims) and ds.rio.crs is not None:
+        return list(ds.rio.transform_bounds("EPSG:4326"))
+    return None
+
+
+def bbox(tree: xr.DataTree) -> list[float] | None:
+    """WGS84 bounding box covering the data in every group of *tree*.
+
+    Computed from the data rather than the AOI, since clipping keeps every
+    touched cell and stations need not fill the AOI.
+    """
+    boxes = [b for node in tree.subtree if (b := _bbox(node.to_dataset()))]
+    if not boxes:
+        return None
+    west, south, east, north = zip(*boxes, strict=True)
+    return [float(min(west)), float(min(south)), float(max(east)), float(max(north))]
+
+
+def _unique(items: list[dict], key) -> list[dict]:
+    seen, out = set(), []
+    for item in items:
+        if (k := key(item)) not in seen:
+            seen.add(k)
+            out.append(item)
+    return out
+
+
+def stac_item(tree: xr.DataTree, store_name: str) -> dict:
+    """A STAC Item for the store *store_name*, written next to it.
+
+    Properties are the root attributes; when the groups hold the provenance
+    (``gaia stage all``), their time ranges, providers and links are merged,
+    and a single shared ``license`` is lifted to the Item.
+    """
+    groups = [node.attrs for node in tree.subtree]
+    props = {
+        str(k): v
+        for k, v in tree.attrs.items()
+        if k not in ("links", "stac_extensions")
+    }
+    starts = [a["start_datetime"] for a in groups if "start_datetime" in a]
+    ends = [a["end_datetime"] for a in groups if "end_datetime" in a]
+    if starts and ends:  # RFC 3339 UTC strings sort chronologically
+        props.update(datetime=None, start_datetime=min(starts), end_datetime=max(ends))
+    else:
+        props["datetime"] = props.get("created")
+    licenses = {a["license"] for a in groups if "license" in a}
+    if "license" not in props and len(licenses) == 1:
+        props["license"] = licenses.pop()
+    providers = [p for a in groups for p in a.get("providers", [])]
+    if providers:
+        props["providers"] = _unique(providers, lambda p: p["name"])
+
+    groups_desc = ", ".join(n.path.lstrip("/") for n in tree.leaves if n is not tree)
+    if "description" not in props and groups_desc:
+        props["description"] = f"gaia-cli store with groups: {groups_desc}"
+
+    box = bbox(tree)
+    item = {
+        "type": "Feature",
+        "stac_version": "1.1.0",
+        "id": store_name.removesuffix(".zarr"),
+        "geometry": None,
+        "properties": props,
+        "links": _unique(
+            [lk for a in groups for lk in a.get("links", [])],
+            lambda lk: (lk["rel"], lk["href"]),
+        ),
+        "assets": {
+            "data": {
+                "href": f"./{store_name}",
+                "type": ZARR,
+                "title": "Zarr store (open with xarray.open_datatree)",
+                "roles": ["data"],
+                "xarray:open_kwargs": {"engine": "zarr", "consolidated": True},
+            }
+        },
+    }
+    asset_fields = [f for a in item["assets"].values() for f in a]
+    item["stac_extensions"] = extensions(props, asset_fields)
+    if box:
+        west, south, east, north = box
+        item["bbox"] = box
+        item["geometry"] = {
+            "type": "Polygon",
+            "coordinates": [
+                [
+                    [west, south],
+                    [east, south],
+                    [east, north],
+                    [west, north],
+                    [west, south],
+                ]
+            ],
+        }
+    return item

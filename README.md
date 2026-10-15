@@ -120,6 +120,11 @@ dt["rasters/hrrr"].attrs["license"]  # 'CC-BY-4.0'
 Products have different licenses, so check each group's `license` and `links`
 before sharing a store. See [docs/provenance-metadata.md](docs/provenance-metadata.md).
 
+Each store also gets a STAC Item next to it (`out.zarr` → `out.json`).
+`gaia catalog rebuild -p s3://bucket/prefix` links every Item under a prefix
+into a `catalog.json` for browsing in stac-browser; see
+[docs/stac-catalog.md](docs/stac-catalog.md).
+
 
 ## Design ideas:
 
