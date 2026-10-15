@@ -101,6 +101,56 @@ def test_construct_uniform_datarray_from_raw_precip():
     assert da.sel(station="QUARTER").values.tolist() == [0.0, 2.0, 4.0, 6.0]
 
 
+def test_construct_uniform_datarray_off_hour_reports_never_include_later_precip():
+    station = _station(
+        "OFFHOUR",
+        {
+            "date_time": [f"2025-12-01T0{h}:28:00Z" for h in range(4)],
+            "precip_accumulated_set_1d": [0.0, 1.0, 3.0, 6.0],
+        },
+    )
+    da = synoptic.construct_uniform_datarray({"STATION": [station]}).sel(
+        station="OFFHOUR"
+    )
+
+    # 01:00 holds the 00:28 report, not the 01:28 one
+    assert da.time.dt.strftime("%H:%M").values.tolist() == [
+        "01:00",
+        "02:00",
+        "03:00",
+        "04:00",
+    ]
+    assert da.values.tolist() == [0.0, 1.0, 3.0, 6.0]
+    assert da.report_time.dt.strftime("%H:%M").values.tolist() == [
+        "00:28",
+        "01:28",
+        "02:28",
+        "03:28",
+    ]
+
+
+def test_construct_uniform_datarray_leaves_hours_without_a_report_missing():
+    station = _station(
+        "GAP",
+        {
+            "date_time": [
+                "2025-12-01T00:00:00Z",
+                "2025-12-01T01:00:00Z",
+                "2025-12-01T04:00:00Z",
+            ],
+            "precip_accumulated_set_1d": [0.0, 1.0, 9.0],
+        },
+    )
+    da = synoptic.construct_uniform_datarray({"STATION": [station]}).sel(
+        station="GAP"
+    )
+
+    # The 8 mm reported at 04:00 is not assigned to 02:00 or 03:00
+    assert da.sizes["time"] == 5
+    assert da.isnull().values.tolist() == [False, False, True, True, False]
+    assert da.sel(time="2025-12-01T04:00").item() == 9.0
+
+
 def test_construct_uniform_datarray_prefers_derived_precip():
     station = _station(
         "DERIVED",
