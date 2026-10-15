@@ -56,6 +56,18 @@ def _now() -> dt.datetime:
     return dt.datetime.now(dt.UTC)
 
 
+def _profile_endpoint(profile: str) -> str | None:
+    """S3 endpoint URL configured for an AWS *profile* (None if unknown)."""
+    import boto3
+    import botocore.exceptions
+
+    try:
+        client = boto3.Session(profile_name=profile).client("s3")
+    except botocore.exceptions.BotoCoreError:
+        return None
+    return client.meta.endpoint_url.rstrip("/")  # AWS's own endpoint if unset
+
+
 class PrismCache:
     """Read and fill the PRISM cache.
 
@@ -78,34 +90,60 @@ class PrismCache:
     def from_env(cls, writable: bool | None = None) -> PrismCache:
         """Build a cache from the environment.
 
-        ``PRISM_CACHE_URL`` (default ``s3://gaia/public/prism``) and
-        ``PRISM_CACHE_ENDPOINT`` (default ``https://s3.kopah.uw.edu``) locate
-        the cache. Writing uses boto3 credentials and is enabled when
-        ``AWS_PROFILE`` or ``AWS_ACCESS_KEY_ID`` is set, unless *writable* is
-        given. Reading is anonymous over HTTPS.
+        ``PRISM_CACHE_URL`` (default ``s3://gaia/public/prism``) locates the
+        cache. ``PRISM_CACHE_PROFILE`` names the AWS profile for the cache,
+        separate from ``AWS_PROFILE`` used for staged outputs; its
+        ``endpoint_url`` and ``region`` are used unless ``PRISM_CACHE_ENDPOINT``
+        overrides the endpoint. With neither set the cache is on Kopah
+        (``https://s3.kopah.uw.edu``).
+
+        Writing uses boto3 credentials and is enabled, unless *writable* is
+        given, when ``PRISM_CACHE_PROFILE`` or ``AWS_ACCESS_KEY_ID`` is set, or
+        when ``AWS_PROFILE`` names a profile whose ``endpoint_url`` is the
+        cache endpoint (so an ``AWS_PROFILE`` for another store, e.g.
+        Backblaze, leaves the cache read-only). Otherwise reading is anonymous.
         """
         url = os.environ.get("PRISM_CACHE_URL", DEFAULT_URL)
-        endpoint = os.environ.get("PRISM_CACHE_ENDPOINT", DEFAULT_ENDPOINT)
+        profile = os.environ.get("PRISM_CACHE_PROFILE")
+        endpoint = os.environ.get("PRISM_CACHE_ENDPOINT")
+        if endpoint is None:
+            endpoint = (profile and _profile_endpoint(profile)) or DEFAULT_ENDPOINT
+        endpoint = endpoint.rstrip("/")
+        if profile is None and os.environ.get("AWS_PROFILE"):
+            if _profile_endpoint(os.environ["AWS_PROFILE"]) == endpoint:
+                profile = os.environ["AWS_PROFILE"]
+            else:
+                log.info(
+                    "AWS_PROFILE=%s does not point at the PRISM cache (%s); "
+                    "reading the cache anonymously. Set PRISM_CACHE_PROFILE to "
+                    "fill it.",
+                    os.environ["AWS_PROFILE"],
+                    endpoint,
+                )
         if writable is None:
-            writable = bool(
-                os.environ.get("AWS_PROFILE") or os.environ.get("AWS_ACCESS_KEY_ID")
-            )
+            writable = bool(profile or os.environ.get("AWS_ACCESS_KEY_ID"))
         parsed = urlparse(url)
         bucket, prefix = parsed.netloc, parsed.path.strip("/")
         common = {
             "bucket": bucket,
             "prefix": prefix,
             "endpoint": endpoint,
-            "region": "us-west-2",
             "virtual_hosted_style_request": False,
         }
         if writable:
+            import boto3
             from obstore.auth.boto3 import Boto3CredentialProvider
 
-            store = S3Store(credential_provider=Boto3CredentialProvider(), **common)
+            # Signed requests need the store's region (e.g. B2's us-west-004)
+            session = boto3.Session(profile_name=profile)
+            store = S3Store(
+                credential_provider=Boto3CredentialProvider(session),
+                region=session.region_name or "us-west-2",
+                **common,
+            )
         else:
-            store = S3Store(skip_signature=True, **common)
-        return cls(store, f"{endpoint.rstrip('/')}/{bucket}/{prefix}", writable)
+            store = S3Store(skip_signature=True, region="us-west-2", **common)
+        return cls(store, f"{endpoint}/{bucket}/{prefix}", writable)
 
     # -- keys -------------------------------------------------------------
 
@@ -310,8 +348,9 @@ class PrismCache:
             if missing and not self.writable:
                 raise CacheMiss(
                     f"{len(missing)} PRISM {var} grid(s) between {missing[0]} and "
-                    f"{missing[-1]} are not cached. Set AWS_PROFILE with write "
-                    "access to the cache to fetch them (e.g. `gaia prism fill`)."
+                    f"{missing[-1]} are not cached. Set PRISM_CACHE_PROFILE (or "
+                    "AWS_PROFILE) to a profile with write access to the cache to "
+                    "fetch them (e.g. `gaia prism fill`)."
                 )
             if stale and not self.writable:
                 warnings.warn(

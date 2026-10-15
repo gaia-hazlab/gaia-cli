@@ -203,7 +203,10 @@ def fill(
     """
     cache = prism_cache.PrismCache.from_env()
     if not cache.writable:
-        sys.exit("Error: set AWS_PROFILE to a profile that can write to the cache.")
+        sys.exit(
+            "Error: set PRISM_CACHE_PROFILE (or AWS_PROFILE) to a profile that "
+            "can write to the cache."
+        )
     entries = cache.ensure(variables, start_date, end_date, revalidate=revalidate)
     for var, cached in entries.items():
         provisional = sum(
@@ -221,6 +224,9 @@ def rebuild_catalog():
     """
     cache = prism_cache.PrismCache.from_env()
     if not cache.writable:
-        sys.exit("Error: set AWS_PROFILE to a profile that can write to the cache.")
+        sys.exit(
+            "Error: set PRISM_CACHE_PROFILE (or AWS_PROFILE) to a profile that "
+            "can write to the cache."
+        )
     n = cache.rebuild_catalog()
     log.info("Rebuilt catalog from %d item(s): %s/collection.json", n, cache.href_base)

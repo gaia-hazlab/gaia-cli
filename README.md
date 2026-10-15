@@ -71,7 +71,7 @@ gaia stage nlcd -i $AOI -o s3://gaia/scratch/skagit-nlcd-2021.zarr --year 2021
 
 ### Output to S3
 
-Zarr outputs are well-suited to S3-compatible object stores (e.g. AWS S3, MinIO, etc.). The examples below write to a University of Washington object store called [Kopah](https://hyak.uw.edu/docs/systems/kopah/overview/). We output to a `scratch` prefix that has a 30-day lifecycle policy (any uploaded file is deleted after 30 days). You must have credentials to write to this bucket, credentials can be configured by setting environment variables `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` or by using the AWS config files:
+Zarr outputs are well-suited to S3-compatible object stores (e.g. AWS S3, MinIO, etc.). The examples below write to either a University of Washington object store called [Kopah](https://hyak.uw.edu/docs/systems/kopah/overview/) or [backblaze B2](https://www.backblaze.com/docs). We output to a `scratch` prefix that has a 30-day lifecycle policy (any uploaded file is deleted after 30 days). You must have credentials to write to this bucket, credentials can be configured by setting environment variables `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` or by using the AWS config files and settings AWS_PROFILE to the profile name. For example, to use the `kopah` profile, set `AWS_PROFILE=kopah` in your environment:
 
 `~/.aws/config`:
 ```
@@ -82,11 +82,19 @@ response_checksum_validation = when_required
 s3 =
     payload_signing_enabled = false
     checksum_algorithm = crc32
+
+[profile b2]
+region = us-west-004
+endpoint_url = https://s3.us-west-004.backblazeb2.com
 ```
 
 `~/.aws/credentials`:
 ```
 [kopah]
+aws_access_key_id = YOUR_ACCESS_KEY
+aws_secret_access_key = YOUR_SECRET_KEY
+
+[b2]
 aws_access_key_id = YOUR_ACCESS_KEY
 aws_secret_access_key = YOUR_SECRET_KEY
 ```
