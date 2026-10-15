@@ -257,3 +257,62 @@ def test_rebuild_catalog_matches_incremental(store_dir, fake_upstream):
 
     assert c.rebuild_catalog() == 4
     assert [_read(store_dir / f) for f in files] == before
+
+
+@pytest.fixture
+def aws_config(tmp_path, monkeypatch):
+    """Point boto3 at a throwaway config with a Kopah and a B2 profile."""
+    config = tmp_path / "config"
+    config.write_text(
+        "[profile kopah]\n"
+        "endpoint_url = https://s3.kopah.uw.edu\n"
+        "[profile b2]\n"
+        "region = us-west-004\n"
+        "endpoint_url = https://s3.us-west-004.backblazeb2.com\n"
+    )
+    creds = tmp_path / "credentials"
+    creds.write_text(
+        "[kopah]\naws_access_key_id = k\naws_secret_access_key = s\n"
+        "[b2]\naws_access_key_id = k\naws_secret_access_key = s\n"
+    )
+    monkeypatch.setenv("AWS_CONFIG_FILE", str(config))
+    monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(creds))
+    for var in (
+        "AWS_PROFILE",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_ENDPOINT_URL",
+        "PRISM_CACHE_URL",
+        "PRISM_CACHE_ENDPOINT",
+        "PRISM_CACHE_PROFILE",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    return monkeypatch
+
+
+def test_from_env_defaults_to_anonymous_kopah(aws_config):
+    c = PrismCache.from_env()
+    assert c.href_base == "https://s3.kopah.uw.edu/gaia/public/prism"
+    assert not c.writable
+
+
+def test_from_env_output_profile_for_other_store_leaves_cache_read_only(aws_config):
+    aws_config.setenv("AWS_PROFILE", "b2")
+    c = PrismCache.from_env()
+    assert c.href_base == "https://s3.kopah.uw.edu/gaia/public/prism"
+    assert not c.writable
+
+
+def test_from_env_output_profile_for_kopah_writes_cache(aws_config):
+    aws_config.setenv("AWS_PROFILE", "kopah")
+    assert PrismCache.from_env().writable
+
+
+def test_from_env_cache_profile_supplies_endpoint(aws_config):
+    aws_config.setenv("AWS_PROFILE", "kopah")
+    aws_config.setenv("PRISM_CACHE_PROFILE", "b2")
+    aws_config.setenv("PRISM_CACHE_URL", "s3://gaia-scratch/prism-cache")
+    c = PrismCache.from_env()
+    assert c.href_base == (
+        "https://s3.us-west-004.backblazeb2.com/gaia-scratch/prism-cache"
+    )
+    assert c.writable

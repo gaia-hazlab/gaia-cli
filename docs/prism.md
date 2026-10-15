@@ -55,7 +55,11 @@ Browse it with any STAC client from
   limit) is queried, and newer releases are re-fetched, but never within 24 h
   of the previous fetch. Staged variables carry a `prism_release` attribute,
   one value per time step.
-- Override the location with `PRISM_CACHE_URL` and `PRISM_CACHE_ENDPOINT`.
+- Override the location with `PRISM_CACHE_URL`. Set `PRISM_CACHE_PROFILE` to
+  use an AWS profile for the cache that differs from `AWS_PROFILE` (used for
+  staged outputs); its `endpoint_url` and `region` come from `~/.aws/config`.
+  `PRISM_CACHE_ENDPOINT` overrides the endpoint. With none set the cache is
+  Kopah, and an `AWS_PROFILE` for another store leaves it read-only.
 - Not done yet: no lock stops two writers fetching the same grid at once
   (TODO in `cache.py`), and nothing keeps recent days current
   automatically (a scheduled `gaia prism fill` could do this).
