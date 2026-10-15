@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import warnings
 
 import boto3
 import geopandas as gpd
@@ -92,14 +93,29 @@ def with_time_bounds(
 def _s3_store_for_path(output_path: str):
     # obstore doesn't read endpoint_url from ~/.aws/config, so resolve it
     # via boto3 to support S3-compatible stores (e.g. Ceph) set in AWS_PROFILE.
-    endpoint = boto3.Session().client("s3").meta.endpoint_url
+    # B2 also requires the profile's region (e.g. us-west-004) in signatures.
+    session = boto3.Session()
+    endpoint = session.client("s3").meta.endpoint_url
     return from_url(
         output_path,
-        credential_provider=Boto3CredentialProvider(),
-        region="us-west-2",
+        credential_provider=Boto3CredentialProvider(session),
+        region=session.region_name or "us-west-2",
         endpoint=endpoint,
         virtual_hosted_style_request=False,
     )
+
+
+class _UnconditionalObjectStore(ObjectStore):
+    """ObjectStore that avoids conditional PUTs.
+
+    zarr creates new keys with ``If-None-Match: *``, which Backblaze B2 rejects
+    (501 NotImplemented). Check-then-write is fine here because outputs have a
+    single writer and ``check_output`` refuses existing paths up front.
+    """
+
+    async def set_if_not_exists(self, key, value) -> None:
+        if not await self.exists(key):
+            await self.set(key, value)
 
 
 def _zarr_store_for_path(output_path: str):
@@ -108,7 +124,7 @@ def _zarr_store_for_path(output_path: str):
     Handles both local paths and ``s3://`` URLs.
     """
     if output_path.startswith("s3://"):
-        return ObjectStore(_s3_store_for_path(output_path))
+        return _UnconditionalObjectStore(_s3_store_for_path(output_path))
     return output_path
 
 
@@ -145,6 +161,9 @@ def check_s3_env(output_path: str):
 
 
 _CHUNK_TARGET_BYTES = 10 * 1024 * 1024  # 10 MB
+# Every save consolidates metadata so anonymous readers never need to LIST the
+# store: Backblaze B2 public buckets reject unauthenticated list requests.
+warnings.filterwarnings("ignore", message="Consolidated metadata is currently not part")
 # Every save passes write_empty_chunks=True: zarr otherwise skips chunks that
 # hold only the fill value (e.g. spatial_ref = 0, all-NaN chunks), and Kopah
 # answers anonymous GETs for missing keys with 403 rather than 404, which
@@ -213,7 +232,7 @@ def save_zarr(ds: xr.Dataset | xr.DataArray, output_path: str, overwrite: bool =
         store,
         mode="w" if overwrite else "w-",
         zarr_format=3,
-        consolidated=False,
+        consolidated=True,
         write_empty_chunks=True,
         encoding=encoding,
     )
@@ -245,7 +264,7 @@ def save_xvec_zarr(DA: xr.DataArray, output_path: str, overwrite: bool = False):
         store,
         mode="w" if overwrite else "w-",
         zarr_format=3,
-        consolidated=False,
+        consolidated=True,
         write_empty_chunks=True,
         encoding=encoding,
     )
@@ -287,7 +306,7 @@ def save_datatree(dt: xr.DataTree, output_path: str, overwrite: bool = False):
         store,
         mode="w" if overwrite else "w-",
         zarr_format=3,
-        consolidated=False,
+        consolidated=True,
         write_empty_chunks=True,
         encoding=encoding or None,
     )
@@ -297,7 +316,7 @@ def save_datatree(dt: xr.DataTree, output_path: str, overwrite: bool = False):
 def open_datatree(input_path: str) -> xr.DataTree:
     """Open a staged Zarr store (local path or ``s3://`` URL) as a DataTree."""
     store = _zarr_store_for_path(input_path)
-    return xr.open_datatree(store, engine="zarr", zarr_format=3, consolidated=False)
+    return xr.open_datatree(store, engine="zarr", zarr_format=3, consolidated=None)
 
 
 def open_s3_zarr(
