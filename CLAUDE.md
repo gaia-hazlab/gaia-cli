@@ -8,11 +8,14 @@ Always use `pixi run python ...` when running Python commands. Do NOT create vir
 ```bash
 # Run tests
 pixi run test
+pixi run coverage    # tests + line coverage of src/gaia_cli (pytest-cov), fails below 80% (CI)
+pixi run test-online # network smoke tests, marked @pytest.mark.online (skipped by default)
 
 pixi run typecheck   # ty check src/
 
 # Lint code & format
-pixi run lint        # ruff check src tests
+pixi run lint        # ruff check --fix + format, src and tests
+pixi run lint-check  # the same, check only (CI)
 ```
 
 ## Code Style
@@ -38,10 +41,10 @@ src/gaia_cli/
   prism.py      # PRISM daily grids (from the S3 cache, via in-memory STAC)
   prism_cache/  # Rolling S3 cache of unzipped PRISM COGs (no other gaia_cli imports)
   hrrr.py       # HRRR analysis precipitation (Icechunk)
+  stagefile.py  # "stage --config" – stage.yaml parser, window grammar, runner
   all.py        # "stage all" – loads every product into an xr.DataTree
 
-tests/
-  test_all.py
+tests/          # pytest suite; test_online.py needs network
 ```
 
 

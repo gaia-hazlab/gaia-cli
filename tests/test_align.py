@@ -41,8 +41,12 @@ def _day_bins(daily):
 def test_hours_land_in_prism_day_ending_12z():
     hourly = _hourly(0.0)
     t = pd.DatetimeIndex(hourly.time.values)
-    hourly["precipitation"][t == pd.Timestamp("2025-12-02T12:00")] = 1.0  # last hour of Dec 2
-    hourly["precipitation"][t == pd.Timestamp("2025-12-02T13:00")] = 5.0  # first hour of Dec 3
+    hourly["precipitation"][t == pd.Timestamp("2025-12-02T12:00")] = (
+        1.0  # last hour of Dec 2
+    )
+    hourly["precipitation"][t == pd.Timestamp("2025-12-02T13:00")] = (
+        5.0  # first hour of Dec 3
+    )
 
     out = align.aggregate_time(hourly, *_day_bins(_daily()))
 
@@ -86,9 +90,13 @@ def test_align_daily_on_coarsest_grid_roundtrip(tmp_path):
 
 
 def test_clip_to_aoi_keeps_native_crs_and_touched_cells():
-    da = _raster(pd.date_range("2025-12-01", periods=1), 1_000, 10, 10, np.ones((1, 10, 10)))
+    da = _raster(
+        pd.date_range("2025-12-01", periods=1), 1_000, 10, 10, np.ones((1, 10, 10))
+    )
     # AOI in EPSG:4326 covering a small part of the UTM grid
-    aoi_utm = gpd.GeoDataFrame(geometry=[box(562_500, 5_360_500, 565_500, 5_363_500)], crs="EPSG:32610")
+    aoi_utm = gpd.GeoDataFrame(
+        geometry=[box(562_500, 5_360_500, 565_500, 5_363_500)], crs="EPSG:32610"
+    )
 
     clipped = io.clip_to_aoi(da, aoi_utm.to_crs("EPSG:4326"))
 

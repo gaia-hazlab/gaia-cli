@@ -1,0 +1,17 @@
+# Skagit Basin atmospheric river, December 2025: station, PRISM and HRRR precipitation
+# plus land cover. Check with --dry-run, then stage:
+#   gaia stage --config examples/skagit-2025.yaml --dry-run
+#   gaia stage --config examples/skagit-2025.yaml -o /tmp/skagit.zarr
+name: skagit-2025-12
+attrs:
+  title: Skagit Basin atmospheric river, December 2025
+aoi: https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
+window: 2025-12-01/2025-12-20       # whole days, end included
+datasets:
+  synoptic: {}
+  prism: {}
+  hrrr:
+    # Start 11 h early so the first PRISM day, (Nov 30 12:00, Dec 1 12:00] UTC,
+    # has all 24 hour-ending HRRR values
+    window: {start: 2025-11-30T13:00:00Z, end: 2025-12-20}
+  nlcd: {year: 2021}

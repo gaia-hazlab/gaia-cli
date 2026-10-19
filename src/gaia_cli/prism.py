@@ -154,6 +154,8 @@ def load(
         One variable per PRISM variable plus CF ``time_bounds``, with
         provenance attributes.
     """
+    # Days are selected by their date label, so timestamps keep only the date
+    start_date, end_date = (str(t)[:10] for t in (start_date, end_date))
     ds = open_prism(variables, start=start_date, end=end_date)
     parts = []
     for var in variables:

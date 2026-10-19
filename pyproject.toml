@@ -6,6 +6,7 @@ version = "0.1.0"
 dependencies = [
   "cyclopts>=5.2.0,<6",
   "geopandas>=1.2.0,<2",
+  "pyyaml>=6",
   "requests",
   "xarray",
   "xvec>=0.5.2,<0.6",
@@ -23,10 +24,25 @@ dev = [
 gaia = "gaia_cli.cli:main"
 
 [tool.pytest.ini_options]
+# Network tests are opt-in: `pixi run test-online` (pytest -m online)
+addopts = "-m 'not online'"
+markers = ["online: needs network access to the upstream data services"]
 filterwarnings = [
-  # upstream: rioxarray still uses affine's deprecated `*` operator
-  "ignore:Use `@` matmul instead of `\\*` mul operator:PendingDeprecationWarning:rioxarray",
+  # upstream: rioxarray and odc-geo still use affine's deprecated `*` operator
+  "ignore:Use `@` matmul instead of `\\*` mul operator:PendingDeprecationWarning:(rioxarray|odc\\.geo)",
+  # upstream: odc-geo still calls the deprecated shapely.ops.transform
+  "ignore:The 'shapely.ops.transform\\(\\)' function is deprecated:DeprecationWarning:odc\\.geo",
+  # io.py consolidates every store on purpose and silences this at runtime,
+  # but pytest resets warning filters per test
+  "ignore:Consolidated metadata is currently not part:zarr.errors.ZarrUserWarning",
 ]
+
+[tool.coverage.run]
+source = ["gaia_cli"]
+
+[tool.coverage.report]
+fail_under = 80
+skip_covered = true
 
 [build-system]
 build-backend = "hatchling.build"
@@ -40,22 +56,19 @@ platforms = ["osx-arm64", "linux-64"]
 [tool.pixi.pypi-dependencies]
 gaia_cli = { path = ".", editable = true }
 
-# Convenient 'tests' for 12/2025 atmospheric river
-[tool.pixi.tasks]
-skagit-synoptic = "gaia stage synoptic -i https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json -s 2025-12-01 -e 2025-12-02 -o /tmp/skagit-synoptic.zarr"
-skagit-synoptic-s3 = "gaia stage synoptic -i https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json -s 2025-12-01 -e 2025-12-02 -o s3://cresst/scratch/skagit-synoptic.zarr"
-skagit-prism = "gaia stage prism -i https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json -s 2025-12-01 -e 2025-12-02 -o /tmp/skagit-prism.zarr"
-skagit-hrrr = "gaia stage hrrr -i https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json -s 2025-12-01 -e 2025-12-02 -o /tmp/skagit-hrrr.zarr"
-skagit-all = "gaia stage all -i https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json -s 2025-12-01 -e 2025-12-02 -o /tmp/skagit-all.zarr"
-
-
 [tool.pixi.environments]
 dev = { features = ["dev"], solve-group = "default" }
 
 [tool.pixi.feature.dev.tasks]
-test = "pytest"
-typecheck = "ty check src/"
-lint = "ruff check src/ --fix ; ruff format src/"
+test = { cmd = "pytest", description = "Run the test suite" }
+test-online = { cmd = "pytest -m online", description = "Run the network smoke tests (SYNOPTIC_TOKEN enables synoptic)" }
+coverage = { cmd = "pytest --cov --cov-report=term-missing", description = "Run the tests and report line coverage of src/gaia_cli; fails below 80%" }
+typecheck = { cmd = "ty check src/", description = "Type-check src/ with ty" }
+lint = { cmd = "ruff check src tests --fix ; ruff format src tests", description = "Fix lint issues and format src/ and tests/" }
+lint-check = { cmd = "ruff check src tests && ruff format --check src tests", description = "Check lint and formatting without changing files (CI)" }
+
+[tool.pixi.feature.dev.dependencies]
+pytest-cov = ">=7.1.0,<8"
 
 [tool.pixi.dependencies]
 ipykernel = ">=7.4.0,<8"

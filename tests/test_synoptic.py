@@ -141,9 +141,7 @@ def test_construct_uniform_datarray_leaves_hours_without_a_report_missing():
             "precip_accumulated_set_1d": [0.0, 1.0, 9.0],
         },
     )
-    da = synoptic.construct_uniform_datarray({"STATION": [station]}).sel(
-        station="GAP"
-    )
+    da = synoptic.construct_uniform_datarray({"STATION": [station]}).sel(station="GAP")
 
     # The 8 mm reported at 04:00 is not assigned to 02:00 or 03:00
     assert da.sizes["time"] == 5

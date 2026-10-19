@@ -1,7 +1,7 @@
 import numpy as np
-from affine import Affine
 import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
+from affine import Affine
 
 from gaia_cli import regrid
 
@@ -23,7 +23,9 @@ def test_conservative_equals_block_mean_on_nested_grids():
     out = regrid.regrid(src, tgt, "conservative")
 
     expected = src.coarsen(x=2, y=2).mean()
-    np.testing.assert_allclose(out.values, expected.values, rtol=1e-6)  # UTM → local LAEA area distortion
+    np.testing.assert_allclose(
+        out.values, expected.values, rtol=1e-6
+    )  # UTM → local LAEA area distortion
     assert out.rio.crs == tgt.rio.crs
 
 
