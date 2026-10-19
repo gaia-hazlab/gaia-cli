@@ -52,7 +52,7 @@ precipitation comparison.
 | **1** | `dem` (Cop30, 3DEP 10 m) | OpenTopography, USGS (VRTs) | landlab (core input); peters (cube only) | The only new dataset both workflows need. See [DEM resolution](#dem-resolution). |
 | 2 | `prism --variables` (tmin, tmax) | existing | landlab (via `landlab_debrisflow`) | Small change to an existing command |
 | 2 | `soil --product solus100` (7 layers) | SOLUS100 COGs on GCS | landlab | CONUS only |
-| 2 | `burn_severity` (SBS) | USGS BAER | landlab | Fire-specific; filename templating from fire name and id |
+| 2 | `burn_severity` (SBS) | USFS BAER image service | landlab | Fire-specific; found by AOI (revised in step 1.4, see [burn_severity.md](../burn_severity.md)) |
 | 2 | `seismic`, `infrasound` | EarthScope FDSN | peters | Core of the landslide analysis. See [obspy-dependency.md](obspy-dependency.md). |
 | 2 | `era5` + atmosphere profiles | Open-Meteo | peters | One provider, no key |
 | 2 | `sentinel1-rtc`, `sentinel2` | Planetary Computer | peters | Anonymous. Peters uses PC for S1 and Earth Search for S2; PC also serves S2 L2A, so one provider covers both. |
@@ -86,7 +86,7 @@ datum in `gaia align` is a TODO. See [dem.md](../dem.md).
 | **EarthScope FDSN** | none | `seismic`, `infrasound` | peters | global networks; AK network well covered |
 | **Open-Meteo** | none; usage policy, rate limits | `era5`, atmosphere profiles | peters | global |
 | SOLUS100 (GCS) | none | `soil --product solus100` | landlab | **CONUS** |
-| USGS BAER | none | `burn_severity` | landlab | US fires |
+| USFS BAER (GeoPlatform image service) | none | `burn_severity` | landlab | USFS fires from 2017, CONUS |
 | PRISM (gaia S3 cache / NACSE) | none | `prism` | gaia, landlab | **CONUS** |
 | dynamical.org | none | `hrrr` | gaia | **CONUS** |
 | USGS (OSN, MRLC) | none | `nlcd` | gaia, landlab | **CONUS** |
@@ -170,7 +170,7 @@ Summary by region:
 | dataset | CONUS | Alaska | global |
 |---|---|---|---|
 | prism, hrrr, nlcd, solus100 | ✓ | ✗ | ✗ |
-| burn_severity | ✓ | US fires | ✗ |
+| burn_severity | USFS fires | ✗ | ✗ |
 | synoptic | ✓ | ✓ | partial |
 | dem (Cop30), sentinel1-rtc, sentinel2, era5, seismic, infrasound | ✓ | ✓ | ✓ |
 

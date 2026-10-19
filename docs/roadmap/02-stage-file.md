@@ -85,7 +85,7 @@ datasets:
   dem/usgs10m: {}                  # see 04, DEM resolution
   nlcd: {year: 2021}
   soil: {product: solus100}
-  burn_severity: {fire_id: WA4773512130820220910}
+  burn_severity: {fire: bolt creek}
   prism: {window: 2022-10-01/2023-05-31, variables: [ppt, tmin, tmax]}
 ```
 

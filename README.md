@@ -91,6 +91,11 @@ Example soil staging: the seven SOLUS100 layers (CONUS, 100 m) the landlab workf
 gaia stage soil -i $AOI -o /tmp/skagit-soil
 ```
 
+Example burn severity staging: a USFS BAER soil burn severity map (2017 on), chosen by the AOI and, where several fires intersect it, `--fire` and `--year`, see [docs/burn_severity.md](docs/burn_severity.md)
+```bash
+gaia stage burn_severity -i pioneer-aoi.geojson -o /tmp/pioneer-sbs --fire pioneer
+```
+
 ### Output to S3
 
 Zarr outputs are well-suited to S3-compatible object stores (e.g. AWS S3, MinIO, etc.). The examples below write to either a University of Washington object store called [Kopah](https://hyak.uw.edu/docs/systems/kopah/overview/) or [backblaze B2](https://www.backblaze.com/docs). We output to a `scratch` prefix that has a 30-day lifecycle policy (any uploaded file is deleted after 30 days). You must have credentials to write to this bucket, credentials can be configured by setting environment variables `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` or by using the AWS config files and settings AWS_PROFILE to the profile name. For example, to use the `kopah` profile, set `AWS_PROFILE=kopah` in your environment:
