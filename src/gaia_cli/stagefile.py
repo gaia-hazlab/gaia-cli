@@ -47,7 +47,7 @@ TOP_KEYS = (
 # Each module has load(), EXTENT (a STAC Collection extent), KIND and TIMED, and
 # optionally VARIANT: a load() option named by the key (`dem/usgs10m`), each
 # value its own top-level group; and REGRID_METHOD: `gaia align`'s default for
-# its raster variables (else conservative)
+# its raster variables (else nearest)
 DATASETS: dict[str, ModuleType] = {
     "synoptic": synoptic,
     "prism": prism,

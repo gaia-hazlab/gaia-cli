@@ -21,6 +21,26 @@ EXTENT = {
 KIND = "raster"
 TIMED = False
 
+# Land cover classes: code -> (name, color), the COG's own color table
+CLASSES = {
+    11: ("Open Water", "#466b9f"),
+    12: ("Perennial Ice/Snow", "#d1def8"),
+    21: ("Developed, Open Space", "#dec5c5"),
+    22: ("Developed, Low Intensity", "#d99282"),
+    23: ("Developed, Medium Intensity", "#eb0000"),
+    24: ("Developed, High Intensity", "#ab0000"),
+    31: ("Barren Land", "#b3ac9f"),
+    41: ("Deciduous Forest", "#68ab5f"),
+    42: ("Evergreen Forest", "#1c5f2c"),
+    43: ("Mixed Forest", "#b5c58f"),
+    52: ("Shrub/Scrub", "#ccb879"),
+    71: ("Grassland/Herbaceous", "#dfdfc2"),
+    81: ("Pasture/Hay", "#dcd939"),
+    82: ("Cultivated Crops", "#ab6c28"),
+    90: ("Woody Wetlands", "#b8d9eb"),
+    95: ("Emergent Herbaceous Wetlands", "#6c9fb8"),
+}
+
 
 def _url(year: int) -> str:
     return (
@@ -72,6 +92,13 @@ def open_nlcd(year: int = 2021) -> xr.DataArray:
     da = da.squeeze("band", drop=True).rename("landcover")  # ty: ignore[unresolved-attribute, invalid-argument-type]
     da.attrs["long_name"] = "Annual NLCD land cover"
     da.attrs["year"] = year
+    # CF flags mark it categorical (gaia align uses mode); flag_colors for legends
+    da.attrs["flag_values"] = list(CLASSES)
+    da.attrs["flag_meanings"] = " ".join(
+        name.replace(", ", "_").replace("/", "_").replace(" ", "_")
+        for name, _ in CLASSES.values()
+    )
+    da.attrs["flag_colors"] = " ".join(color for _, color in CLASSES.values())
     return da  # ty: ignore[invalid-return-type]
 
 

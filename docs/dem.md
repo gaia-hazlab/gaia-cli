@@ -48,7 +48,7 @@ datum conversion would go.
   common grid. The DEM's default regrid method is `bilinear` (`REGRID_METHOD` in
   `dem.py`, stored as each variable's `gaia:regrid-method`). `--method` overrides it
   for every dataset, e.g. `--method cubic`, which is what landlab_data_prep uses.
-  `conservative`, the default for other rasters, suits accumulations such as
+  `conservative`, PRISM's and HRRR's default, suits accumulations such as
   precipitation, and is far slower for fine grids. For the Pioneer Fire AOI (the
   landlab_data_prep reference event), 3DEP onto the Cop30 grid takes 0.1 s with
   `bilinear` and 73 s with `conservative`. Onto landlab's 10 m UTM grid it takes
