@@ -27,6 +27,9 @@ gaia = "gaia_cli.cli:main"
 filterwarnings = [
   # upstream: rioxarray still uses affine's deprecated `*` operator
   "ignore:Use `@` matmul instead of `\\*` mul operator:PendingDeprecationWarning:rioxarray",
+  # io.py consolidates every store on purpose and silences this at runtime,
+  # but pytest resets warning filters per test
+  "ignore:Consolidated metadata is currently not part:zarr.errors.ZarrUserWarning",
 ]
 
 [build-system]
