@@ -24,13 +24,25 @@ dev = [
 gaia = "gaia_cli.cli:main"
 
 [tool.pytest.ini_options]
+# Network tests are opt-in: `pixi run test-online` (pytest -m online)
+addopts = "-m 'not online'"
+markers = ["online: needs network access to the upstream data services"]
 filterwarnings = [
-  # upstream: rioxarray still uses affine's deprecated `*` operator
-  "ignore:Use `@` matmul instead of `\\*` mul operator:PendingDeprecationWarning:rioxarray",
+  # upstream: rioxarray and odc-geo still use affine's deprecated `*` operator
+  "ignore:Use `@` matmul instead of `\\*` mul operator:PendingDeprecationWarning:(rioxarray|odc\\.geo)",
+  # upstream: odc-geo still calls the deprecated shapely.ops.transform
+  "ignore:The 'shapely.ops.transform\\(\\)' function is deprecated:DeprecationWarning:odc\\.geo",
   # io.py consolidates every store on purpose and silences this at runtime,
   # but pytest resets warning filters per test
   "ignore:Consolidated metadata is currently not part:zarr.errors.ZarrUserWarning",
 ]
+
+[tool.coverage.run]
+source = ["gaia_cli"]
+
+[tool.coverage.report]
+fail_under = 80
+skip_covered = true
 
 [build-system]
 build-backend = "hatchling.build"
@@ -49,10 +61,14 @@ dev = { features = ["dev"], solve-group = "default" }
 
 [tool.pixi.feature.dev.tasks]
 test = { cmd = "pytest", description = "Run the test suite" }
-coverage = { cmd = "python scripts/cover.py --fail-under 80", description = "Run the tests and report line coverage of src/gaia_cli; fails below 80%" }
+test-online = { cmd = "pytest -m online", description = "Run the network smoke tests (SYNOPTIC_TOKEN enables synoptic)" }
+coverage = { cmd = "pytest --cov --cov-report=term-missing", description = "Run the tests and report line coverage of src/gaia_cli; fails below 80%" }
 typecheck = { cmd = "ty check src/", description = "Type-check src/ with ty" }
-lint = { cmd = "ruff check src tests scripts --fix ; ruff format src tests scripts", description = "Fix lint issues and format src/, tests/ and scripts/" }
-lint-check = { cmd = "ruff check src tests scripts && ruff format --check src tests scripts", description = "Check lint and formatting without changing files (CI)" }
+lint = { cmd = "ruff check src tests --fix ; ruff format src tests", description = "Fix lint issues and format src/ and tests/" }
+lint-check = { cmd = "ruff check src tests && ruff format --check src tests", description = "Check lint and formatting without changing files (CI)" }
+
+[tool.pixi.feature.dev.dependencies]
+pytest-cov = ">=7.1.0,<8"
 
 [tool.pixi.dependencies]
 ipykernel = ">=7.4.0,<8"
