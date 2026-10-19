@@ -15,8 +15,8 @@ jobs:
         with:
           cache: true
 
-      - name: Run tests
-        run: pixi run test
+      - name: Run tests with coverage
+        run: pixi run coverage
 
       - name: Run typecheck
         run: pixi run typecheck

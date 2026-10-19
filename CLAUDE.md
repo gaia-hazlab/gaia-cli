@@ -8,6 +8,7 @@ Always use `pixi run python ...` when running Python commands. Do NOT create vir
 ```bash
 # Run tests
 pixi run test
+pixi run coverage    # tests + line coverage of src/gaia_cli, fails below 80% (CI)
 
 pixi run typecheck   # ty check src/
 
@@ -42,8 +43,9 @@ src/gaia_cli/
   stagefile.py  # "stage --config" – stage.yaml parser, window grammar, runner
   all.py        # "stage all" – loads every product into an xr.DataTree
 
-tests/
-  test_all.py
+tests/          # pytest suite
+scripts/
+  cover.py      # stdlib (sys.monitoring) line coverage, run by `pixi run coverage`
 ```
 
 

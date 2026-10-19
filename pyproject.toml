@@ -44,24 +44,15 @@ platforms = ["osx-arm64", "linux-64"]
 [tool.pixi.pypi-dependencies]
 gaia_cli = { path = ".", editable = true }
 
-# Convenient 'tests' for 12/2025 atmospheric river
-[tool.pixi.tasks]
-skagit-synoptic = "gaia stage synoptic -i https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json -s 2025-12-01 -e 2025-12-02 -o /tmp/skagit-synoptic.zarr"
-skagit-synoptic-s3 = "gaia stage synoptic -i https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json -s 2025-12-01 -e 2025-12-02 -o s3://cresst/scratch/skagit-synoptic.zarr"
-skagit-prism = "gaia stage prism -i https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json -s 2025-12-01 -e 2025-12-02 -o /tmp/skagit-prism.zarr"
-skagit-hrrr = "gaia stage hrrr -i https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json -s 2025-12-01 -e 2025-12-02 -o /tmp/skagit-hrrr.zarr"
-skagit-all = "gaia stage all -i https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json -s 2025-12-01 -e 2025-12-02 -o /tmp/skagit-all.zarr"
-skagit-config = "gaia stage --config examples/skagit-2025.yaml -o /tmp/skagit-config.zarr"
-
-
 [tool.pixi.environments]
 dev = { features = ["dev"], solve-group = "default" }
 
 [tool.pixi.feature.dev.tasks]
-test = "pytest"
-typecheck = "ty check src/"
-lint = "ruff check src tests --fix ; ruff format src tests"
-lint-check = "ruff check src tests && ruff format --check src tests"
+test = { cmd = "pytest", description = "Run the test suite" }
+coverage = { cmd = "python scripts/cover.py --fail-under 80", description = "Run the tests and report line coverage of src/gaia_cli; fails below 80%" }
+typecheck = { cmd = "ty check src/", description = "Type-check src/ with ty" }
+lint = { cmd = "ruff check src tests scripts --fix ; ruff format src tests scripts", description = "Fix lint issues and format src/, tests/ and scripts/" }
+lint-check = { cmd = "ruff check src tests scripts && ruff format --check src tests scripts", description = "Check lint and formatting without changing files (CI)" }
 
 [tool.pixi.dependencies]
 ipykernel = ">=7.4.0,<8"
