@@ -65,7 +65,7 @@ window: 2023-06-01/2023-09-21        # default window
 output: s3://gaia/scratch/peters-dome   # output folder; -o overrides it
 datasets:
   hrrr: {aoi: local, window: {before: 6h, after: 1d}, variable: temperature_2m}
-  prism: {variables: [ppt, tmax]}
+  prism: {variables: [ppt, tmin, tmax]}
   nlcd: {year: 2021}                 # static: takes no window
   dem/usgs10m: {}                    # the key names the product
 ```
@@ -81,7 +81,7 @@ and `dem/usgs10m`. `--only dem` selects every variant, and `--only dem/usgs10m` 
 | dataset | options |
 |---|---|
 | `synoptic` | `variables` (list, default `[precip_accum]`; see [stations.md](stations.md)) |
-| `prism` | `variables` (list, default `[ppt]`) |
+| `prism` | `variables` (list of `ppt`, `tmin`, `tmax`, `tmean`; default `[ppt]`; see [prism.md](prism.md#values)) |
 | `hrrr` | `variable` (default `precipitation_surface`) |
 | `nlcd` | `year` (default `2021`); static, no window |
 | `dem` | none; the key names the product: `dem/cop30` or `dem/usgs10m` (a bare `dem` is `dem/cop30`; see [dem.md](dem.md)); static, no window |
