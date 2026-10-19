@@ -484,7 +484,7 @@ def test_output_folder_holds_store_item_and_a_repeatable_stage_file(
     doc = stagefile.read_config(str(out / "stage.yaml"))
     assert doc["output"] == str(out)
     entry = doc["datasets"]["prism"]
-    # The AOI file is inlined, so the stage file stands on its own
+    # The local AOI file is inlined, so the stage file stands on its own
     assert entry["aoi"]["intersects"]["type"] == "Polygon"
     assert entry["window"] == "2023-06-01T00:00:00/2023-09-22T00:00:00"
     assert entry["variables"] == ["tmax"]
@@ -494,6 +494,14 @@ def test_output_folder_holds_store_item_and_a_repeatable_stage_file(
     stagefile.stage(config=str(out / "stage.yaml"), dry_run=True)
     rerun = stagefile.yaml.safe_load(capsys.readouterr().out)["datasets"]["prism"]
     assert {k: rerun[k] for k in entry} == entry
+
+
+def test_stage_file_keeps_url_aois():
+    url = "https://example.com/basin.geojson"
+    req = stagefile.Request("nlcd", url, [], {"year": 2021})
+    cfg = stagefile.StageConfig("x", None, None, None, {}, [req])
+    doc = stagefile.stage_file(cfg, "out", {})
+    assert doc["datasets"]["nlcd"] == {"aoi": url, "year": 2021}
 
 
 def test_skip_existing_keeps_earlier_datasets_in_the_stage_file(tmp_path, monkeypatch):

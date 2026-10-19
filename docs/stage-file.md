@@ -99,8 +99,8 @@ is an error.
 `stage.yaml` is written before any data is fetched. It lists every dataset staged,
 each with its own AOI, window and options after defaults, so
 `gaia stage --config <output>/stage.yaml` repeats the run, and with `--skip-existing`
-it retries the datasets that failed. AOI files and URLs are inlined as `intersects`
-Polygons in EPSG:4326, so the file doesn't depend on them. Datasets skipped for
+it retries the datasets that failed. URL AOIs are kept as URLs. Local AOI files are
+inlined as `intersects` Polygons in EPSG:4326, so the file works on other machines. Datasets skipped for
 coverage aren't listed. With `--skip-existing`, datasets the existing file lists are
 kept.
 

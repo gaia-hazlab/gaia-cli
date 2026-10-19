@@ -512,8 +512,9 @@ def stage_file(
     """The resolved stage file written next to the store.
 
     Every dataset has its own AOI, window and options, so
-    ``gaia stage --config`` repeats the run exactly. AOI files and URLs are
-    inlined as ``intersects`` Polygons in EPSG:4326.
+    ``gaia stage --config`` repeats the run exactly. URLs are kept; local AOI
+    files are inlined as ``intersects`` Polygons in EPSG:4326, so the file
+    works on other machines.
     """
     out: dict[str, Any] = {"name": cfg.name}
     if cfg.time is not None:
@@ -526,7 +527,7 @@ def stage_file(
     out["datasets"] = {}
     for req in cfg.requests:
         aoi = req.aoi
-        if isinstance(aoi, str):
+        if isinstance(aoi, str) and "://" not in aoi:
             geom = aois[aoi].to_crs("EPSG:4326").geometry.iloc[0]
             aoi = {"intersects": json.loads(shapely.to_geojson(geom))}
         entry: dict[str, Any] = {"aoi": aoi}
