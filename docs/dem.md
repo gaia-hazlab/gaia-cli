@@ -17,13 +17,22 @@ surface model (it includes trees and buildings). 3DEP is bare earth. Cop30 sets 
 nodata value. 3DEP's `-999999` is read as NaN. An AOI outside 3DEP's coverage gives
 an all-NaN array.
 
-```bash
-gaia stage dem -i $AOI -o /tmp/bolt-creek-dem                   # cop30
-gaia stage dem -i $AOI -o /tmp/bolt-creek-dem10 --product usgs10m
+Each product is its own group, `dem/cop30` or `dem/usgs10m`, so one store can hold
+both. In a stage file the key names the product:
+
+```yaml
+datasets:
+  dem/cop30: {}
+  dem/usgs10m: {}
 ```
 
-In a stage file, `dem: {product: usgs10m}`. One stage file holds one `dem` entry
-(group `rasters/dem`). To compare the two products, stage each into its own store.
+A bare `dem: {}` is `dem/cop30`. From the CLI, add the second product to an existing
+store with `--skip-existing`:
+
+```bash
+gaia stage dem -i $AOI -o /tmp/bolt-creek-dem
+gaia stage dem -i $AOI -o /tmp/bolt-creek-dem --product usgs10m --skip-existing
+```
 
 ## Vertical datum
 

@@ -265,6 +265,8 @@ def test_registered_modules_declare_kind_timed_and_extent(name):
     assert module.KIND in stagefile.GROUPS
     params = inspect.signature(module.load).parameters
     assert module.TIMED == all(a in params for a in stagefile.WINDOW_ARGS)
+    if hasattr(module, "VARIANT"):  # an option with a default, its values the keys
+        assert module.VARIANT in stagefile.options(module.load)
     (overall, *_) = module.EXTENT["spatial"]["bbox"]
     assert len(overall) == 4
     for start, end in module.EXTENT["temporal"]["interval"]:

@@ -6,6 +6,7 @@ import xarray as xr
 from shapely.geometry import box
 
 from gaia_cli import dem, stagefile
+from gaia_cli.cli import stage_app
 from gaia_cli.dem import Product
 
 
@@ -50,16 +51,76 @@ def test_every_product_has_provenance(product):
     assert dem.PRODUCTS[product]["vertical_datum"].startswith("EPSG:")
 
 
-def test_stage_file_product_option(tmp_path):
-    path = tmp_path / "stage.yaml"
-    path.write_text(
-        "name: x\naoi: {bbox: [-121.6, 47.6, -121.0, 47.9]}\n"
-        "datasets: {dem: {product: usgs10m}}\n"
-    )
-    (req,) = stagefile.load_config(str(path)).requests
-    assert req.options == {"product": Product.usgs10m}
-    assert req.windows == []
+AOI = "aoi: {bbox: [-121.6, 47.6, -121.0, 47.9]}\n"
 
-    path.write_text(path.read_text().replace("usgs10m", "srtm"))
-    with pytest.raises(stagefile.StageFileError, match="not one of cop30, usgs10m"):
-        stagefile.load_config(str(path))
+
+def config(tmp_path, datasets):
+    path = tmp_path / "stage.yaml"
+    path.write_text(f"name: x\n{AOI}datasets:\n{datasets}")
+    return str(path)
+
+
+def test_stage_file_keys_name_the_product_and_group(tmp_path):
+    cfg = stagefile.load_config(config(tmp_path, "  dem: {}\n  dem/usgs10m: {}\n"))
+    names = [r.name for r in cfg.requests]
+    assert names == ["dem/cop30", "dem/usgs10m"]  # a bare dem is cop30
+    assert [r.options for r in cfg.requests] == [
+        {"product": Product.cop30},
+        {"product": Product.usgs10m},
+    ]
+    assert [stagefile.group(r) for r in cfg.requests] == names
+    assert all(r.windows == [] for r in cfg.requests)
+
+
+@pytest.mark.parametrize(
+    "datasets, message",
+    [
+        ("  dem/srtm: {}\n", "dem/srtm: 'srtm' is not one of cop30, usgs10m"),
+        ("  dem: {}\n  dem/cop30: {}\n", "dem/cop30: dem/cop30 is listed twice"),
+        ("  dem: {product: usgs10m}\n", "dem: unknown option 'product'"),
+        ("  nlcd/2021: {}\n", "nlcd/2021: nlcd has no variants; use nlcd"),
+    ],
+)
+def test_bad_variant_keys(tmp_path, datasets, message):
+    with pytest.raises(stagefile.StageFileError) as e:
+        stagefile.load_config(config(tmp_path, datasets))
+    assert message in e.value.problems
+
+
+def fake_load(calls):
+    def load(aoi, product: Product = Product.cop30):
+        calls.append(product)
+        return xr.Dataset({"elevation": ("x", [1.0])}, attrs={"title": product.value})
+
+    return load
+
+
+def test_both_products_go_in_one_store(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(dem, "load", fake_load(calls))
+    aoi = tmp_path / "aoi.geojson"
+    stagefile.load_aoi({"bbox": [-121.6, 47.6, -121.0, 47.9]}).to_file(aoi)
+    out = tmp_path / "out"
+    stage_app(["dem", "-i", str(aoi), "-o", str(out)], result_action="return_value")
+    stage_app(
+        ["dem", "-i", str(aoi), "-o", str(out), "-p", "usgs10m", "--skip-existing"],
+        result_action="return_value",
+    )
+
+    assert calls == [Product.cop30, Product.usgs10m]
+    tree = xr.open_datatree(out / "out.zarr", engine="zarr")
+    assert set(tree["dem"].children) == {"cop30", "usgs10m"}
+    assert tree["dem/usgs10m"].attrs["title"] == "usgs10m"
+    # The stage file repeats both, keyed by product, without a product option
+    doc = stagefile.read_config(f"{out}/stage.yaml")
+    assert list(doc["datasets"]) == ["dem/cop30", "dem/usgs10m"]
+    assert "product" not in doc["datasets"]["dem/usgs10m"]
+
+
+def test_only_dem_selects_every_product(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(dem, "load", fake_load(calls))
+    path = config(tmp_path, "  dem/cop30: {}\n  dem/usgs10m: {}\n")
+    stagefile.stage(config=path, output_path=str(tmp_path / "a"), only="dem")
+    stagefile.stage(config=path, output_path=str(tmp_path / "b"), only="dem/usgs10m")
+    assert calls == [Product.cop30, Product.usgs10m, Product.usgs10m]

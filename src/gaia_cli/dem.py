@@ -22,6 +22,8 @@ EXTENT = {
 }
 KIND = "raster"
 TIMED = False
+# Each product is its own group, dem/<product>, keyed so in stage files
+VARIANT = "product"
 
 
 class Product(str, Enum):

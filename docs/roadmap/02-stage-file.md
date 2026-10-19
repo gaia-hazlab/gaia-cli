@@ -82,7 +82,7 @@ name: bolt-creek-fire-2022
 time: 2022-09-10                   # ignition, or the post-image date
 aoi: aoi/bolt_creek.geojson
 datasets:
-  dem: {product: usgs10m}          # see 04, DEM resolution
+  dem/usgs10m: {}                  # see 04, DEM resolution
   nlcd: {year: 2021}
   soil: {product: solus100}
   burn_severity: {fire_id: WA4773512130820220910}

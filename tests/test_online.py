@@ -1,7 +1,6 @@
 """Network smoke tests: stage each dataset for a small Bolt Creek AOI through the
 stage-file runner. Run with ``pixi run test-online``; skipped by default."""
 
-import json
 import os
 
 import numpy as np
@@ -20,7 +19,7 @@ name: bolt-creek-smoke
 aoi: {{bbox: [-121.6, 47.6, -121.0, 47.9]}}
 window: 2025-12-10/2025-12-10
 datasets:
-  {dataset}: {options}
+  {dataset}: {{}}
 """
 
 
@@ -54,26 +53,25 @@ def check_dem(ds):
 
 
 @pytest.mark.parametrize(
-    "dataset, check, options",
+    "dataset, check",
     [
         pytest.param(
             "synoptic",
             check_synoptic,
-            {},
             marks=pytest.mark.skipif(
                 not os.environ.get("SYNOPTIC_TOKEN"), reason="needs SYNOPTIC_TOKEN"
             ),
         ),
-        ("prism", check_prism, {}),
-        ("hrrr", check_hrrr, {}),
-        ("nlcd", check_nlcd, {}),
-        pytest.param("dem", check_dem, {"product": "cop30"}, id="dem-cop30"),
-        pytest.param("dem", check_dem, {"product": "usgs10m"}, id="dem-usgs10m"),
+        ("prism", check_prism),
+        ("hrrr", check_hrrr),
+        ("nlcd", check_nlcd),
+        ("dem/cop30", check_dem),
+        ("dem/usgs10m", check_dem),
     ],
 )
-def test_stage(tmp_path, dataset, check, options):
+def test_stage(tmp_path, dataset, check):
     config = tmp_path / "stage.yaml"
-    config.write_text(STAGE.format(dataset=dataset, options=json.dumps(options)))
+    config.write_text(STAGE.format(dataset=dataset))
     out = tmp_path / "out"
     stagefile.stage(config=str(config), output_path=str(out))
 
