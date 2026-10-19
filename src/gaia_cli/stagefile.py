@@ -527,7 +527,8 @@ def run(
 
 
 def stage(
-    *,
+    # Collects any other tokens, so data flags get a clear error, not "Unknown option"
+    *flags: Annotated[str, Parameter(allow_leading_hyphen=True, show=False)],
     config: Annotated[str, Parameter(name=["--config", "-c"])],
     output_path: Annotated[str | None, Parameter(name=["--output", "-o"])] = None,
     dry_run: Annotated[bool, Parameter(name=["--dry-run"], negative="")] = False,
@@ -557,6 +558,11 @@ def stage(
         $ gaia stage --config examples/skagit-2025.yaml --dry-run
         $ gaia stage --config examples/skagit-2025.yaml -o skagit.zarr
     """
+    if flags:
+        sys.exit(
+            f"Error: --config can't be combined with {' '.join(flags)}; "
+            f"set the AOI, window and options in {config} instead"
+        )
     try:
         cfg = load_config(config)
         output = output_path or cfg.output

@@ -12,7 +12,8 @@ pixi run test
 pixi run typecheck   # ty check src/
 
 # Lint code & format
-pixi run lint        # ruff check src tests
+pixi run lint        # ruff check --fix + format, src and tests
+pixi run lint-check  # the same, check only (CI)
 ```
 
 ## Code Style

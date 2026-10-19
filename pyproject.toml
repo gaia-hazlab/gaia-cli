@@ -57,7 +57,8 @@ dev = { features = ["dev"], solve-group = "default" }
 [tool.pixi.feature.dev.tasks]
 test = "pytest"
 typecheck = "ty check src/"
-lint = "ruff check src/ --fix ; ruff format src/"
+lint = "ruff check src tests --fix ; ruff format src tests"
+lint-check = "ruff check src tests && ruff format --check src tests"
 
 [tool.pixi.dependencies]
 ipykernel = ">=7.4.0,<8"
