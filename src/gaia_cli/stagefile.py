@@ -224,9 +224,11 @@ def parse_aoi(spec, base_dir: Path) -> str | dict:
             raise ValueError("bbox must be [west, south, east, north] with west < east")
     elif "intersects" in spec:
         try:
-            shapely.from_geojson(json.dumps(spec["intersects"]))
+            geom = shapely.from_geojson(json.dumps(spec["intersects"]))
         except (shapely.errors.ShapelyError, TypeError) as e:
             raise ValueError(f"intersects is not a GeoJSON geometry ({e})") from None
+        if geom.geom_type != "Polygon":
+            raise ValueError(f"intersects must be a Polygon, not {geom.geom_type}")
     else:
         _check_lonlat(spec["longitude"], spec["latitude"])
         r = spec["radius_km"]
@@ -289,14 +291,8 @@ def coerce(value, hint):
         if not (isinstance(items, list) and all(isinstance(v, str) for v in items)):
             raise ValueError(f"{value!r} is not a list of strings")
         return tuple(items)
-    if hint in (int, float, str, bool):
-        ok = isinstance(value, hint) and not (
-            hint is not bool and isinstance(value, bool)
-        )
-        if hint is float and _is_number(value):
-            ok, value = True, float(value)
-        if not ok:
-            raise ValueError(f"{value!r} is not of type {hint.__name__}")
+    if hint in (int, str) and (not isinstance(value, hint) or isinstance(value, bool)):
+        raise ValueError(f"{value!r} is not of type {hint.__name__}")
     return value
 
 

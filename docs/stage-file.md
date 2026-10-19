@@ -54,6 +54,10 @@ the CLI flags:
 | GeoJSON geometry | `{intersects: {type: Polygon, coordinates: [...]}}` |
 | circle, radius in km | `{latitude: 63.1455, longitude: -151.1904, radius_km: 400}` |
 
+Every AOI must be a single Polygon: a file with one Polygon feature, or an
+`intersects` Polygon. MultiPolygons and files with several features aren't
+supported yet. The same rule applies to `-i` and `gaia align --aoi`.
+
 ## Windows
 
 Every window is a half-open UTC interval `[start, end)`. A date-only `end` includes that

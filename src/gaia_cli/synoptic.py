@@ -80,7 +80,7 @@ def accumulate_raw_precip(series: pd.Series) -> pd.Series:
     return increments.cumsum().reindex(series.index)
 
 
-def get_station_metadata(aoi: gpd.GeoDataFrame, bbox=False, buffer=0):
+def get_station_metadata(aoi: gpd.GeoDataFrame):
     """Retrieve station metadata from the Synoptic API within an area of interest.
 
     Parameters
@@ -88,14 +88,7 @@ def get_station_metadata(aoi: gpd.GeoDataFrame, bbox=False, buffer=0):
     aoi : geopandas.GeoDataFrame
         A GeoDataFrame containing a single polygon geometry that defines the
         area of interest (AOI). The function uses the AOI bounds to query the
-        Synoptic API. CRS should be EPSG:4326 or will be interpreted as such.
-    bbox : bool, optional
-        If True, the API query will use the bounding box of ``aoi`` and the
-        results will not be further clipped to the AOI polygon. Default is
-        False (clip to polygon).
-    buffer : float, optional
-        If > 0 and ``bbox`` is False, the AOI geometry will be buffered by
-        this amount (in the AOI CRS units) before testing station containment.
+        Synoptic API.
 
     Returns
     -------
@@ -112,10 +105,10 @@ def get_station_metadata(aoi: gpd.GeoDataFrame, bbox=False, buffer=0):
 
     Notes
     -----
-    The API requires a bounding-box style query; when ``bbox`` is False the
-    function will additionally filter the returned stations to those whose
-    points lie within the provided AOI polygon.
+    The API requires a bounding-box style query, so the returned stations are
+    then filtered to those inside the AOI polygon.
     """
+    aoi = aoi.to_crs("EPSG:4326")
     endpoint = "/stations/metadata"
     url = SYNOPTIC_API + endpoint
 
@@ -140,10 +133,7 @@ def get_station_metadata(aoi: gpd.GeoDataFrame, bbox=False, buffer=0):
     gfp = gpd.GeoDataFrame.from_features(data["features"], crs="EPSG:4326")
 
     # Reduce to stations only within AOI Polygon
-    if not bbox:
-        if buffer > 0:
-            aoi.geometry = aoi.geometry.buffer(buffer)
-        gfp = gfp[gfp.geometry.within(aoi.geometry.iloc[0])]
+    gfp = gfp[gfp.geometry.within(aoi.geometry.iloc[0])]
 
     log.info("found %d stations with precip data in the AOI", len(gfp))
 
@@ -348,8 +338,7 @@ def stage(
     aoi = io.load_aoi(vectorPath)
     DA = load(aoi, start_date, end_date)
 
-    # Save as xvec-encoded Zarr (point geometries)
-    io.save_xvec_zarr(DA, output_path, overwrite=overwrite, attrs=source_attrs(DA))
+    io.save_zarr(to_dataset(DA), output_path, overwrite=overwrite)
 
     log.info("Done")
 

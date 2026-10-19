@@ -23,8 +23,8 @@ RENAMES = {"ppt": "precipitation"}
 
 
 def open_prism(
-    variables: list[str] | tuple[str, ...] = ("ppt",),
-    start: str | None = None,
+    variables: list[str] | tuple[str, ...],
+    start: str,
     end: str | None = None,
     revalidate: bool = True,
 ) -> xr.Dataset:
@@ -50,8 +50,6 @@ def open_prism(
     xarray.Dataset
         With provenance attributes from the cache's STAC collection.
     """
-    if start is None:
-        raise ValueError("start date is required")
     cache = prism_cache.PrismCache.from_env()
     entries = cache.ensure(variables, start, end or start, revalidate=revalidate)
     items = prism_cache.items(entries)

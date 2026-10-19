@@ -68,14 +68,7 @@ def open_nlcd(year: int = 2021) -> xr.DataArray:
 
 
 def load(aoi: gpd.GeoDataFrame, year: int = 2021) -> xr.DataArray:
-    da = open_nlcd(year)
-    aoi_native = aoi.to_crs(da.rio.crs)
-    minx, miny, maxx, maxy = aoi_native.total_bounds
-
-    small = da.rio.clip_box(minx=minx, miny=miny, maxx=maxx, maxy=maxy)
-    clipped = small.rio.clip(aoi_native.geometry)
-
-    return clipped
+    return io.clip_to_aoi(open_nlcd(year), aoi)
 
 
 def stage(

@@ -39,6 +39,7 @@ filterwarnings = [
 
 [tool.coverage.run]
 source = ["gaia_cli"]
+omit = ["*/gaia_cli/__main__.py"]
 
 [tool.coverage.report]
 fail_under = 80
