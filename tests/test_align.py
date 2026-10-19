@@ -123,6 +123,21 @@ def test_each_variable_defaults_to_its_datasets_method():
     assert out["rasters/other"].elevation.attrs["regrid_method"] == "cubic"
 
 
+def test_conservative_becomes_nearest_onto_a_finer_grid():
+    coarse = _elevation(1_000, 4)
+    coarse["elevation"][:] = np.arange(16.0).reshape(4, 4)
+    dt = xr.DataTree.from_dict({"rasters/coarse": coarse})
+
+    out = align.align(dt, crs="EPSG:32610", res=250.0)["rasters/coarse"].elevation
+    assert out.attrs["regrid_method"] == "nearest"
+    # Each 250 m cell inside one 1 km cell keeps its value
+    np.testing.assert_array_equal(
+        np.unique(out.values[~np.isnan(out.values)]), np.arange(16.0)
+    )
+    out = align.align(dt, crs="EPSG:32610", res=2_000.0)["rasters/coarse"].elevation
+    assert out.attrs["regrid_method"] == "conservative"
+
+
 def test_run_writes_a_folder_named_store(tmp_path):
     dt = xr.DataTree.from_dict({"rasters/prism": _daily(), "rasters/hrrr": _hourly()})
     native = str(tmp_path / "native.zarr")
