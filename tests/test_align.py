@@ -25,12 +25,14 @@ def _hourly(values_per_hour=1.0):
     # hour-ending values from 2025-12-01T13 to 2025-12-03T12 → two full PRISM days
     times = pd.date_range("2025-12-01T13:00", "2025-12-03T12:00", freq="h")
     da = _raster(times, 3_000, 2, 2, np.full((len(times), 2, 2), values_per_hour))
+    da.attrs[regrid.METHOD_ATTR] = "conservative"  # as staged
     return io.with_time_bounds(da, -1, 0, "time: sum")
 
 
 def _daily():
     times = pd.date_range("2025-12-01", "2025-12-03", freq="D")
     da = _raster(times, 1_000, 6, 6, np.full((3, 6, 6), 10.0))
+    da.attrs[regrid.METHOD_ATTR] = "conservative"  # as staged
     return io.with_time_bounds(da, -12, 12, "time: sum")
 
 
@@ -116,7 +118,7 @@ def test_each_variable_defaults_to_its_datasets_method():
 
     out = align.align(dt, **template)
     assert out["dem/x"].elevation.attrs["regrid_method"] == "bilinear"
-    assert out["rasters/other"].elevation.attrs["regrid_method"] == "conservative"
+    assert out["rasters/other"].elevation.attrs["regrid_method"] == "nearest"
     # --method overrides every dataset's default
     out = align.align(dt, method="cubic", **template)
     assert out["dem/x"].elevation.attrs["regrid_method"] == "cubic"
@@ -126,6 +128,7 @@ def test_each_variable_defaults_to_its_datasets_method():
 def test_conservative_becomes_nearest_onto_a_finer_grid():
     coarse = _elevation(1_000, 4)
     coarse["elevation"][:] = np.arange(16.0).reshape(4, 4)
+    coarse.elevation.attrs[regrid.METHOD_ATTR] = "conservative"
     dt = xr.DataTree.from_dict({"rasters/coarse": coarse})
 
     out = align.align(dt, crs="EPSG:32610", res=250.0)["rasters/coarse"].elevation

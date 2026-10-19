@@ -32,9 +32,9 @@ and optionally:
   raster variables, one of `regrid.Method` (`conservative`, `average`,
   `bilinear`, `cubic`, `nearest`). The runner stores it as each variable's
   `gaia:regrid-method`, and `--method` overrides it. Without it, continuous
-  variables use `conservative`, which suits accumulations; smooth fields such
-  as elevation want `bilinear`. Categorical variables (`flag_values`) always
-  use `mode`.
+  variables use `nearest`, the GDAL and rasterio default. Accumulations and
+  means want `conservative` (PRISM, HRRR); smooth fields such as elevation
+  want `bilinear`. Categorical variables (`flag_values`) always use `mode`.
 
 Datasets fall into two shapes: **gridded** (raster) data that goes
 `xarray -> zarr`, and **vector timeseries** (point) data that goes

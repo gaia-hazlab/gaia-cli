@@ -25,6 +25,8 @@ EXTENT = {
 }
 KIND = "raster"
 TIMED = True
+# `gaia align` default: area-weighted, so totals and means are preserved
+REGRID_METHOD = "conservative"
 
 # The daily PRISM variables gaia stages, of those it publishes (prism_cache.VARIABLES)
 Variable = Literal["ppt", "tmin", "tmax", "tmean"]

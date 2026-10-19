@@ -24,6 +24,8 @@ EXTENT = {
 }
 KIND = "raster"
 TIMED = True
+# `gaia align` default: area-weighted, so totals and means are preserved
+REGRID_METHOD = "conservative"
 
 
 class HRRRVariable(str, Enum):

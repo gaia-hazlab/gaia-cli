@@ -231,9 +231,10 @@ def align(
     method : {"conservative", "average", "bilinear", "cubic", "nearest"}, optional
         Spatial resampling for every continuous variable. Default: each
         variable's ``gaia:regrid-method`` attribute (its dataset's default,
-        e.g. ``bilinear`` for DEMs), else ``conservative``. ``conservative``
-        becomes ``nearest`` onto a finer grid than the source's, where the two
-        differ only along source cell edges. Categorical variables (with
+        e.g. ``conservative`` for PRISM and HRRR, ``bilinear`` for DEMs), else
+        ``nearest``, as in GDAL and rasterio. ``conservative`` becomes
+        ``nearest`` onto a finer grid than the source's, where the two differ
+        only along source cell edges. Categorical variables (with
         ``flag_values``) always use ``mode``.
     aoi : geopandas.GeoDataFrame, optional
         If given, clip the output to it (cell centers) in the target CRS.
@@ -290,7 +291,7 @@ def align(
             if "flag_values" in da.attrs:
                 m = "mode"
             else:
-                m = method or da.attrs.get(regrid.METHOD_ATTR, "conservative")
+                m = method or da.attrs.get(regrid.METHOD_ATTR, "nearest")
             if m == "conservative" and target_area < _cell_area(_template(ds)):
                 # Refining: each target cell inside one source cell gets that cell's
                 # value either way, so only cells on source edges differ, and
@@ -351,8 +352,9 @@ def run(
     method : str
         Spatial resampling for all continuous data: ``conservative``,
         ``average``, ``bilinear``, ``cubic`` or ``nearest``. Default: each
-        dataset's own (``bilinear`` for DEMs), else ``conservative``, which
-        becomes ``nearest`` onto a finer grid.
+        dataset's own (``conservative`` for PRISM and HRRR, ``bilinear`` for
+        DEMs), else ``nearest``. ``conservative`` becomes ``nearest`` onto a
+        finer grid.
     aoi_path : str
         Optional vector file; clip the output to it in the target CRS.
     overwrite : bool
