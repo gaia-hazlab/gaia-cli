@@ -24,6 +24,8 @@ KIND = "raster"
 TIMED = False
 # Each product is its own group, dem/<product>, keyed so in stage files
 VARIANT = "product"
+# `gaia align` default: a smooth surface, not an accumulation
+REGRID_METHOD = "bilinear"
 
 
 class Product(str, Enum):

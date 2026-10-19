@@ -62,7 +62,7 @@ def test_cell_areas_geographic():
 def test_regrid_rio_methods_match_template_coords():
     src = _grid(500_000, 5_300_000, 1_000, 8, 6, "EPSG:32610", np.ones((6, 8)))
     tgt = _grid(500_000, 5_300_000, 2_000, 4, 3, "EPSG:32610")
-    for method in ["average", "bilinear", "nearest"]:
+    for method in ["average", "bilinear", "cubic", "nearest"]:
         out = regrid.regrid(src, tgt, method)
         np.testing.assert_array_equal(out.x, tgt.x)
         np.testing.assert_allclose(out.values, 1.0)

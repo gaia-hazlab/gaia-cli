@@ -28,6 +28,13 @@ and optionally:
   values are separate products, each written to its own top-level group
   `<name>/<value>` instead of `<GROUPS[KIND]>/<name>`. Stage files key them
   as `<name>/<value>` (see `dem.py`, [stage-file.md](stage-file.md)).
+- `REGRID_METHOD` — `gaia align`'s default spatial method for the dataset's
+  raster variables, one of `regrid.Method` (`conservative`, `average`,
+  `bilinear`, `cubic`, `nearest`). The runner stores it as each variable's
+  `gaia:regrid-method`, and `--method` overrides it. Without it, continuous
+  variables use `conservative`, which suits accumulations; smooth fields such
+  as elevation want `bilinear`. Categorical variables (`flag_values`) always
+  use `mode`.
 
 Datasets fall into two shapes: **gridded** (raster) data that goes
 `xarray -> zarr`, and **vector timeseries** (point) data that goes

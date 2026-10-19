@@ -29,7 +29,7 @@ import yaml
 from cyclopts import Parameter
 from xarray.backends.file_manager import FILE_CACHE
 
-from . import dem, hrrr, io, nlcd, prism, provenance, synoptic
+from . import dem, hrrr, io, nlcd, prism, provenance, regrid, synoptic
 
 log = logging.getLogger(__name__)
 
@@ -46,7 +46,8 @@ TOP_KEYS = (
 )
 # Each module has load(), EXTENT (a STAC Collection extent), KIND and TIMED, and
 # optionally VARIANT: a load() option named by the key (`dem/usgs10m`), each
-# value its own top-level group
+# value its own top-level group; and REGRID_METHOD: `gaia align`'s default for
+# its raster variables (else conservative)
 DATASETS: dict[str, ModuleType] = {
     "synoptic": synoptic,
     "prism": prism,
@@ -689,6 +690,10 @@ def run(
             obj = module.load(aois[_aoi_key(req.aoi)], **kwargs)
             # Station data is xvec CF-encoded for the store
             node = module.to_dataset(obj) if module.KIND == "stations" else obj
+            if method := getattr(module, "REGRID_METHOD", None):
+                for var in node.data_vars.values():
+                    if {"x", "y"} <= set(var.dims):
+                        var.attrs.setdefault(regrid.METHOD_ATTR, method)
             tree = xr.DataTree.from_dict({group(req): node})
             tree.attrs = dict(cfg.attrs)
             io.save_datatree(

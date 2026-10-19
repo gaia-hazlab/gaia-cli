@@ -90,7 +90,9 @@ def test_bad_variant_keys(tmp_path, datasets, message):
 def fake_load(calls):
     def load(aoi, product: Product = Product.cop30):
         calls.append(product)
-        return xr.Dataset({"elevation": ("x", [1.0])}, attrs={"title": product.value})
+        return xr.Dataset(
+            {"elevation": (("y", "x"), [[1.0]])}, attrs={"title": product.value}
+        )
 
     return load
 
@@ -111,6 +113,8 @@ def test_both_products_go_in_one_store(tmp_path, monkeypatch):
     tree = xr.open_datatree(out / "out.zarr", engine="zarr")
     assert set(tree["dem"].children) == {"cop30", "usgs10m"}
     assert tree["dem/usgs10m"].attrs["title"] == "usgs10m"
+    # gaia align's default for the DEM, stamped by the runner
+    assert tree["dem/usgs10m"].elevation.attrs["gaia:regrid-method"] == "bilinear"
     # The stage file repeats both, keyed by product, without a product option
     doc = stagefile.read_config(f"{out}/stage.yaml")
     assert list(doc["datasets"]) == ["dem/cop30", "dem/usgs10m"]

@@ -4,7 +4,7 @@
 coverage-weighted mean of the source cells it overlaps, via
 ``xvec.zonal_stats(method="exactextract")``. NaN source cells are skipped
 (xESMF's "conservative_normed"). Other methods delegate to
-``rioxarray.reproject_match``.
+``rioxarray.reproject_match`` with the rasterio ``Resampling`` of that name.
 """
 
 from __future__ import annotations
@@ -20,7 +20,10 @@ import xarray as xr
 import xvec  # noqa: F401  registers the .xvec accessor
 from rasterio.enums import Resampling
 
-Method = Literal["conservative", "average", "bilinear", "nearest", "mode"]
+Method = Literal["conservative", "average", "bilinear", "cubic", "nearest", "mode"]
+# A raster variable attribute: the method `gaia align` uses unless --method is given,
+# stamped from the dataset module's REGRID_METHOD when it is staged
+METHOD_ATTR = "gaia:regrid-method"
 
 
 def _resolution(da: xr.DataArray) -> tuple[float, float]:

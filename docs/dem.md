@@ -45,13 +45,16 @@ datum conversion would go.
 ## Notes
 
 - Like every raster, the DEM stays on its native grid. `gaia align` puts it on a
-  common grid. For elevation, pass `--method bilinear` (or `nearest`, `average`).
-  The default, `conservative`, suits accumulations such as precipitation, and is far
-  slower for fine grids. For the Pioneer Fire AOI (the landlab_data_prep reference
-  event), 3DEP onto the Cop30 grid takes 0.1 s with `bilinear` and 73 s with
-  `conservative`. Onto landlab's 10 m UTM grid it takes 0.4 s with `bilinear`:
+  common grid. The DEM's default regrid method is `bilinear` (`REGRID_METHOD` in
+  `dem.py`, stored as each variable's `gaia:regrid-method`). `--method` overrides it
+  for every dataset, e.g. `--method cubic`, which is what landlab_data_prep uses.
+  `conservative`, the default for other rasters, suits accumulations such as
+  precipitation, and is far slower for fine grids. For the Pioneer Fire AOI (the
+  landlab_data_prep reference event), 3DEP onto the Cop30 grid takes 0.1 s with
+  `bilinear` and 73 s with `conservative`. Onto landlab's 10 m UTM grid it takes
+  0.4 s:
   ```bash
-  gaia align -i pioneer/pioneer.zarr -o pioneer-10m --crs EPSG:32610 --res 10 --method bilinear
+  gaia align -i pioneer/pioneer.zarr -o pioneer-10m --crs EPSG:32610 --res 10
   ```
 - `processing:lineage`, `sci:doi`, `sci:citation` and a `cite-as` link record the
   source. The STAC Item's time range for Cop30 is the acquisition period

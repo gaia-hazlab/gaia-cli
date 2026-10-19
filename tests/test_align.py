@@ -6,7 +6,7 @@ import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
 from shapely.geometry import box
 
-from gaia_cli import align, io
+from gaia_cli import align, io, regrid
 
 
 def _raster(times, res, nx, ny, values):
@@ -88,6 +88,26 @@ def test_align_daily_on_coarsest_grid_roundtrip(tmp_path):
         assert "spatial_ref" in ds.coords
         assert ds.precipitation.rio.crs.to_epsg() == 32610
     assert prism.precipitation.attrs["regrid_method"] == "conservative"
+
+
+def _elevation(res, n):
+    da = _raster(pd.date_range("2025-12-01", periods=1), res, n, n, np.ones((1, n, n)))
+    return da.isel(time=0, drop=True).rename("elevation").to_dataset()
+
+
+def test_each_variable_defaults_to_its_datasets_method():
+    dem = _elevation(1_000, 6)
+    dem.elevation.attrs[regrid.METHOD_ATTR] = "bilinear"
+    dt = xr.DataTree.from_dict({"dem/x": dem, "rasters/other": _elevation(1_000, 6)})
+    template = {"crs": "EPSG:32610", "res": 2_000.0}
+
+    out = align.align(dt, **template)
+    assert out["dem/x"].elevation.attrs["regrid_method"] == "bilinear"
+    assert out["rasters/other"].elevation.attrs["regrid_method"] == "conservative"
+    # --method overrides every dataset's default
+    out = align.align(dt, method="cubic", **template)
+    assert out["dem/x"].elevation.attrs["regrid_method"] == "cubic"
+    assert out["rasters/other"].elevation.attrs["regrid_method"] == "cubic"
 
 
 def test_run_writes_a_folder_named_store(tmp_path):

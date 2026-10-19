@@ -100,8 +100,10 @@ def test_pioneer_dems_on_the_landlab_grid(tmp_path):
     stagefile.stage(config=str(config), output_path=str(out))
 
     tree = xr.open_datatree(out / "pioneer.zarr", engine="zarr")
-    aligned = align.align(tree, crs="EPSG:32610", res=10.0, method="bilinear")
+    # The DEM's default method (bilinear), as gaia align would use it
+    aligned = align.align(tree, crs="EPSG:32610", res=10.0)
     cop30, usgs10m = (aligned[f"dem/{p}"].elevation for p in ("cop30", "usgs10m"))
+    assert cop30.attrs["regrid_method"] == usgs10m.attrs["regrid_method"] == "bilinear"
     assert cop30.rio.crs.to_epsg() == usgs10m.rio.crs.to_epsg() == 32610
     assert cop30.shape == usgs10m.shape == (3311, 2185)
     # Lake Chelan's shore (~335 m) to the Chelan Mountains (~2680 m)
