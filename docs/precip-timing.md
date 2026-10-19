@@ -1,8 +1,11 @@
 # Synoptic precipitation timing
 
-How `gaia stage synoptic` puts station precipitation on an hourly time axis, what was
-wrong with the first version, and why Synoptic's precipitation service does not solve
-the problem.
+How station precipitation is put on an hourly time axis, what was wrong with the first
+version, and why Synoptic's precipitation service does not solve the problem.
+
+`gaia stage synoptic` now stores every report ([stations.md](stations.md)), and
+`gaia_cli.stations.to_grid(ds)` builds the hourly axis described here when you read
+the store. Its `precipitation_report_time` is the `report_time` below.
 
 ## Summary
 
@@ -130,6 +133,11 @@ Yes. One staged format serves both uses:
   staged format.
 
 ## Reproducing
+
+This comparison predates the ragged layout: `construct_uniform_datarray` has since
+been replaced by `synoptic.construct_ragged` followed by `stations.to_grid`, which
+gives the same hourly values.
+
 
 The comparison used `gaia_cli.synoptic.get_station_metadata` and
 `get_station_timeseries` for the Skagit AOI, 2025-12-08 → 2025-12-11. It then ran

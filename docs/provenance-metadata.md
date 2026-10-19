@@ -84,6 +84,7 @@ Synoptic publishes no STAC collection, so these are written in
 - `license` is `other`. `gaia:license-note` asks users to check Synoptic's terms
   and the station networks' terms before sharing.
 - `version` is the API version (`v2`).
+- The time range is the first and last report.
 - The `via` link is the API endpoint without query parameters, so the token is
   never recorded. A test guards this.
 

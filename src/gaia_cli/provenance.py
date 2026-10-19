@@ -162,9 +162,10 @@ def time_extent(obj: xr.Dataset | xr.DataArray) -> dict:
     """STAC ``start_datetime``/``end_datetime`` covering *obj*'s time axis.
 
     Uses the CF ``time_bounds`` when present, so a period-ending value
-    contributes the start of its period.
+    contributes the start of its period. Station reports (``time`` along
+    ``obs``) give the first and last report.
     """
-    if "time" not in obj.dims or obj.sizes["time"] == 0:
+    if "time" not in obj.coords or obj.time.size == 0:
         return {}
     bounds = obj.time.attrs.get("bounds")
     if isinstance(obj, xr.Dataset) and bounds in obj:

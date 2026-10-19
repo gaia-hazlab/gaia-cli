@@ -1,24 +1,25 @@
 import logging
 import os
+import re
+from collections.abc import Sequence
 from typing import Annotated
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import requests
 import xarray as xr
 from cyclopts import Parameter
 from shapely.geometry import Point
 
-from . import provenance
+from . import provenance, stations
 
 log = logging.getLogger(__name__)
 
 TOKEN = os.environ.get("SYNOPTIC_TOKEN")
 SYNOPTIC_API = "https://api.synopticdata.com/v2"
 RESET_MM = 10  # drops in raw gauge accumulation larger than this are treated as resets
-# Oldest report used for an hourly value: just under an hour, so an hour with no
-# report of its own is NaN rather than a copy of the previous hour
-REPORT_TOLERANCE = pd.Timedelta(hours=1) - pd.Timedelta(seconds=1)
+PRECIP = "precip_accum"  # staged as "precipitation", a running total
 # Written by hand (no STAC Collection): stations are mostly in the US, Alaska
 # included, but the API serves networks worldwide
 EXTENT = {
@@ -28,9 +29,9 @@ EXTENT = {
 KIND = "stations"
 TIMED = True
 PROVENANCE = {
-    "title": "Synoptic Data station precipitation",
-    "description": "Hourly precipitation accumulation at weather stations, "
-    "from the Synoptic Data API.",
+    "title": "Synoptic Data station observations",
+    "description": "Every report of precipitation and other requested "
+    "variables at weather stations, from the Synoptic Data API.",
     "license": "other",
     "gaia:license-note": "Synoptic redistributes data from many station "
     "networks with differing terms; check https://synopticdata.com and the "
@@ -43,16 +44,17 @@ PROVENANCE = {
         }
     ],
     "version": "v2",  # API version
-    "processing:lineage": "precip_accum reports de-reset, then each hour "
-    "labelled with the latest prior report (see report_time)",
+    "processing:lineage": "every report kept as a CF contiguous ragged array; "
+    "precipitation is Synoptic's derived running total, or precip_accum "
+    "reports de-reset when that is unavailable",
 }
 
 
-def source_attrs(da: xr.DataArray) -> dict:
-    """Provenance attributes for station data *da* (from :func:`load`)."""
+def source_attrs(ds: xr.Dataset) -> dict:
+    """Provenance attributes for station data *ds* (from :func:`load`)."""
     # The API URL never includes the request parameters, which hold the token
     via = provenance.link("via", f"{SYNOPTIC_API}/stations/timeseries")
-    return {**PROVENANCE, "links": [via], **provenance.time_extent(da)}
+    return {**PROVENANCE, "links": [via], **provenance.time_extent(ds)}
 
 
 def _check_token():
@@ -88,7 +90,7 @@ def accumulate_raw_precip(series: pd.Series) -> pd.Series:
     return increments.cumsum().reindex(series.index)
 
 
-def get_station_metadata(aoi: gpd.GeoDataFrame):
+def get_station_metadata(aoi: gpd.GeoDataFrame, variables: Sequence[str] = (PRECIP,)):
     """Retrieve station metadata from the Synoptic API within an area of interest.
 
     Parameters
@@ -97,6 +99,8 @@ def get_station_metadata(aoi: gpd.GeoDataFrame):
         A GeoDataFrame containing a single polygon geometry that defines the
         area of interest (AOI). The function uses the AOI bounds to query the
         Synoptic API.
+    variables : sequence of str
+        Synoptic variables; stations reporting any of them are returned.
 
     Returns
     -------
@@ -120,8 +124,6 @@ def get_station_metadata(aoi: gpd.GeoDataFrame):
     endpoint = "/stations/metadata"
     url = SYNOPTIC_API + endpoint
 
-    precip_vars = ["precip_accum"]  # NOTE: there are a lot! e.g. hourly etc
-
     # API requires search by Bounding Box
     params = {  # state="wa",
         # NOTE: may be best to do point in polygon first to get list of stations to avoid larger bbox!
@@ -131,7 +133,7 @@ def get_station_metadata(aoi: gpd.GeoDataFrame):
         "status": "active",
         "sensorvars": True,  # return sensor variable info
         "hfmetars": 0,  # exclude 5min NOAA METARs sampling
-        "vars": ",".join(precip_vars),  # restrict to precip only
+        "vars": ",".join(variables),  # stations reporting any of these
         "output": "geojson",
     }
     response = requests.get(url, params=params)
@@ -143,12 +145,17 @@ def get_station_metadata(aoi: gpd.GeoDataFrame):
     # Reduce to stations only within AOI Polygon
     gfp = gfp[gfp.geometry.within(aoi.geometry.iloc[0])]
 
-    log.info("found %d stations with precip data in the AOI", len(gfp))
+    log.info("found %d stations with %s in the AOI", len(gfp), ", ".join(variables))
 
     return gfp
 
 
-def get_station_timeseries(station_list: list, start_date: str, end_date: str):
+def get_station_timeseries(
+    station_list: list,
+    start_date: str,
+    end_date: str,
+    variables: Sequence[str] = (PRECIP,),
+):
     """Fetch timeseries observations for a list of stations from Synoptic API.
 
     Parameters
@@ -160,6 +167,9 @@ def get_station_timeseries(station_list: list, start_date: str, end_date: str):
         '2022-01-01 00:00').
     end_date : str
         End timestamp for the query. Parseable by pandas.Timestamp.
+    variables : sequence of str
+        Synoptic variables to fetch. With ``precip_accum``, Synoptic's derived
+        running total is requested too.
 
     Returns
     -------
@@ -185,18 +195,20 @@ def get_station_timeseries(station_list: list, start_date: str, end_date: str):
         "start": start,
         "end": end,
         # vars = 'precip' # 'Querying too many station hours. 195840.0 hours were requested.' ...
-        "vars": "precip_accum",  # works, and gives hourly sampling
-        "precip": 1,  # Enable derived precip (precip_accumulated_set_1d, precip_intervals_set_1d)
-        # precip =0, (default) 'precip_accum_set_1' (Millimeters) cumulative sum of the interval values for the requested time period, in this case hourly timestamps
+        "vars": ",".join(variables),
         "obtimezone": "UTC",  # ensure UTC returns
     }
+    if PRECIP in variables:
+        # Enable derived precip (precip_accumulated_set_1d, precip_intervals_set_1d)
+        # precip =0, (default) 'precip_accum_set_1' (Millimeters) cumulative sum of the interval values for the requested time period, in this case hourly timestamps
+        params["precip"] = 1
 
     response = requests.get(url, params=params)
     response.raise_for_status()
     data = response.json()
 
     # Derived precip requires a paid Synoptic tier, fall back to raw accumulation
-    if data.get("SUMMARY", {}).get("RESPONSE_CODE") == 403:
+    if "precip" in params and data.get("SUMMARY", {}).get("RESPONSE_CODE") == 403:
         log.info("derived precip unavailable, computing from raw accumulation")
         params.pop("precip")
         response = requests.get(url, params=params)
@@ -207,100 +219,100 @@ def get_station_timeseries(station_list: list, start_date: str, end_date: str):
     return data
 
 
-def construct_uniform_datarray(data: dict):
-    """Construct a uniform hourly xarray DataArray of accumulated precipitation.
+def _column(obs: pd.DataFrame, var: str) -> str | None:
+    """The first sensor set reporting *var*, e.g. ``air_temp_set_1``."""
+    sets = sorted(c for c in obs if re.fullmatch(rf"{re.escape(var)}_set_\d+d?", c))
+    return sets[0] if sets else None
+
+
+def _precip_source(station: dict) -> str:
+    """The reported variable Synoptic derived the running total from."""
+    sets = station.get("SENSOR_VARIABLES", {}).get("precip_accumulated", {})
+    return next((v.get("derived_from", "") for v in sets.values()), PRECIP)
+
+
+def construct_ragged(data: dict, variables: Sequence[str] = (PRECIP,)) -> xr.Dataset:
+    """Every report in *data* as a CF contiguous ragged array.
 
     Parameters
     ----------
     data : dict
         The JSON-like dictionary returned by :func:`get_station_timeseries`.
-        Expected to contain a top-level ``STATION`` list where each station
-        contains an ``OBSERVATIONS`` mapping with a ``date_time`` index and
-        precipitation fields such as ``precip_accumulated_set_1d``.
+    variables : sequence of str
+        Synoptic variables to keep. ``precip_accum`` becomes
+        ``precipitation``, the running total since the first report: Synoptic's
+        derived ``precip_accumulated_set_1d`` when present, otherwise the raw
+        accumulation de-reset with :func:`accumulate_raw_precip`. Other
+        variables keep their name and take the first sensor set (``_set_1``),
+        as numbers.
 
     Returns
     -------
-    xarray.DataArray
-        A 2D (time x station) DataArray of hourly accumulated precipitation
-        values. Each station is assigned coordinates for ``station``,
-        ``elevation``, and ``geometry`` (a shapely Point), and each value a
-        ``report_time`` coordinate: the time of the report it came from.
-
-    Notes
-    -----
-    The value at each hour is the accumulation at the latest report at or
-    before that hour, less than an hour old; hours without such a report are
-    NaN. Stations that report off the hour (e.g. at :28) therefore lag the
-    clock hour by up to an hour, which ``report_time`` records. See
-    ``docs/precip-timing.md``. Stations with different time coverage are
-    concatenated using ``join='outer'``.
+    xarray.Dataset
+        Station variables (``station``, ``name``, ``elevation`` in m,
+        ``network_id``, ``precip_source``, ``row_size``) along ``geometry``,
+        with an xvec index; ``time`` and each variable along ``obs``. Reports
+        with none of the variables, and stations with no such reports, are
+        dropped. See :mod:`gaia_cli.stations`.
     """
-
-    data_arrays = []
-    for ind in range(len(data["STATION"])):
-        station = data["STATION"][ind]
-
-        # Create DataFrame
-        df_station = pd.DataFrame(station["OBSERVATIONS"])
-        df_station["date_time"] = pd.to_datetime(
-            df_station["date_time"]
-        ).dt.tz_localize(None)  # Remove timezone
-        df_station = df_station.set_index("date_time")
-        df_station.index.name = "time"
-
-        varname = "precip_accumulated_set_1d"
-        if varname not in df_station:
-            df_station[varname] = accumulate_raw_precip(
-                df_station["precip_accum_set_1"]
-            )
-
-        accum = df_station[varname].dropna()
-
-        # Check if already hourly (median interval ~1 hour)
-        time_diff = accum.index.to_series().diff().dropna()
-        median_interval = time_diff.median()
-
-        if median_interval != pd.Timedelta(hours=1):
-            log.debug(
-                "Station %s (%s): original interval = %s, resampling to hourly",
-                station["STID"],
-                station["NAME"],
-                median_interval,
-            )
-
-        # Each hour takes the accumulation at the latest report at or before it,
-        # so a value never includes precipitation that fell after its timestamp.
-        # Reports an hour or more old are not carried forward, so hours without a
-        # recent report stay NaN. See docs/precip-timing.md
-        hours = pd.date_range(
-            accum.index[0].ceil("h"), accum.index[-1].ceil("h"), freq="h", name="time"
-        )
-        report_time = accum.index.to_series().reindex(
-            hours, method="ffill", tolerance=REPORT_TOLERANCE
-        )
-        accum = accum.reindex(hours, method="ffill", tolerance=REPORT_TOLERANCE)
-
-        # Convert to DataArray
-        da_station = accum.to_xarray()
-        da_station = da_station.assign_coords(report_time=("time", report_time.values))
-
-        # Assign coordinates
+    units = data.get("UNITS", {})
+    meta, reports = [], []
+    for station in data["STATION"]:
+        obs = pd.DataFrame(station["OBSERVATIONS"])
+        obs.index = pd.DatetimeIndex(obs.pop("date_time")).tz_localize(None)
+        obs.index.name = "time"
+        table = pd.DataFrame(index=obs.index)
+        for var in variables:
+            if var == PRECIP:
+                if "precip_accumulated_set_1d" in obs:
+                    table["precipitation"] = obs["precip_accumulated_set_1d"]
+                elif "precip_accum_set_1" in obs:
+                    table["precipitation"] = accumulate_raw_precip(
+                        obs["precip_accum_set_1"]
+                    )
+            elif (column := _column(obs, var)) is not None:
+                table[var] = obs[column]
+        table = table.apply(pd.to_numeric, errors="coerce").dropna(how="all")
+        if table.empty:
+            log.debug("Station %s: no reports of %s", station["STID"], variables)
+            continue
+        reports.append(table.sort_index())
         # NOTE: Synoptic API always returns elevation in feet
-        elevation_m = float(station["ELEVATION"]) * 0.3048
-        da_station = da_station.assign_coords(
-            station=station["STID"],
-            elevation=elevation_m,
-            geometry=Point(station["LONGITUDE"], station["LATITUDE"]),
+        elevation = station.get("ELEVATION")
+        meta.append(
+            {
+                "station": station["STID"],
+                "name": station.get("NAME") or "",
+                "elevation": float(elevation) * 0.3048 if elevation else np.nan,
+                "network_id": station.get("MNET_ID") or "",
+                "precip_source": _precip_source(station),
+                "geometry": Point(
+                    float(station["LONGITUDE"]), float(station["LATITUDE"])
+                ),
+            }
         )
-        da_station.name = "precipitation"
+    if not reports:
+        raise ValueError(f"no station reported any of {', '.join(variables)}")
 
-        data_arrays.append(da_station)
-
-    # Concatenate all DataArrays along the station dimension
-    # TODO: revisit keyword options here to make sure we are doing the right thing with coordinates and attributes
-    return xr.concat(
-        data_arrays, dim="station", coords="different", compat="equals", join="outer"
-    )
+    stations_ds = xr.Dataset.from_dataframe(pd.DataFrame(meta).set_index("station"))
+    stations_ds = stations_ds.set_coords("geometry")
+    if PRECIP not in variables:
+        stations_ds = stations_ds.drop_vars("precip_source")
+    ds = stations.ragged(stations_ds, reports)
+    ds.elevation.attrs = {"long_name": "station elevation", "units": "m"}
+    if "precip_source" in ds:
+        ds.precip_source.attrs["long_name"] = (
+            "Synoptic variable the precipitation running total is derived from"
+        )
+    if "precipitation" in ds:
+        ds.precipitation.attrs = {
+            "long_name": "precipitation accumulated since the first report",
+            "units": "mm",
+        }
+    for var in variables:
+        if var in ds and var in units:
+            ds[var].attrs["units"] = units[var]
+    return ds
 
 
 # CLI entrypoint
@@ -309,14 +321,17 @@ def stage(
     start_date: Annotated[str, Parameter(name=["--start", "-s"])],
     end_date: Annotated[str, Parameter(name=["--end", "-e"])],
     output_path: Annotated[str, Parameter(name=["--output", "-o"])],
+    variables: Annotated[
+        tuple[str, ...], Parameter(name=["--variables", "-v"], consume_multiple=True)
+    ] = (PRECIP,),
     dry_run: Annotated[bool, Parameter(name=["--dry-run"], negative="")] = False,
     overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
     skip_existing: Annotated[
         bool, Parameter(name=["--skip-existing"], negative="")
     ] = False,
 ):
-    """Stage in-situ precipitation from the Synoptic API.
-    Precipitation timeseries is resampled to construct a uniform hourly DataArray.
+    """Stage weather station reports from the Synoptic API.
+    Every report is kept, as a CF ragged array (see docs/stations.md).
     Requires SYNOPTIC_TOKEN environment variable (https://docs.synopticdata.com).
     Requires AWS_PROFILE environment variable if writing to S3.
 
@@ -332,6 +347,9 @@ def stage(
     output_path : str
         Output folder for the Zarr store (named after the folder), its STAC
         Item and the resolved stage.yaml.
+    variables : list of str
+        Synoptic variables, e.g. ``precip_accum air_temp``. ``precip_accum``
+        is staged as ``precipitation``, a running total. Default precip_accum.
     dry_run : bool
         Validate the flags, read the AOI and print the resolved configuration
         without fetching any data.
@@ -362,20 +380,24 @@ def stage(
         dry_run=dry_run,
         overwrite=overwrite,
         skip_existing=skip_existing,
+        variables=variables,
     )
 
 
-def to_dataset(da: xr.DataArray) -> xr.Dataset:
-    """*da* from :func:`load` as an xvec CF-encoded Dataset, for a DataTree group."""
-    da = da.swap_dims({"station": "geometry"})
-    da = da.xvec.set_geom_indexes("geometry", crs="EPSG:4326")
-    ds = da.to_dataset().xvec.encode_cf()
-    ds.attrs = source_attrs(da)
-    return ds
+def to_dataset(ds: xr.Dataset) -> xr.Dataset:
+    """*ds* from :func:`load`, xvec CF-encoded for a DataTree group."""
+    encoded = ds.xvec.encode_cf()
+    encoded.attrs = dict(ds.attrs)
+    return encoded
 
 
-def load(aoi: gpd.GeoDataFrame, start_date: str, end_date: str) -> xr.DataArray:
-    """Fetch and build an hourly precipitation DataArray for stations in *aoi*.
+def load(
+    aoi: gpd.GeoDataFrame,
+    start_date: str,
+    end_date: str,
+    variables: list[str] | tuple[str, ...] = (PRECIP,),
+) -> xr.Dataset:
+    """Every report of *variables* at stations in *aoi*, with provenance attributes.
 
     Parameters
     ----------
@@ -385,14 +407,22 @@ def load(aoi: gpd.GeoDataFrame, start_date: str, end_date: str) -> xr.DataArray:
         Start date/time (parseable by pandas.Timestamp).
     end_date : str
         End date/time (parseable by pandas.Timestamp).
+    variables : list of str
+        Synoptic variables (see :func:`construct_ragged`).
 
     Returns
     -------
-    xarray.DataArray
+    xarray.Dataset
+        A CF contiguous ragged array; :func:`gaia_cli.stations.to_grid` and
+        :func:`gaia_cli.stations.to_dataframe` give other views of it.
     """
     _check_token()
     log.info("querying station metadata from %s", SYNOPTIC_API)
-    stations_gdf = get_station_metadata(aoi)
+    stations_gdf = get_station_metadata(aoi, variables)
     log.info("fetching timeseries for %d station(s)", len(stations_gdf))
-    data = get_station_timeseries(stations_gdf.stid.to_list(), start_date, end_date)
-    return construct_uniform_datarray(data)
+    data = get_station_timeseries(
+        stations_gdf.stid.to_list(), start_date, end_date, variables
+    )
+    ds = construct_ragged(data, variables)
+    ds.attrs = source_attrs(ds)
+    return ds

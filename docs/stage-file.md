@@ -75,7 +75,7 @@ the CLI flags:
 
 | dataset | options |
 |---|---|
-| `synoptic` | none |
+| `synoptic` | `variables` (list, default `[precip_accum]`; see [stations.md](stations.md)) |
 | `prism` | `variables` (list, default `[ppt]`) |
 | `hrrr` | `variable` (default `precipitation_surface`) |
 | `nlcd` | `year` (default `2021`); static, no window |

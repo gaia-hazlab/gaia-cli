@@ -28,8 +28,8 @@ Stage datasets clipped to an AOI and time range.
 │ hrrr      Stage HRRR analysis data clipped to an AOI. The HRRR precipitation rate (kg m-2 s-1) is converted to hourly accumulation (mm).  Requires AWS_PROFILE environment    │
 │           variable if writing to S3.                                                                                                                                          │
 │ prism     Stage PRISM daily precipitation clipped to an AOI.                                                                                                                  │
-│ synoptic  Stage in-situ precipitation from the Synoptic API. Precipitation timeseries is resampled to construct a uniform hourly DataArray. Requires SYNOPTIC_TOKEN           │
-│           environment variable (https://docs.synopticdata.com). Requires AWS_PROFILE environment variable if writing to S3.                                                   │
+│ synoptic  Stage weather station reports from the Synoptic API. Every report is kept, as a CF ragged array (see docs/stations.md). Requires SYNOPTIC_TOKEN environment         │
+│           variable (https://docs.synopticdata.com). Requires AWS_PROFILE environment variable if writing to S3.                                                               │
 ╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -37,7 +37,7 @@ Stage datasets clipped to an AOI and time range.
 ```
 Usage: gaia stage synoptic [ARGS]
 
-Stage in-situ precipitation from the Synoptic API. Precipitation timeseries is resampled to construct a uniform hourly DataArray. Requires SYNOPTIC_TOKEN environment variable
+Stage weather station reports from the Synoptic API. Every report is kept, as a CF ragged array (see docs/stations.md). Requires SYNOPTIC_TOKEN environment variable
 (https://docs.synopticdata.com). Requires AWS_PROFILE environment variable if writing to S3.
 
 ╭─ Parameters ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
@@ -45,6 +45,8 @@ Stage in-situ precipitation from the Synoptic API. Precipitation timeseries is r
 │ START --start -s    Start date/time for the timeseries (parseable by pandas.Timestamp).                                                                                             │
 │ END --end -e        End date/time for the timeseries (parseable by pandas.Timestamp).                                                                                               │
 │ OUTPUT --output -o  Output folder for the Zarr store (named after the folder), its STAC Item and the resolved stage.yaml.                                                           │
+│ VARIABLES           Synoptic variables, e.g. precip_accum air_temp. precip_accum is staged as precipitation, a running total. Default precip_accum.                                  │
+│   --variables -v                                                                                                                                                                    │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -58,6 +60,8 @@ gaia stage --config conus-precip -i $AOI -s 2025-12-01 -e 2025-12-20 -o /tmp/ska
 ```
 
 `-o` is a folder: this writes `/tmp/skagit-test/skagit-test.zarr`, its STAC Item `skagit-test.json`, and the resolved `stage.yaml`, which repeats the run with `gaia stage --config /tmp/skagit-test/stage.yaml`. `conus-precip` is a built-in preset: Synoptic stations, PRISM and HRRR precipitation. Every dataset declares its coverage, so datasets that the AOI or window misses (for example PRISM and HRRR in Alaska) are skipped with a warning. A dataset that fails doesn't stop the others; rerun with `--skip-existing` to retry only the missing groups.
+
+Station data keeps every report, as a CF ragged array. `gaia_cli.stations.to_grid` gives an hourly (or daily) grid and `to_dataframe` a long table; see [docs/stations.md](docs/stations.md).
 
 `stage` keeps every raster on its native grid and time step. To compare products, align them onto one grid (default: the coarsest, HRRR 3 km) and one time step (default: the coarsest, PRISM days) in a new store. See [docs/reprojecting.md](docs/reprojecting.md):
 ```bash
