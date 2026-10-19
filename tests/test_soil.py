@@ -37,6 +37,29 @@ def local_solus(tmp_path, monkeypatch):
     monkeypatch.setattr(soil, "_url", lambda layer: str(paths[layer]))
 
 
+@pytest.fixture
+def local_statsgo(tmp_path, monkeypatch):
+    """A small 30 m float32 GeoTIFF in NAD27 Albers, like the STATSGO COG: NaN
+    nodata in the first row, the -0.1 code in the first column."""
+    values = np.full((10, 10), 0.28, dtype="float32")
+    values[:, 5:] = 0.24
+    values[:, 0] = -0.1
+    values[0, :] = np.nan
+    da = xr.DataArray(
+        values,
+        dims=("y", "x"),
+        coords={"y": Y0 - 15 - 30 * np.arange(10), "x": X0 + 15 + 30 * np.arange(10)},
+    )
+    da = da.rio.write_crs("EPSG:5069").rio.write_nodata(np.nan)
+    path = tmp_path / "statsgo-KFFACT.tif"
+    da.rio.to_raster(path)
+    monkeypatch.setattr(soil, "STATSGO_URL", str(path))
+
+
+def statsgo_fixture():
+    return gpd.GeoDataFrame(geometry=[box(X0, Y0 - 300, X0 + 300, Y0)], crs="EPSG:5069")
+
+
 def whole_fixture():
     return gpd.GeoDataFrame(
         geometry=[box(X0, Y0 - 1000, X0 + 1000, Y0)], crs="EPSG:5070"
@@ -96,7 +119,10 @@ def test_stage_file_key_names_the_product_and_group(tmp_path):
 def test_unknown_product(tmp_path):
     with pytest.raises(stagefile.StageFileError) as e:
         stagefile.load_config(config(tmp_path, "  soil/soilgrids: {}\n"))
-    assert "soil/soilgrids: 'soilgrids' is not one of solus100" in e.value.problems
+    assert (
+        "soil/soilgrids: 'soilgrids' is not one of solus100, statsgo"
+        in e.value.problems
+    )
 
 
 def test_extent_is_conus_only():
@@ -106,3 +132,49 @@ def test_extent_is_conus_only():
 
     assert outside([-121.6, 47.6, -121.0, 47.9]) is None  # Bolt Creek
     assert "outside the dataset's extent" in outside([-152.2, 62.75, -150.2, 63.55])
+
+
+def test_statsgo_masks_the_missing_code(local_statsgo):
+    ds = soil.load(statsgo_fixture(), product=Product.statsgo)
+
+    assert list(ds.data_vars) == ["kffact"]
+    assert ds.rio.crs.to_epsg() == 5069  # native NAD27 grid, not reprojected
+    kf = ds.kffact.values
+    assert np.isnan(kf[0]).all()  # nodata
+    assert np.isnan(kf[:, 0]).all()  # -0.1, no K factor
+    np.testing.assert_allclose(np.unique(kf[~np.isnan(kf)]), [0.24, 0.28])
+    assert ds.kffact.dtype == "float32"
+    assert ds.kffact.attrs["gaia:regrid-method"] == "nearest"
+    assert ds.attrs["sci:doi"] == "10.5066/P13WAPYV"
+    rels = {lk["rel"] for lk in ds.attrs["links"]}
+    assert {"via", "license", "cite-as", "describedby"} <= rels
+
+
+def test_both_products_stage_into_one_store(local_solus, local_statsgo, tmp_path):
+    path = tmp_path / "t.zarr"
+    io.save_datatree(
+        xr.DataTree.from_dict(
+            {
+                "soil/solus100": soil.load(whole_fixture()),
+                "soil/statsgo": soil.load(statsgo_fixture(), product="statsgo"),
+            }
+        ),
+        str(path),
+    )
+
+    back = xr.open_zarr(path, group="soil/statsgo").load()
+    assert back.kffact.dtype == "float32"
+    assert np.isnan(back.kffact.values[:, 0]).all()
+    assert back.kffact.attrs["gaia:regrid-method"] == "nearest"
+    assert "claytotal" in xr.open_zarr(path, group="soil/solus100")
+
+
+def test_stage_file_statsgo_key(tmp_path):
+    cfg = stagefile.load_config(
+        config(tmp_path, "  soil/solus100: {}\n  soil/statsgo: {}\n")
+    )
+    assert [stagefile.group(r) for r in cfg.requests] == [
+        "soil/solus100",
+        "soil/statsgo",
+    ]
+    assert cfg.requests[1].options == {"product": Product.statsgo}
