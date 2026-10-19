@@ -140,17 +140,32 @@ def _zarr_store_for_path(output_path: str):
     return output_path
 
 
-def object_store(path: str):
+def object_store(path: str, mkdir: bool = False):
     """An obstore store rooted at *path* (local directory or ``s3://`` URL)."""
     if path.startswith("s3://"):
         return _s3_store_for_path(path)
-    return LocalStore(Path(path).resolve())
+    return LocalStore(Path(path).resolve(), mkdir=mkdir)
+
+
+def write_text(path: str, text: str):
+    """Write *text* to *path* (local or ``s3://``), creating local directories."""
+    parent, name = posixpath.split(path)
+    store = object_store(parent or ".", mkdir=True)
+    obstore.put(store, name, text.encode())
+
+
+def read_text(path: str) -> str | None:
+    """The text at *path* (local or ``s3://``), or None if there is none."""
+    parent, name = posixpath.split(path)
+    try:
+        return bytes(obstore.get(object_store(parent or "."), name).bytes()).decode()
+    except FileNotFoundError:
+        return None
 
 
 def write_json(path: str, doc: dict):
     """Write *doc* as JSON to *path* (local or ``s3://``)."""
-    parent, name = posixpath.split(path)
-    obstore.put(object_store(parent or "."), name, json.dumps(doc, indent=1).encode())
+    write_text(path, json.dumps(doc, indent=1))
 
 
 def item_path(output_path: str) -> str:
@@ -158,9 +173,9 @@ def item_path(output_path: str) -> str:
     return output_path.rstrip("/").removesuffix(".zarr") + ".json"
 
 
-def _write_item(output_path: str, tree: xr.DataTree):
+def _write_item(output_path: str, tree: xr.DataTree, assets: dict | None = None):
     store_name = posixpath.basename(output_path.rstrip("/"))
-    write_json(item_path(output_path), provenance.stac_item(tree, store_name))
+    write_json(item_path(output_path), provenance.stac_item(tree, store_name, assets))
     log.info("Wrote STAC item %s", item_path(output_path))
 
 
@@ -243,7 +258,11 @@ def _prepare_for_zarr(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
 
 
 def save_datatree(
-    dt: xr.DataTree, output_path: str, overwrite: bool = False, append: bool = False
+    dt: xr.DataTree,
+    output_path: str,
+    overwrite: bool = False,
+    append: bool = False,
+    assets: dict | None = None,
 ):
     """Write an :class:`xarray.DataTree` to a Zarr store.
 
@@ -262,6 +281,8 @@ def save_datatree(
         If True, add *dt*'s groups to the existing store at *output_path*,
         keeping its other groups; the root attributes and STAC Item then
         describe the whole store. Default False.
+    assets : dict, optional
+        Extra assets for the STAC Item, e.g. ``{"config": ...}``.
     """
     # Walk the tree and prepare each leaf node
     nodes: dict[str, xr.Dataset] = {}
@@ -296,7 +317,7 @@ def save_datatree(
         root.attrs.put({str(k): v for k, v in prepared.attrs.items()})
         zarr.consolidate_metadata(store)
     log.info("Saved %s", output_path)
-    _write_item(output_path, prepared)
+    _write_item(output_path, prepared, assets)
 
 
 def groups(path: str) -> set[str]:

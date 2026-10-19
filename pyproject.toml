@@ -42,7 +42,7 @@ source = ["gaia_cli"]
 omit = ["*/gaia_cli/__main__.py"]
 
 [tool.coverage.report]
-fail_under = 82
+fail_under = 86
 skip_covered = true
 
 [build-system]
@@ -63,7 +63,7 @@ dev = { features = ["dev"], solve-group = "default" }
 [tool.pixi.feature.dev.tasks]
 test = { cmd = "pytest", description = "Run the test suite" }
 test-online = { cmd = "pytest -m online", description = "Run the network smoke tests (SYNOPTIC_TOKEN enables synoptic)" }
-coverage = { cmd = "pytest --cov --cov-report=term-missing", description = "Run the tests and report line coverage of src/gaia_cli; fails below 82%" }
+coverage = { cmd = "pytest --cov --cov-report=term-missing", description = "Run the tests and report line coverage of src/gaia_cli; fails below 86%" }
 typecheck = { cmd = "ty check src/", description = "Type-check src/ with ty" }
 lint = { cmd = "ruff check src tests --fix ; ruff format src tests", description = "Fix lint issues and format src/ and tests/" }
 lint-check = { cmd = "ruff check src tests && ruff format --check src tests", description = "Check lint and formatting without changing files (CI)" }

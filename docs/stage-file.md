@@ -2,14 +2,15 @@
 
 A stage file describes one event: its AOIs, time windows and the datasets to stage.
 `gaia stage --config` stages every dataset in it into one Zarr store, one group per
-dataset (`stations/synoptic`, `rasters/prism`, `rasters/hrrr`, `rasters/nlcd`).
+dataset (`stations/synoptic`, `rasters/prism`, `rasters/hrrr`, `rasters/nlcd`), in an
+[output folder](#output-folder).
 Single-dataset commands (`gaia stage prism -i … -s … -e …`) build the same
 configuration from their flags and write the same layout, with one group.
 The design and its reasoning are in [roadmap/02-stage-file.md](roadmap/02-stage-file.md).
 
 ```bash
 gaia stage --config examples/skagit-2025.yaml --dry-run          # validate and print, fetch nothing
-gaia stage --config examples/skagit-2025.yaml -o /tmp/skagit.zarr
+gaia stage --config examples/skagit-2025.yaml -o /tmp/skagit
 ```
 
 The file replaces the data-selection flags (`-i`, `-s`, `-e` and dataset options),
@@ -18,18 +19,18 @@ run controls combine with a file:
 
 | flag | effect |
 |---|---|
-| `-o` | output store; overrides the file's `output` |
+| `-o` | output folder; overrides the file's `output` |
 | `--only prism,hrrr` | stage only these datasets from the file |
 | `--dry-run` | validate, read the AOIs and print the resolved configuration; fetch nothing |
-| `--overwrite` | replace an existing store |
+| `--overwrite` | write into a folder that isn't empty, replacing its store |
 | `--skip-existing` | add to an existing store, skipping datasets whose group it already has |
 
 A dataset that fails doesn't stop the run. The others are written, every failure is
 listed at the end, and the command exits with an error. Rerun with `--skip-existing` to
 retry only the datasets that failed. The single-dataset commands also take
 `--dry-run`, `--overwrite` and `--skip-existing`, so
-`gaia stage nlcd -i aoi.geojson -o out.zarr --skip-existing` adds land cover to an
-existing store.
+`gaia stage nlcd -i aoi.geojson -o out --skip-existing` adds land cover to the store
+in `out/`.
 
 ## Presets
 
@@ -37,7 +38,7 @@ A preset is a built-in stage file without an AOI or window. Give those with `-i`
 and `-e`:
 
 ```bash
-gaia stage --config conus-precip -i aoi.geojson -s 2025-12-01 -e 2025-12-20 -o out.zarr
+gaia stage --config conus-precip -i aoi.geojson -s 2025-12-01 -e 2025-12-20 -o out
 ```
 
 | preset | datasets |
@@ -51,7 +52,7 @@ read with the same one-day padding as any window.
 ## Example
 
 ```yaml
-name: peters-dome-2023               # required
+name: peters-dome-2023               # required; names the store and STAC Item
 time: 2023-09-14T02:06:49Z           # event anchor for relative windows; optional
 origin: {latitude: 63.1455, longitude: -151.1904}   # optional
 attrs:                               # copied to the store's root group
@@ -61,7 +62,7 @@ aois:                                # named AOIs
   local: {latitude: 63.1455, longitude: -151.1904, radius_km: 15}
 aoi: regional                        # default AOI: a name, path, URL or inline AOI
 window: 2023-06-01/2023-09-21        # default window
-output: s3://gaia/scratch/peters-dome.zarr   # -o overrides it
+output: s3://gaia/scratch/peters-dome   # output folder; -o overrides it
 datasets:
   hrrr: {aoi: local, window: {before: 6h, after: 1d}, variable: temperature_2m}
   prism: {variables: [ppt, tmax]}
@@ -78,6 +79,34 @@ the CLI flags:
 | `prism` | `variables` (list, default `[ppt]`) |
 | `hrrr` | `variable` (default `precipitation_surface`) |
 | `nlcd` | `year` (default `2021`); static, no window |
+
+## Output folder
+
+`-o` (or the file's `output`) is a folder, local or `s3://`. Every run writes:
+
+```
+<output>/
+  <name>.zarr/    # the store, one group per dataset
+  <name>.json     # STAC Item: `data` asset (the store) and `config` asset (stage.yaml)
+  stage.yaml      # the resolved stage file
+```
+
+`<name>` is the file's `name`, so it may hold only letters, digits, `.`, `_` and `-`.
+Single-dataset commands and presets name the store after the folder instead:
+`gaia stage prism … -o skagit` writes `skagit/skagit.zarr`. An `-o` ending in `.zarr`
+is an error.
+
+`stage.yaml` is written before any data is fetched. It lists every dataset staged,
+each with its own AOI, window and options after defaults, so
+`gaia stage --config <output>/stage.yaml` repeats the run, and with `--skip-existing`
+it retries the datasets that failed. AOI files and URLs are inlined as `intersects`
+Polygons in EPSG:4326, so the file doesn't depend on them. Datasets skipped for
+coverage aren't listed. With `--skip-existing`, datasets the existing file lists are
+kept.
+
+Each dataset's group is written as soon as it loads, and the store's metadata is
+consolidated and its STAC Item rewritten after every group. If a later dataset fails,
+or the run is interrupted, the groups already written are complete and readable.
 
 ## AOIs
 

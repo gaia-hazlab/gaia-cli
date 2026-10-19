@@ -131,7 +131,7 @@ Then:
 
 ```bash
 AWS_PROFILE=b2 aws s3 ls s3://gaia-scratch/
-AWS_PROFILE=b2 pixi run gaia stage prism ... -o s3://gaia-scratch/skagit-prism.zarr
+AWS_PROFILE=b2 pixi run gaia stage prism ... -o s3://gaia-scratch/skagit-prism
 ```
 
 ## Enable public read access

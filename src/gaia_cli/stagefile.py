@@ -13,6 +13,7 @@ import difflib
 import inspect
 import json
 import logging
+import posixpath
 import re
 import sys
 import typing
@@ -29,7 +30,7 @@ import yaml
 from cyclopts import Parameter
 from xarray.backends.file_manager import FILE_CACHE
 
-from . import hrrr, io, nlcd, prism, synoptic
+from . import hrrr, io, nlcd, prism, provenance, synoptic
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +63,10 @@ SELECT = ("all", "first", "last", "nearest")
 DURATION = re.compile(r"(\d+(?:\.\d+)?)(s|min|h|d|w)")
 SECONDS = {"s": 1, "min": 60, "h": 3600, "d": 86400, "w": 604800}
 DATE_ONLY = re.compile(r"\d{4}-\d{2}-\d{2}")
+# `name` names the store and STAC Item in the output folder
+NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+# The resolved configuration, written to the output folder next to the store
+CONFIG_FILE = "stage.yaml"
 AOI_FORMS = ({"bbox"}, {"intersects"}, {"latitude", "longitude", "radius_km"})
 # Timed datasets are read this far beyond each end of their window, so that
 # periods straddling the window's edges (e.g. PRISM's 12 UTC day) are complete
@@ -355,6 +360,10 @@ def parse_config(doc: dict, path: str, base_dir: Path) -> StageConfig:
     name = doc.get("name")
     if not isinstance(name, str) or not name:
         problems.append("name: required, e.g. name: skagit-2025-12")
+    elif not NAME.fullmatch(name):
+        problems.append(
+            f"name: {name!r} names the store, so use only letters, digits, '.', '_' and '-'"
+        )
     time = (
         check("time", parse_time, doc["time"]) if doc.get("time") is not None else None
     )
@@ -497,6 +506,60 @@ def resolved(
     return out
 
 
+def stage_file(
+    cfg: StageConfig, output: str, aois: dict[str, gpd.GeoDataFrame]
+) -> dict:
+    """The resolved stage file written next to the store.
+
+    Every dataset has its own AOI, window and options, so
+    ``gaia stage --config`` repeats the run exactly. AOI files and URLs are
+    inlined as ``intersects`` Polygons in EPSG:4326.
+    """
+    out: dict[str, Any] = {"name": cfg.name}
+    if cfg.time is not None:
+        out["time"] = cfg.time.isoformat()
+    if cfg.origin:
+        out["origin"] = cfg.origin
+    if cfg.attrs:
+        out["attrs"] = cfg.attrs
+    out["output"] = output
+    out["datasets"] = {}
+    for req in cfg.requests:
+        aoi = req.aoi
+        if isinstance(aoi, str):
+            geom = aois[aoi].to_crs("EPSG:4326").geometry.iloc[0]
+            aoi = {"intersects": json.loads(shapely.to_geojson(geom))}
+        entry: dict[str, Any] = {"aoi": aoi}
+        if req.windows:
+            entry["window"] = str(req.windows[0])
+        entry.update({k: plain(v) for k, v in req.options.items()})
+        out["datasets"][req.name] = entry
+    return out
+
+
+def store_path(output: str, name: str) -> str:
+    """Path of the Zarr store in the output folder *output*."""
+    return f"{output.rstrip('/')}/{name}.zarr"
+
+
+def folder_name(output: str) -> str:
+    """The basename of the output folder, the store's name for flag-only runs."""
+    if "://" in output:
+        return posixpath.basename(output.rstrip("/"))
+    return Path(output).resolve().name
+
+
+def write_stage_file(doc: dict, output: str, merge: bool = False):
+    """Write *doc* as the output folder's ``stage.yaml``; with *merge*, keep
+    the datasets that the folder's existing file lists and *doc* doesn't."""
+    path = f"{output.rstrip('/')}/{CONFIG_FILE}"
+    if merge and (text := io.read_text(path)) is not None:
+        old = yaml.safe_load(text) or {}
+        doc = {**doc, "datasets": {**old.get("datasets", {}), **doc["datasets"]}}
+    io.write_text(path, yaml.safe_dump(doc, sort_keys=False, default_flow_style=None))
+    log.info("Wrote %s", path)
+
+
 def group(req: Request) -> str:
     return f"{GROUPS[DATASETS[req.name].KIND]}/{req.name}"
 
@@ -573,17 +636,19 @@ def outside_extent(req: Request, aoi: gpd.GeoDataFrame) -> str | None:
 def run(
     cfg: StageConfig,
     aois: dict[str, gpd.GeoDataFrame],
-    output: str,
+    store: str,
     overwrite: bool = False,
     append: bool = False,
+    assets: dict | None = None,
 ) -> dict[str, str]:
-    """Load every requested dataset and write them as groups of one store.
+    """Load every requested dataset and write each as a group of one store.
 
-    A dataset that fails doesn't stop the others; returns ``{name: error}``
-    for the ones that failed. With *append*, the groups are added to the
-    existing store.
+    Each group is written, and the store consolidated and its STAC Item
+    rewritten, as soon as it loads. A dataset that fails doesn't stop the
+    others; returns ``{name: error}`` for the ones that failed. With
+    *append*, the groups are added to the existing store.
     """
-    nodes, failures = {}, {}
+    failures = {}
     for req in cfg.requests:
         module = DATASETS[req.name]
         kwargs = dict(req.options)
@@ -603,18 +668,17 @@ def run(
         try:
             obj = module.load(aois[_aoi_key(req.aoi)], **kwargs)
             # Station data is xvec CF-encoded for the store
-            nodes[group(req)] = (
-                module.to_dataset(obj) if module.KIND == "stations" else obj
+            node = module.to_dataset(obj) if module.KIND == "stations" else obj
+            tree = xr.DataTree.from_dict({group(req): node})
+            tree.attrs = dict(cfg.attrs)
+            io.save_datatree(
+                tree, store, overwrite=overwrite, append=append, assets=assets
             )
+            append = True  # later groups go into the same store
         except Exception as e:
             log.error("%s: failed: %s", req.name, e)
             log.debug("%s: traceback", req.name, exc_info=True)
             failures[req.name] = f"{type(e).__name__}: {e}"
-
-    if nodes:
-        tree = xr.DataTree.from_dict(nodes)
-        tree.attrs = dict(cfg.attrs)
-        io.save_datatree(tree, output, overwrite=overwrite, append=append)
     # Close cached remote GDAL handles before interpreter shutdown, where their
     # cleanup can crash sys.excepthook on Python 3.14
     FILE_CACHE.clear()
@@ -645,6 +709,11 @@ def execute(
             cfg.requests = [r for r in cfg.requests if r.name in names]
         if output is None and not dry_run:
             problems.append("output: required, here or with -o")
+        elif output is not None and output.rstrip("/").endswith(".zarr"):
+            problems.append(
+                f"output: -o is a folder for <name>.zarr, {CONFIG_FILE} and the "
+                f"STAC Item; drop the .zarr from {output}"
+            )
         if overwrite and skip_existing:
             problems.append("--overwrite and --skip-existing can't be combined")
         if problems:
@@ -676,9 +745,19 @@ def execute(
         reasons = "; ".join(f"{n}: {r}" for n, r in skipped.items())
         sys.exit(f"Error: nothing to stage ({reasons})")
 
-    append = skip_existing and io.output_exists(output)
+    store = store_path(output, cfg.name)
+    append = skip_existing and io.output_exists(store)
+    if skip_existing:
+        io.check_s3_env(output)
+    else:
+        io.check_output(output, overwrite)
+    write_stage_file(
+        stage_file(dataclasses.replace(cfg, requests=requests), output, aois),
+        output,
+        merge=append,
+    )
     if append:
-        existing = io.groups(output)
+        existing = io.groups(store)
         for req in requests:
             if group(req) in existing:
                 log.info("%s: skipped, %s already exists", req.name, group(req))
@@ -686,14 +765,13 @@ def execute(
         if not requests:
             log.info("Done: every group already exists")
             return
-    else:
-        io.check_output(output, overwrite)
     failures = run(
         dataclasses.replace(cfg, requests=requests),
         aois,
-        output,
+        store,
         overwrite=overwrite,
         append=append,
+        assets={"config": provenance.config_asset(f"./{CONFIG_FILE}")},
     )
     if failures:
         lines = "\n".join(f"  - {n}: {e}" for n, e in failures.items())
@@ -701,7 +779,7 @@ def execute(
         hint = " Rerun with --skip-existing to retry them." if written else ""
         sys.exit(
             f"Error: {len(failures)} of {len(requests)} dataset(s) failed; "
-            f"{written} written to {output}.{hint}\n{lines}"
+            f"{written} written to {store}.{hint}\n{lines}"
         )
     log.info("Done")
 
@@ -744,14 +822,16 @@ def stage(
     end_date : str
         With a preset only: end; a date includes the whole day.
     output_path : str
-        Path to write the Zarr store. Default: the file's ``output``.
+        Output folder for ``<name>.zarr``, its STAC Item ``<name>.json`` and
+        the resolved ``stage.yaml``. Default: the file's ``output``.
     only : str
         Comma-separated datasets from the file to stage, e.g. ``prism,hrrr``.
     dry_run : bool
         Validate the file, read the AOIs and print the resolved configuration,
         including datasets skipped for coverage, without fetching any data.
     overwrite : bool
-        Replace the output store if it already exists. Default False.
+        Write into an output folder that isn't empty, replacing its store.
+        Default False.
     skip_existing : bool
         Add to an existing store, skipping datasets whose group it already
         has. Use it to retry the datasets that failed. Default False.
@@ -760,11 +840,11 @@ def stage(
     --------
     Check, then stage, the Skagit Basin December 2025 atmospheric river:
         $ gaia stage --config examples/skagit-2025.yaml --dry-run
-        $ gaia stage --config examples/skagit-2025.yaml -o skagit.zarr
+        $ gaia stage --config examples/skagit-2025.yaml -o skagit
 
     Station, PRISM and HRRR precipitation for any CONUS AOI:
         $ AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
-        $ gaia stage --config conus-precip -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit.zarr
+        $ gaia stage --config conus-precip -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit
     """
     preset = PRESETS / f"{config}.yaml"
     is_preset = config in presets() and not Path(config).exists()
@@ -786,6 +866,9 @@ def stage(
                 )
             doc = read_config(str(preset))
             doc["aoi"] = vectorPath
+            # Like a flag-only run, the store is named after the output folder
+            if output_path is not None:
+                doc["name"] = folder_name(output_path)
             window = {"start": start_date, "end": end_date}
             if any(window.values()):
                 doc["window"] = {k: v for k, v in window.items() if v is not None}
@@ -823,10 +906,11 @@ def stage_dataset(
 ):
     """Stage one dataset from its CLI flags (``gaia stage prism -i … -s …``).
 
-    Builds the stage file the flags describe and runs it like any other.
+    Builds the stage file the flags describe and runs it like any other. The
+    store is named after the output folder.
     """
     doc: dict[str, Any] = {
-        "name": name,
+        "name": folder_name(output_path),
         "aoi": vectorPath,
         "datasets": {name: {k: plain(v) for k, v in options.items()}},
     }

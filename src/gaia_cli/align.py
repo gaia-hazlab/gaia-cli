@@ -276,8 +276,8 @@ def run(
     Examples
     --------
     Daily totals on the HRRR 3 km grid:
-        $ gaia stage --config conus-precip -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit_native.zarr
-        $ gaia align -i skagit_native.zarr -o skagit_daily_3km.zarr --aoi $AOI
+        $ gaia stage --config conus-precip -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit-native
+        $ gaia align -i skagit-native/skagit-native.zarr -o skagit_daily_3km.zarr --aoi $AOI
     """
     if (crs is None) != (res is None):
         raise ValueError("--crs and --res must be given together.")

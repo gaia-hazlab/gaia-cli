@@ -149,14 +149,16 @@ def stage(
     end_date : str
         End date (inclusive), e.g. '2025-12-20'.
     output_path : str
-        Path to write the resulting Zarr store.
+        Output folder for the Zarr store (named after the folder), its STAC
+        Item and the resolved stage.yaml.
     variable : HRRRVariable
         HRRR variable name to extract. Default ``precipitation-surface``.
     dry_run : bool
         Validate the flags, read the AOI and print the resolved configuration
         without fetching any data.
     overwrite : bool
-        Replace the output store if it already exists. Default False.
+        Write into an output folder that isn't empty, replacing its store.
+        Default False.
     skip_existing : bool
         Add to an existing store, unless it already has this dataset's group.
 
@@ -164,7 +166,7 @@ def stage(
     --------
     Stage HRRR precipitation for Skagit Basin December 2025:
         $ AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
-        $ gaia stage hrrr -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit_hrrr.zarr
+        $ gaia stage hrrr -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit-hrrr
     """
     from .stagefile import stage_dataset  # stagefile imports this module
 

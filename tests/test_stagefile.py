@@ -244,14 +244,14 @@ def test_run_writes_one_group_per_dataset(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(prism, "load", fake_load("prism", calls))
     text = CONUS + "  prism: {variables: [ppt, tmax]}\n"
-    out = tmp_path / "out.zarr"
+    out = tmp_path / "out"
     stagefile.stage(config=write(tmp_path, text), output_path=str(out))
 
     # Read a day beyond each end; the exclusive end becomes load()'s inclusive end
     assert calls == [
         ("prism", "2023-05-31T00:00:00", "2023-09-22T23:59:59", ("ppt", "tmax"))
     ]
-    tree = xr.open_datatree(out, engine="zarr")
+    tree = xr.open_datatree(out / "bolt-creek.zarr", engine="zarr")
     assert tree.attrs["title"] == "Bolt Creek"
     assert tree["rasters/prism"].attrs["title"] == "prism"
 
@@ -323,16 +323,18 @@ def test_datasets_outside_their_extent_are_skipped(tmp_path, monkeypatch, caplog
     text = CONUS.replace(
         "[-121.6, 47.6, -121.0, 47.9]", "[-152.2, 62.75, -150.2, 63.55]"
     )
-    out = tmp_path / "out.zarr"
+    out = tmp_path / "out"
     stagefile.stage(
         config=write(tmp_path, text + "  prism: {}\n  synoptic: {}\n"),
         output_path=str(out),
     )
     assert [c[0] for c in calls] == ["synoptic"]
     assert "prism: skipped, AOI" in caplog.text
-    assert set(xr.open_datatree(out, engine="zarr").children["stations"].children) == {
-        "synoptic"
-    }
+    tree = xr.open_datatree(out / "bolt-creek.zarr", engine="zarr")
+    assert set(tree.children["stations"].children) == {"synoptic"}
+    # The resolved file lists only what was staged
+    doc = stagefile.read_config(str(out / "stage.yaml"))
+    assert list(doc["datasets"]) == ["synoptic"]
 
 
 def test_single_dataset_outside_its_extent_is_an_error(tmp_path):
@@ -340,7 +342,7 @@ def test_single_dataset_outside_its_extent_is_an_error(tmp_path):
     stagefile.load_aoi({"bbox": [-152.2, 62.75, -150.2, 63.55]}).to_file(aoi)
     args = ["prism", "-i", str(aoi), "-s", "2023-06-01", "-e", "2023-06-02"]
     with pytest.raises(SystemExit, match="nothing to stage .prism: AOI .* is outside"):
-        stage_app([*args, "-o", str(tmp_path / "out.zarr")])
+        stage_app([*args, "-o", str(tmp_path / "out")])
 
 
 # ---- runner controls -----------------------------------------------------------
@@ -353,7 +355,7 @@ def test_only_selects_datasets_and_rejects_unknown_names(tmp_path, monkeypatch):
     config = write(tmp_path, CONUS + "  prism: {}\n  nlcd: {}\n")
     with pytest.raises(SystemExit, match="unknown dataset in the file 'hrrr'"):
         stagefile.stage(config=config, only="prism,hrrr", dry_run=True)
-    stagefile.stage(config=config, only="prism", output_path=str(tmp_path / "o.zarr"))
+    stagefile.stage(config=config, only="prism", output_path=str(tmp_path / "o"))
     assert [c[0] for c in calls] == ["prism"]
 
 
@@ -362,11 +364,12 @@ def test_failures_are_reported_and_retried_with_skip_existing(tmp_path, monkeypa
     monkeypatch.setattr(prism, "load", fake_load("prism", calls, fail=True))
     monkeypatch.setattr(hrrr, "load", fake_load("hrrr", calls))
     config = write(tmp_path, CONUS + "  prism: {}\n  hrrr: {}\n")
-    out = str(tmp_path / "out.zarr")
+    out = str(tmp_path / "out")
+    store = f"{out}/bolt-creek.zarr"
     with pytest.raises(SystemExit, match=r"1 of 2 dataset\(s\) failed; 1 written") as e:
         stagefile.stage(config=config, output_path=out)
     assert "prism: RuntimeError: prism is down" in str(e.value)
-    assert set(xr.open_datatree(out, engine="zarr")["rasters"].children) == {"hrrr"}
+    assert set(xr.open_datatree(store, engine="zarr")["rasters"].children) == {"hrrr"}
 
     with pytest.raises(SystemExit, match="already exists"):
         stagefile.stage(config=config, output_path=out)
@@ -379,7 +382,7 @@ def test_failures_are_reported_and_retried_with_skip_existing(tmp_path, monkeypa
     monkeypatch.setattr(prism, "load", fake_load("prism", calls))
     stagefile.stage(config=config, output_path=out, skip_existing=True)
     assert [c[0] for c in calls] == ["prism"]  # hrrr was already there
-    tree = xr.open_datatree(out, engine="zarr")
+    tree = xr.open_datatree(store, engine="zarr")
     assert set(tree["rasters"].children) == {"hrrr", "prism"}
     assert tree.attrs["title"] == "Bolt Creek"
 
@@ -429,7 +432,7 @@ def test_flags_run_through_the_same_runner(tmp_path, monkeypatch):
     monkeypatch.setattr(prism, "load", fake_load("prism", calls))
     aoi = tmp_path / "aoi.geojson"
     stagefile.load_aoi({"bbox": [-121.6, 47.6, -121.0, 47.9]}).to_file(aoi)
-    out = tmp_path / "out.zarr"
+    out = tmp_path / "skagit"
     stage_app(
         [
             "prism",
@@ -447,5 +450,72 @@ def test_flags_run_through_the_same_runner(tmp_path, monkeypatch):
         result_action="return_value",
     )
     assert calls == [("prism", "2025-11-30T00:00:00", "2025-12-21T23:59:59", ("tmax",))]
-    tree = xr.open_datatree(out, engine="zarr")
+    # Named after the output folder
+    tree = xr.open_datatree(out / "skagit.zarr", engine="zarr")
     assert tree["rasters/prism"].attrs["title"] == "prism"
+
+
+# ---- output folder ---------------------------------------------------------------
+
+
+def test_output_folder_holds_store_item_and_a_repeatable_stage_file(
+    tmp_path, monkeypatch, capsys
+):
+    calls = []
+    monkeypatch.setattr(prism, "load", fake_load("prism", calls))
+    aoi = tmp_path / "aoi.geojson"
+    stagefile.load_aoi({"bbox": [-121.6, 47.6, -121.0, 47.9]}).to_file(aoi)
+    text = CONUS.replace("{bbox: [-121.6, 47.6, -121.0, 47.9]}", "aoi.geojson")
+    out = tmp_path / "event"
+    stagefile.stage(
+        config=write(tmp_path, text + "  prism: {variables: [tmax]}\n"),
+        output_path=str(out),
+    )
+    assert sorted(p.name for p in out.iterdir()) == [
+        "bolt-creek.json",
+        "bolt-creek.zarr",
+        "stage.yaml",
+    ]
+    item = stagefile.json.loads((out / "bolt-creek.json").read_text())
+    assert item["assets"]["data"]["href"] == "./bolt-creek.zarr"
+    assert item["assets"]["config"]["href"] == "./stage.yaml"
+    assert item["assets"]["config"]["roles"] == ["metadata"]
+
+    doc = stagefile.read_config(str(out / "stage.yaml"))
+    assert doc["output"] == str(out)
+    entry = doc["datasets"]["prism"]
+    # The AOI file is inlined, so the stage file stands on its own
+    assert entry["aoi"]["intersects"]["type"] == "Polygon"
+    assert entry["window"] == "2023-06-01T00:00:00/2023-09-22T00:00:00"
+    assert entry["variables"] == ["tmax"]
+
+    # Rerunning the resolved file resolves to the same configuration
+    aoi.unlink()
+    stagefile.stage(config=str(out / "stage.yaml"), dry_run=True)
+    rerun = stagefile.yaml.safe_load(capsys.readouterr().out)["datasets"]["prism"]
+    assert {k: rerun[k] for k in entry} == entry
+
+
+def test_skip_existing_keeps_earlier_datasets_in_the_stage_file(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(prism, "load", fake_load("prism", calls))
+    monkeypatch.setattr(hrrr, "load", fake_load("hrrr", calls))
+    config = write(tmp_path, CONUS + "  prism: {}\n  hrrr: {}\n")
+    out = str(tmp_path / "out")
+    stagefile.stage(config=config, only="prism", output_path=out)
+    stagefile.stage(config=config, only="hrrr", output_path=out, skip_existing=True)
+    doc = stagefile.read_config(f"{out}/stage.yaml")
+    assert list(doc["datasets"]) == ["prism", "hrrr"]
+
+
+@pytest.mark.parametrize(
+    "name, output, message",
+    [
+        ("bolt-creek", "out.zarr", "drop the .zarr from out.zarr"),
+        ("bolt creek", "out", "'bolt creek' names the store"),
+    ],
+)
+def test_output_and_name_must_make_a_folder_layout(tmp_path, name, output, message):
+    config = write(tmp_path, CONUS.replace("bolt-creek", name) + "  prism: {}\n")
+    with pytest.raises(SystemExit, match=message):
+        stagefile.stage(config=config, output_path=output, dry_run=True)

@@ -62,10 +62,10 @@ def check_nlcd(ds):
 def test_stage(tmp_path, dataset, check):
     config = tmp_path / "stage.yaml"
     config.write_text(STAGE.format(dataset=dataset))
-    out = tmp_path / "out.zarr"
+    out = tmp_path / "out"
     stagefile.stage(config=str(config), output_path=str(out))
 
-    tree = xr.open_datatree(out, engine="zarr")
+    tree = xr.open_datatree(out / "bolt-creek-smoke.zarr", engine="zarr")
     (path,) = [p for p in tree.groups if p.count("/") == 2]
     assert path.endswith(dataset)
     check(tree[path].to_dataset())
