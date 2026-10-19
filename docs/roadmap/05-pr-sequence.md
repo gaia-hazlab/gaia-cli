@@ -28,7 +28,7 @@ Ordered by the priorities in [04](04-datasets.md#prioritized-new-datasets).
 
 | # | PR | depends on | notes |
 |---|---|---|---|
-| 1.1 | `dem` (Cop30) | 0.2 | Priority 1: both workflows need it. Planetary Computer STAC helper (`stac.py`). `--product 3dep10m` (PC `3dep-seamless`) is a later, small addition with the same helper ([04](04-datasets.md#dem-resolution)). Defer PR #7 (`usgs10m`, `bmi-topography` + OpenTopography key). |
+| 1.1 | `dem --product {cop30,usgs10m}` | 0.2 | Priority 1: both workflows need it. Both products are public VRT mosaics read with rioxarray (Cop30 from OpenTopography, 3DEP 1/3 arc-second from USGS): no key, no new dependency, no STAC helper. Heights keep each product's geoid; vertical datum conversion in `align` is a TODO ([04](04-datasets.md#dem-resolution)). Supersedes PR #7. |
 | 1.2 | `prism --variables` | — | Adds tmin and tmax alongside ppt, at 800 m as today |
 | 1.3 | `soil --product solus100` | 0.2 | The 7 layers landlab requires. CONUS only. |
 | 1.4 | `burn_severity` (SBS) | 0.1 | USGS BAER; filename templating from fire name and id. Skip dNBR, which nothing reads. |
@@ -40,7 +40,7 @@ Ordered by the priorities in [04](04-datasets.md#prioritized-new-datasets).
 | 2.1 | `seismic` (EarthScope FDSN) | 0.3 | **No obspy.** FDSN text station metadata + dataselect via `requests`, miniSEED decoding with `pymseed`, counts ÷ sensitivity ([obspy-dependency.md](obspy-dependency.md)). Store at native rate grouped by sample rate, with an optional common grid. Channel metadata as 1-D arrays on a `channel` dimension. Distance and back-azimuth from `origin`. Size guard. Skip `seismic_lp`, which nothing reads. |
 | 2.2 | `infrasound` | 2.1 | Same module, counts ÷ sensitivity to Pa, no component dimension |
 | 2.3 | `era5` + atmosphere profiles (Open-Meteo) | 0.2 | Document the usage policy and rate limits. Skip ERA5-Land, which nothing reads. |
-| 2.4 | `sentinel1-rtc`, `sentinel2` | 1.1, 0.1 (pre/post windows) | Reuse the Planetary Computer STAC helper from 1.1. Scene index as 1-D arrays on a `scene` dimension. Skip Landsat, which nothing reads. |
+| 2.4 | `sentinel1-rtc`, `sentinel2` | 0.1 (pre/post windows) | Adds the Planetary Computer STAC helper (`stac.py`). Scene index as 1-D arrays on a `scene` dimension. Skip Landsat, which nothing reads. |
 
 ## Phase 3: conversion and reference workflows
 
@@ -55,8 +55,8 @@ to depend on gaia-cli.
 
 ## Later, on request
 
-NASA Earthdata (`hls`, `opera-rtc`, `nisar`, `smap`), `dem --product 3dep10m` and other
-higher-resolution elevation, `dem --product usgs10m` (PR #7), `arcticdem`, `soilgrids`,
+NASA Earthdata (`hls`, `opera-rtc`, `nisar`, `smap`), higher-resolution elevation
+(3DEP 1 m, issue #4), vertical datum conversion in `align`, `arcticdem`, `soilgrids`,
 STATSGO K-factor, dNBR, `worldcover`, `daymet`, glacier/ITS_LIVE, `hrrr --domain alaska`,
 ComCat events as a vector table, `comcat_id` lookup, clearest-scene selection, a JSON
 Schema for `stage.yaml`, GeoParquet tables and Iceberg/Icechunk
@@ -66,7 +66,7 @@ Schema for `stage.yaml`, GeoParquet tables and Iceberg/Icechunk
 ## Ordering
 
 Phase 0 comes first, then **Phase 1, then Phase 2**. Phase 1 is smaller and delivers
-`dem`, which both workflows need. 2.4 reuses the STAC helper from 1.1. Phase 3 needs 0.3
+`dem`, which both workflows need. Phase 3 needs 0.3
 and the datasets each reference workflow uses.
 
 ## Resolved questions

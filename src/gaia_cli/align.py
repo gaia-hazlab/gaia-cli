@@ -255,6 +255,9 @@ def align(
         template.sizes["x"],
     )
 
+    # TODO: convert heights to a common vertical datum. DEMs keep their geoid
+    # (``vertical_datum``: cop30 EGM2008, usgs10m NAVD88), so differences
+    # between them include the geoid separation (~1 m). See docs/dem.md.
     for p, ds in rasters.items():
         out = ds.drop_vars(_raster_vars(ds))
         out = out.drop_vars([c for c in out.coords if {"x", "y"} & set(out[c].dims)])

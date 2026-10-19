@@ -2,7 +2,7 @@
 
 A stage file describes one event: its AOIs, time windows and the datasets to stage.
 `gaia stage --config` stages every dataset in it into one Zarr store, one group per
-dataset (`stations/synoptic`, `rasters/prism`, `rasters/hrrr`, `rasters/nlcd`), in an
+dataset (`stations/synoptic`, `rasters/prism`, `rasters/hrrr`, `rasters/nlcd`, `rasters/dem`), in an
 [output folder](#output-folder).
 Single-dataset commands (`gaia stage prism -i … -s … -e …`) build the same
 configuration from their flags and write the same layout, with one group.
@@ -79,6 +79,7 @@ the CLI flags:
 | `prism` | `variables` (list, default `[ppt]`) |
 | `hrrr` | `variable` (default `precipitation_surface`) |
 | `nlcd` | `year` (default `2021`); static, no window |
+| `dem` | `product` (`cop30` or `usgs10m`, default `cop30`; see [dem.md](dem.md)); static, no window |
 
 ## Output folder
 
@@ -184,6 +185,7 @@ the provider.
 | `prism` | CONUS | 1981 onward |
 | `hrrr` | CONUS | 2014-10-01 onward |
 | `nlcd` | CONUS | static; years 1985–2024 |
+| `dem` | global (`usgs10m`: US only, not checked) | static |
 
 ## Validation
 

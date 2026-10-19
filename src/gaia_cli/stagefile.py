@@ -29,7 +29,7 @@ import yaml
 from cyclopts import Parameter
 from xarray.backends.file_manager import FILE_CACHE
 
-from . import hrrr, io, nlcd, prism, provenance, synoptic
+from . import dem, hrrr, io, nlcd, prism, provenance, synoptic
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +50,7 @@ DATASETS: dict[str, ModuleType] = {
     "prism": prism,
     "hrrr": hrrr,
     "nlcd": nlcd,
+    "dem": dem,
 }
 # KIND -> group prefix in the output store
 GROUPS = {"raster": "rasters", "stations": "stations"}

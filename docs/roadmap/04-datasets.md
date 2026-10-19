@@ -49,7 +49,7 @@ precipitation comparison.
 
 | priority | dataset | provider | used by | notes |
 |---|---|---|---|---|
-| **1** | `dem` (Cop30) | Planetary Computer | landlab (core input); peters (cube only) | The only new dataset both workflows need. See [DEM resolution](#dem-resolution). |
+| **1** | `dem` (Cop30, 3DEP 10 m) | OpenTopography, USGS (VRTs) | landlab (core input); peters (cube only) | The only new dataset both workflows need. See [DEM resolution](#dem-resolution). |
 | 2 | `prism --variables` (tmin, tmax) | existing | landlab (via `landlab_debrisflow`) | Small change to an existing command |
 | 2 | `soil --product solus100` (7 layers) | SOLUS100 COGs on GCS | landlab | CONUS only |
 | 2 | `burn_severity` (SBS) | USGS BAER | landlab | Fire-specific; filename templating from fire name and id |
@@ -68,16 +68,21 @@ DEM would be cubic-upsampled. Slope drives landslide probability, and a 30 m sou
 smooths steep slopes. The ML target (`dem_diff.tif`) is also a DEM difference. So Cop30
 is the right global default, but CONUS landlab runs would lose detail.
 
-**Decision:** start with Cop30 only. Higher-resolution elevation is a goal for later.
-The first step is likely USGS 3DEP from Planetary Computer's `3dep-seamless` collection
-(10 m and 30 m, anonymous): `dem --product 3dep10m` would reuse the Cop30 STAC helper,
-with no bmi-topography and no OpenTopography key.
+**Decision (revised in step 1.1):** `dem` has two products, both public VRT mosaics of
+COGs read with rioxarray, with no key and no new dependency: `--product cop30` (default,
+global, [OpenTopography](https://opentopography.s3.sdsc.edu/raster/COP30/COP30_hh.vrt),
+EGM2008 heights) and `--product usgs10m` (USGS 3DEP 1/3 arc-second,
+[The National Map](https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/USGS_Seamless_DEM_13.vrt),
+NAVD88 heights). This replaces the Planetary Computer plan and PR #7 (`bmi-topography`
+and an API key). Heights stay on each product's geoid; converting to a common vertical
+datum in `gaia align` is a TODO. See [dem.md](../dem.md).
 
 ## By provider
 
 | provider | access / auth | datasets (priority 1–2) | used by | coverage |
 |---|---|---|---|---|
-| **Planetary Computer** | anonymous SAS signing | `dem` (Cop30), `sentinel1-rtc`, `sentinel2` | landlab (dem), peters | global; 3DEP is US |
+| **Planetary Computer** | anonymous SAS signing | `sentinel1-rtc`, `sentinel2` | peters | global |
+| OpenTopography, USGS (VRTs) | none | `dem` (`cop30`, `usgs10m`) | landlab, peters | global; `usgs10m` is US |
 | **EarthScope FDSN** | none | `seismic`, `infrasound` | peters | global networks; AK network well covered |
 | **Open-Meteo** | none; usage policy, rate limits | `era5`, atmosphere profiles | peters | global |
 | SOLUS100 (GCS) | none | `soil --product solus100` | landlab | **CONUS** |
@@ -93,9 +98,8 @@ No priority 1–2 dataset needs a new credential.
 
 | dataset | provider | note |
 |---|---|---|
-| `dem --product 3dep10m` | Planetary Computer (`3dep-seamless`) | First higher-resolution elevation option; same STAC helper as Cop30 |
 | `hls`, `opera-rtc`, `nisar`, `smap` | NASA Earthdata (`EARTHDATA_TOKEN` or `~/.netrc`) | landlab has working code in `earthdata.py`, but nothing reads the outputs. Adds a credential for every user and CI. |
-| `dem --product usgs10m` | OpenTopography (API key, `bmi-topography`) | PR #7. Only if `3dep10m` from Planetary Computer does not work out. |
+| `dem` vertical datum conversion | — | EGM2008 ↔ NAVD88 in `gaia align` (TODO in `align.py`) |
 | `arcticdem` (mosaic, strips) | PGC STAC | > 60°N; multitemporal elevation change |
 | `soil --product soilgrids`, STATSGO K-factor | ISRIC / ScienceBase | SoilGrids is global but mostly NaN over ice and rock |
 | `worldcover` | Planetary Computer | Global land cover, if a non-CONUS workflow needs NLCD's role |
@@ -109,7 +113,7 @@ The usage check settles this. The imagery the workflows actually read is Sentine
 and Sentinel-2 L2A (Peters Dome), both available anonymously. Nothing reads HLS, OPERA,
 NISAR or SMAP.
 
-**Decision:** use Planetary Computer for `dem`, `sentinel1-rtc` and `sentinel2`.
+**Decision:** use Planetary Computer for `sentinel1-rtc` and `sentinel2` (`dem` reads public VRTs instead; see [DEM resolution](#dem-resolution)).
 That is one provider and one STAC helper with no credential. Revisit NASA Earthdata when
 a workflow reads HLS, NISAR or SMAP. The earlier comparison still applies then: HLS is
 one harmonized 30 m product, OPERA and NISAR come from the same family, and the OPERA
@@ -144,10 +148,10 @@ network call ([02](02-stage-file.md#validation)).
 
 | dataset | `EXTENT` source |
 |---|---|
-| `dem` (Cop30), `sentinel1-rtc`, `sentinel2` | Planetary Computer collection (`cop-dem-glo-30`, `sentinel-1-rtc`, `sentinel-2-l2a`) |
+| `sentinel1-rtc`, `sentinel2` | Planetary Computer collection (`sentinel-1-rtc`, `sentinel-2-l2a`) |
 | `hrrr` | dynamical.org collection, which `hrrr.py` already reads for provenance |
 | `prism` | the gaia PRISM cache's own collection (`prism_cache/stac.py`) |
-| `nlcd`, `soil` (SOLUS100), `burn_severity`, `synoptic`, `era5`, `seismic`, `infrasound` | written by hand in the same schema (the provider has no STAC Collection, or none was found yet) |
+| `dem`, `nlcd`, `soil` (SOLUS100), `burn_severity`, `synoptic`, `era5`, `seismic`, `infrasound` | written by hand in the same schema (the provider has no STAC Collection, or none was found yet) |
 
 How the extent is used:
 

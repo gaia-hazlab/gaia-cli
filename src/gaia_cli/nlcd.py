@@ -66,9 +66,9 @@ def source_attrs(year: int) -> dict:
 def open_nlcd(year: int = 2021) -> xr.DataArray:
     url = _url(year)
     log.info("NLCD: opening %s", url)
-    # rioxarray's stub is stricter than its runtime API: chunks="auto" is a valid dask spec,
-    # and without group/variable args this always returns a single DataArray, not the full union
-    da = rioxarray.open_rasterio(url, chunks="auto", cache=False)  # ty: ignore[invalid-argument-type]
+    # Lazy but not dask: a clip then reads one window of the COG, instead of every
+    # whole dask chunk it touches
+    da = rioxarray.open_rasterio(url, cache=False)
     da = da.squeeze("band", drop=True).rename("landcover")  # ty: ignore[unresolved-attribute, invalid-argument-type]
     da.attrs["long_name"] = "Annual NLCD land cover"
     da.attrs["year"] = year

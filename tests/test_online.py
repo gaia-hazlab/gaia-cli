@@ -1,6 +1,7 @@
 """Network smoke tests: stage each dataset for a small Bolt Creek AOI through the
 stage-file runner. Run with ``pixi run test-online``; skipped by default."""
 
+import json
 import os
 
 import numpy as np
@@ -19,7 +20,7 @@ name: bolt-creek-smoke
 aoi: {{bbox: [-121.6, 47.6, -121.0, 47.9]}}
 window: 2025-12-10/2025-12-10
 datasets:
-  {dataset}: {{}}
+  {dataset}: {options}
 """
 
 
@@ -45,24 +46,34 @@ def check_nlcd(ds):
     assert {42, 52} & set(classes.tolist())  # evergreen forest, shrub/scrub
 
 
+def check_dem(ds):
+    # Skykomish valley (~150 m) to the Cascade crest (~2000 m)
+    assert 50 < float(ds.elevation.min()) < 300
+    assert 1800 < float(ds.elevation.max()) < 2500
+    assert ds.elevation.attrs["vertical_datum"].startswith("EPSG:")
+
+
 @pytest.mark.parametrize(
-    "dataset, check",
+    "dataset, check, options",
     [
         pytest.param(
             "synoptic",
             check_synoptic,
+            {},
             marks=pytest.mark.skipif(
                 not os.environ.get("SYNOPTIC_TOKEN"), reason="needs SYNOPTIC_TOKEN"
             ),
         ),
-        ("prism", check_prism),
-        ("hrrr", check_hrrr),
-        ("nlcd", check_nlcd),
+        ("prism", check_prism, {}),
+        ("hrrr", check_hrrr, {}),
+        ("nlcd", check_nlcd, {}),
+        pytest.param("dem", check_dem, {"product": "cop30"}, id="dem-cop30"),
+        pytest.param("dem", check_dem, {"product": "usgs10m"}, id="dem-usgs10m"),
     ],
 )
-def test_stage(tmp_path, dataset, check):
+def test_stage(tmp_path, dataset, check, options):
     config = tmp_path / "stage.yaml"
-    config.write_text(STAGE.format(dataset=dataset))
+    config.write_text(STAGE.format(dataset=dataset, options=json.dumps(options)))
     out = tmp_path / "out"
     stagefile.stage(config=str(config), output_path=str(out))
 
