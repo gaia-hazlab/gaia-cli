@@ -8,6 +8,15 @@ from shapely.geometry import box
 from gaia_cli import io
 
 
+def test_load_aoi_requires_a_single_polygon(tmp_path):
+    path = tmp_path / "two.geojson"
+    gpd.GeoDataFrame(
+        geometry=[box(0, 0, 1, 1), box(2, 2, 3, 3)], crs="EPSG:4326"
+    ).to_file(path)
+    with pytest.raises(ValueError, match="single Polygon, not Polygon, Polygon"):
+        io.load_aoi(str(path))
+
+
 def test_check_s3_env_raises_without_aws_profile(monkeypatch):
     monkeypatch.delenv("AWS_PROFILE", raising=False)
     with pytest.raises(ValueError):
