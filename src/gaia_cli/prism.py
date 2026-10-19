@@ -17,6 +17,15 @@ log = logging.getLogger(__name__)
 # GDAL settings for efficient remote reading
 odc.stac.configure_rio(cloud_defaults=True)
 
+# STAC Collection extent: the bbox of the gaia cache's collection (prism_cache/stac.py);
+# the archive starts in 1981 (https://prism.oregonstate.edu/documents/PRISM_datasets.pdf)
+EXTENT = {
+    "spatial": {"bbox": [[-125.020833, 24.0625, -66.479167, 49.9375]]},
+    "temporal": {"interval": [["1981-01-01T00:00:00Z", None]]},
+}
+KIND = "raster"
+TIMED = True
+
 CELL_METHODS = {"ppt": "time: sum", "tmin": "time: minimum", "tmax": "time: maximum"}
 # Variables renamed on load to match the other gaia products
 RENAMES = {"ppt": "precipitation"}
@@ -85,7 +94,11 @@ def stage(
     variables: Annotated[
         tuple[str, ...], Parameter(name=["--variables", "-v"], consume_multiple=True)
     ] = ("ppt",),
+    dry_run: Annotated[bool, Parameter(name=["--dry-run"], negative="")] = False,
     overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
+    skip_existing: Annotated[
+        bool, Parameter(name=["--skip-existing"], negative="")
+    ] = False,
 ):
     """Stage PRISM daily 800m grids clipped to an AOI.
 
@@ -106,8 +119,13 @@ def stage(
     variables : list of str
         PRISM variables (ppt, tmin, tmax, tmean, tdmean, vpdmin, vpdmax).
         Default ppt, written as ``precipitation``.
+    dry_run : bool
+        Validate the flags, read the AOI and print the resolved configuration
+        without fetching any data.
     overwrite : bool
         Replace the output store if it already exists. Default False.
+    skip_existing : bool
+        Add to an existing store, unless it already has this dataset's group.
 
     Examples
     --------
@@ -115,13 +133,19 @@ def stage(
         $ AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
         $ gaia stage prism -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit_prism.zarr
     """
-    io.check_output(output_path, overwrite)
+    from .stagefile import stage_dataset  # stagefile imports this module
 
-    aoi = io.load_aoi(vectorPath)
-    clipped = load(aoi, start_date, end_date, variables)
-    io.save_zarr(clipped, output_path, overwrite=overwrite)
-
-    log.info("Done")
+    stage_dataset(
+        "prism",
+        vectorPath,
+        start_date,
+        end_date,
+        output_path,
+        dry_run=dry_run,
+        overwrite=overwrite,
+        skip_existing=skip_existing,
+        variables=variables,
+    )
 
 
 def load(

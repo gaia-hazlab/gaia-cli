@@ -12,28 +12,30 @@ from gaia_cli import stagefile
 pytestmark = pytest.mark.online
 
 # Around the 2022 Bolt Creek fire and Stevens Pass, WA (~45 x 33 km).
-# 2025-12-01 is already in the PRISM cache, so no write credentials are needed.
+# The padded read, 2025-12-09 to 2025-12-11, is already in the PRISM cache, so no write
+# credentials are needed.
 STAGE = """
 name: bolt-creek-smoke
 aoi: {{bbox: [-121.6, 47.6, -121.0, 47.9]}}
-window: 2025-12-01/2025-12-01
+window: 2025-12-10/2025-12-10
 datasets:
   {dataset}: {{}}
 """
 
 
+# Each window is read one day beyond each end (stagefile.PAD)
 def check_synoptic(ds):
     assert ds.sizes["geometry"] > 0
-    assert ds.sizes["time"] >= 24
+    assert ds.sizes["time"] >= 72
 
 
 def check_prism(ds):
-    assert ds.sizes["time"] == 1
+    assert ds.sizes["time"] == 3
     assert float(ds.precipitation.min()) >= 0
 
 
 def check_hrrr(ds):
-    assert ds.sizes["time"] == 24
+    assert ds.sizes["time"] == 72
     assert float(ds.precipitation.min()) >= 0
 
 

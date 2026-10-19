@@ -7,11 +7,19 @@ import geopandas as gpd
 import rioxarray
 import xarray as xr
 from cyclopts import Parameter
-from xarray.backends.file_manager import FILE_CACHE
 
 from . import io, provenance
 
 log = logging.getLogger(__name__)
+
+# Written by hand (no STAC Collection): the mosaic's bounds in EPSG:4326 and the
+# years published as Collection 1 v1. Static: the year is an option, not a window.
+EXTENT = {
+    "spatial": {"bbox": [[-129.2773, 21.8051, -63.1184, 52.9217]]},
+    "temporal": {"interval": [["1985-01-01T00:00:00Z", "2024-12-31T23:59:59Z"]]},
+}
+KIND = "raster"
+TIMED = False
 
 
 def _url(year: int) -> str:
@@ -67,28 +75,51 @@ def open_nlcd(year: int = 2021) -> xr.DataArray:
     return da  # ty: ignore[invalid-return-type]
 
 
-def load(aoi: gpd.GeoDataFrame, year: int = 2021) -> xr.DataArray:
-    return io.clip_to_aoi(open_nlcd(year), aoi)
+def load(aoi: gpd.GeoDataFrame, year: int = 2021) -> xr.Dataset:
+    """NLCD land cover for *year* clipped to *aoi*, with provenance attributes."""
+    ds = io.clip_to_aoi(open_nlcd(year), aoi).to_dataset()
+    ds.attrs = source_attrs(year)
+    return ds
 
 
 def stage(
     vectorPath: Annotated[str, Parameter(name=["--input", "-i"])],
     output_path: Annotated[str, Parameter(name=["--output", "-o"])],
     year: Annotated[int, Parameter(name=["--year", "-y"])] = 2021,
+    dry_run: Annotated[bool, Parameter(name=["--dry-run"], negative="")] = False,
     overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
+    skip_existing: Annotated[
+        bool, Parameter(name=["--skip-existing"], negative="")
+    ] = False,
 ):
-    """Stage NLCD land cover clipped to an AOI."""
-    io.check_output(output_path, overwrite)
+    """Stage NLCD land cover clipped to an AOI.
 
-    aoi = io.load_aoi(vectorPath)
-    clipped = load(aoi, year=year)
-    ds = clipped.to_dataset()
-    ds.attrs = source_attrs(year)
-    io.save_zarr(ds, output_path, overwrite=overwrite)
+    Parameters
+    ----------
+    vectorPath : str
+        Path to a vector file (e.g. GeoJSON, Shapefile) defining the AOI.
+    output_path : str
+        Path to write the resulting Zarr store.
+    year : int
+        Land cover year (1985-2024). Default 2021.
+    dry_run : bool
+        Validate the flags, read the AOI and print the resolved configuration
+        without fetching any data.
+    overwrite : bool
+        Replace the output store if it already exists. Default False.
+    skip_existing : bool
+        Add to an existing store, unless it already has this dataset's group.
+    """
+    from .stagefile import stage_dataset  # stagefile imports this module
 
-    # Close cached remote rasterio/GDAL handles opened by rioxarray so their
-    # cleanup doesn't run during interpreter shutdown, where it can crash
-    # sys.excepthook on Python 3.14.
-    FILE_CACHE.clear()
-
-    log.info("Done")
+    stage_dataset(
+        "nlcd",
+        vectorPath,
+        None,
+        None,
+        output_path,
+        dry_run=dry_run,
+        overwrite=overwrite,
+        skip_existing=skip_existing,
+        year=year,
+    )

@@ -108,6 +108,7 @@ to 04:00 PST on D.
 
 HRRR precipitation is hourly and hour-ending (see [hrrr.md](hrrr.md)), so
 PRISM day D corresponds to the 24 HRRR values stamped
-**D−1 13:00 … D 12:00 UTC**. `gaia stage all` therefore starts its HRRR read
-11 h before `--start`, and `gaia align` sums HRRR into PRISM days using the
-two products' `time_bounds`.
+**D−1 13:00 … D 12:00 UTC**. `gaia align` sums HRRR into PRISM days using the
+two products' `time_bounds`. Staging reads a day beyond each end of the window,
+so every PRISM day in the window has all 24 HRRR hours (see
+[hrrr.md](hrrr.md#using-with-prism)).

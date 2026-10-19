@@ -6,8 +6,21 @@ Each dataset lives in its own module under `src/gaia_cli/` (e.g. `prism.py`,
 - `load(aoi, start_date, end_date, ...) -> xr.DataArray` — fetch + clip the
   data to the AOI, no I/O.
 - `stage(vectorPath, start_date, end_date, output_path, ...)` — the CLI
-  entrypoint: loads the AOI, calls `load`, and writes a Zarr store via
-  `io.py`.
+  entrypoint. It only declares the flags; its body passes them to
+  `stagefile.stage_dataset`, which runs them like a one-dataset stage file.
+
+and three constants:
+
+- `EXTENT` — a STAC Collection `extent` (`{"spatial": {"bbox": [[w, s, e, n]]},
+  "temporal": {"interval": [[start, end]]}}`, `None` for an open end). Copy it
+  from the provider's STAC Collection when there is one, otherwise write it
+  by hand, with a comment saying where the values come from. Runs skip
+  datasets whose extent the AOI or window misses
+  ([stage-file.md](stage-file.md#coverage)).
+- `KIND` — `"raster"` (group `rasters/<name>`) or `"stations"` (group
+  `stations/<name>`, xvec CF-encoded with the module's `to_dataset`).
+- `TIMED` — `False` for static layers, whose `load()` takes no
+  `start_date`/`end_date`.
 
 Datasets fall into two shapes: **gridded** (raster) data that goes
 `xarray -> zarr`, and **vector timeseries** (point) data that goes
@@ -44,15 +57,16 @@ Examples: `prism.py`, `hrrr.py`.
    with `version` if the source has one and
    `provenance.time_extent(ds)`. If the source publishes a STAC collection,
    start from `provenance.from_stac_collection(url)` (see `hrrr.py`);
-   otherwise write them out (see `nlcd.py`). `io.save_*` adds the run
+   otherwise write them out (see `nlcd.py`). `io.save_datatree` adds the run
    attributes (`created`, `gaia:cli-version`, `gaia:command`); see
    [provenance-metadata.md](provenance-metadata.md).
 6. **Implement `load()`** returning the clipped `xr.Dataset`, and
    **`stage()`** wiring it to the CLI (`cyclopts.Parameter` annotated
-   args for `--input/-i`, `--start/-s`, `--end/-e`, `--output/-o`, plus any
-   dataset-specific flags such as `--catalog` or `--variable`). Call
-   `io.check_s3_env(output_path)` before loading, and `io.save_zarr(...)` to
-   write the result.
+   args for `--input/-i`, `--start/-s`, `--end/-e`, `--output/-o`, the run
+   controls `--dry-run`, `--overwrite` and `--skip-existing`, plus any
+   dataset-specific flags such as `--variable`). Its body calls
+   `stagefile.stage_dataset("<name>", ...)` with the flags (see `prism.stage`);
+   import it inside the function, since `stagefile` imports your module.
 7. Register the command in `cli.py`:
    ```python
    from .newdataset import stage as stage_newdataset
@@ -79,25 +93,24 @@ Example: `synoptic.py`.
    `synoptic.py`). Also write a `to_dataset(da)` that swaps the `station`
    dim for `geometry`, sets an Xvec geometry index (`crs="EPSG:4326"`),
    CF-encodes it (`xvec.encode_cf()`) so geometries round-trip through
-   Zarr, and sets `source_attrs(da)` (see `synoptic.to_dataset`). `stage()`
-   then writes `io.save_zarr(to_dataset(DA), output_path)`.
+   Zarr, and sets `source_attrs(da)` (see `synoptic.to_dataset`). With
+   `KIND = "stations"` the runner calls it before writing.
 4. Register the command in `cli.py`, same as above.
 
 ## Wiring into stage files
 
-`gaia stage --config` ([stage-file.md](stage-file.md)) runs every dataset
-listed in `stagefile.DATASETS`, writing one group per dataset. To add yours:
+`gaia stage --config` ([stage-file.md](stage-file.md)) and the
+single-dataset commands run datasets listed in `stagefile.DATASETS`,
+writing one group per dataset. To add yours:
 
-1. Add `"<name>": (newdataset.load, "rasters")` to `DATASETS` in
-   `stagefile.py`, with `"stations"` instead of `"rasters"` for vector
-   timeseries. The group is `<prefix>/<name>`.
+1. Add `"<name>": newdataset` (the module) to `DATASETS` in
+   `stagefile.py`. The group is `<GROUPS[KIND]>/<name>`.
 2. Stage-file options come from `load()`'s signature and type hints, so
    every option needs a hint (`int`, `str`, an `Enum`, or a list of `str`)
-   and a default. A `load()` without `start_date`/`end_date` is static and
-   takes no window.
-3. If `load()` returns something other than a finished `xr.Dataset` with
-   provenance attrs, convert it in `stagefile._as_dataset` (vector data:
-   your module's `to_dataset`).
+   and a default. `TIMED` must match whether `load()` takes
+   `start_date`/`end_date`; a test checks this for every registered module.
+3. `load()` must return a finished `xr.Dataset` with provenance attrs
+   (station data: the DataArray its `to_dataset` converts).
 
 Run `pixi run test` after wiring things up, and add a case to
 `tests/test_online.py`.

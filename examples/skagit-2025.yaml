@@ -10,8 +10,5 @@ window: 2025-12-01/2025-12-20       # whole days, end included
 datasets:
   synoptic: {}
   prism: {}
-  hrrr:
-    # Start 11 h early so the first PRISM day, (Nov 30 12:00, Dec 1 12:00] UTC,
-    # has all 24 hour-ending HRRR values
-    window: {start: 2025-11-30T13:00:00Z, end: 2025-12-20}
+  hrrr: {}
   nlcd: {year: 2021}
