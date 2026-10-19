@@ -153,12 +153,12 @@ into a `catalog.json` for browsing in stac-browser; see
 
 ## GitHub Actions Workflow
 
-Run the data stager as a github action, saving resulting zarr as a build artifact.
+Run the data stager as a github action, saving the output folder (store, STAC Item and `stage.yaml`) as a build artifact. `subcommand` is a dataset (`synoptic`, `prism`, `hrrr`) or the `conus-precip` preset.
 
 ```bash
 gh workflow run stage.yml \
   --field workflow_name=skagit_test \
-  --field subcommand=all \
+  --field subcommand=conus-precip \
   --field aoi=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json \
   --field start_date=2025-12-01 \
   --field end_date=2025-12-02 \
@@ -169,7 +169,7 @@ gh workflow run stage.yml \
 ```bash
 gh workflow run stage.yml \
   --field workflow_name=skagit \
-  --field subcommand=all \
+  --field subcommand=conus-precip \
   --field aoi=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json \
   --field start_date=2025-12-01 \
   --field end_date=2025-12-30 \

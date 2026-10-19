@@ -5,11 +5,11 @@ on:
   workflow_dispatch:
     inputs:
       subcommand:
-        description: "Stage subcommand to run"
+        description: "Dataset to stage, or the conus-precip preset (synoptic, prism and hrrr)"
         required: true
         type: choice
         options:
-          - all
+          - conus-precip
           - synoptic
           - prism
           - hrrr
@@ -27,7 +27,7 @@ on:
         required: true
         type: string
       workflow_name:
-        description: "Short name to identify workflow and output Zarr (e.g 'Skagit')"
+        description: "Short name to identify workflow and output folder (e.g 'Skagit')"
         required: true
         type: string
       copy_to_s3:
@@ -35,7 +35,7 @@ on:
         default: false
         type: boolean
       overwrite:
-        description: "Overwrite existing Zarr store in S3 (only applies if copying to S3)"
+        description: "Overwrite the existing output folder in S3 (only applies if copying to S3)"
         default: false
         type: boolean
       storage:
@@ -59,7 +59,9 @@ jobs:
       # Recent aws-cli sends CRC checksums by default, which some S3-compatible stores reject
       AWS_REQUEST_CHECKSUM_CALCULATION: when_required
       AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
-      S3_DEST: s3://${{ vars.S3_BUCKET || 'gaia' }}/scratch/github-workflows/${{ inputs.workflow_name }}-${{ inputs.subcommand }}-${{ inputs.start_date }}_${{ inputs.end_date }}.zarr
+      # Output folder (gaia stage -o): <NAME>/<NAME>.zarr, its STAC Item and stage.yaml
+      NAME: ${{ inputs.workflow_name }}-${{ inputs.subcommand }}-${{ inputs.start_date }}_${{ inputs.end_date }}
+      S3_DEST: s3://${{ vars.S3_BUCKET || 'gaia' }}/scratch/github-workflows/${{ inputs.workflow_name }}-${{ inputs.subcommand }}-${{ inputs.start_date }}_${{ inputs.end_date }}
     steps:
       - uses: actions/checkout@v7
 
@@ -78,17 +80,23 @@ jobs:
       - name: Run gaia stage ${{ inputs.subcommand }}
         env:
           SYNOPTIC_TOKEN: ${{ secrets.SYNOPTIC_TOKEN }}
+          SUBCOMMAND: ${{ inputs.subcommand }}
         run: |
-          pixi run gaia stage ${{ inputs.subcommand }} \
+          if [ "${SUBCOMMAND}" = "conus-precip" ]; then
+            target=(--config conus-precip)
+          else
+            target=("${SUBCOMMAND}")
+          fi
+          pixi run gaia stage "${target[@]}" \
             -i "${{ inputs.aoi }}" \
             -s "${{ inputs.start_date }}" \
             -e "${{ inputs.end_date }}" \
-            -o output.zarr
+            -o "${NAME}"
 
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.workflow_name }}-${{ inputs.subcommand }}-${{ inputs.start_date }}_${{ inputs.end_date }}
-          path: output.zarr
+          path: ${{ env.NAME }}
 
       - name: Upload to AWS S3
         if: ${{ inputs.copy_to_s3 == true }}
@@ -96,8 +104,8 @@ jobs:
           OVERWRITE: ${{ inputs.overwrite }}
         run: |
           if [ "${OVERWRITE}" = "true" ]; then
-            aws s3 sync --delete output.zarr "${S3_DEST}"
+            aws s3 sync --delete "${NAME}" "${S3_DEST}"
           else
-            aws s3 sync output.zarr "${S3_DEST}"
+            aws s3 sync "${NAME}" "${S3_DEST}"
           fi
 
