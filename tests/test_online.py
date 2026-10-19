@@ -59,6 +59,15 @@ def check_dem(ds):
     assert ds.elevation.attrs["vertical_datum"].startswith("EPSG:")
 
 
+def check_soil(ds):
+    # Decoded to physical units: acidic forest soils, bulk density near 1 g cm-3
+    assert 3 < float(ds.ph1to1h2o.min()) < float(ds.ph1to1h2o.max()) < 9
+    assert 0.3 < float(ds.dbovendry.min()) < float(ds.dbovendry.max()) < 2
+    total = ds.claytotal + ds.sandtotal + ds.silttotal
+    assert 90 < float(total.mean()) < 110  # percent
+    assert ds.ph1to1h2o.attrs["gaia:regrid-method"] == "bilinear"
+
+
 @pytest.mark.parametrize(
     "dataset, check, options",
     [
@@ -81,6 +90,7 @@ def check_dem(ds):
         ("nlcd", check_nlcd, {}),
         ("dem/cop30", check_dem, {}),
         ("dem/usgs10m", check_dem, {}),
+        ("soil/solus100", check_soil, {}),
     ],
 )
 def test_stage(tmp_path, dataset, check, options):

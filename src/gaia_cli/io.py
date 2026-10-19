@@ -224,6 +224,21 @@ def check_s3_env(output_path: str):
 
 
 _CHUNK_TARGET_BYTES = 10 * 1024 * 1024  # 10 MB
+_PACKING = ("dtype", "scale_factor", "add_offset", "_FillValue")
+
+
+def _packing(var: xr.DataArray) -> dict:
+    """*var*'s CF packing, if its encoding stores it as another dtype (e.g. soil's
+    integers with a scale_factor), else nothing.
+
+    An explicit encoding replaces the variable's own, so the single-chunk
+    encoding must repeat it. Variables written as they are keep NaN fills.
+    """
+    if np.dtype(var.encoding.get("dtype", var.dtype)) == var.dtype:
+        return {}
+    return {k: var.encoding[k] for k in _PACKING if k in var.encoding}
+
+
 # Every save consolidates metadata so anonymous readers never need to LIST the
 # store: Backblaze B2 public buckets reject unauthenticated list requests.
 warnings.filterwarnings("ignore", message="Consolidated metadata is currently not part")
@@ -262,7 +277,7 @@ def _prepare_for_zarr(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
         ds = ds.load()
         # Tell to_zarr to write each variable as a single chunk
         encoding = {
-            name: {"chunks": var.shape}
+            name: {**_packing(var), "chunks": var.shape}
             for name, var in ds.data_vars.items()
             if var.dims
         }

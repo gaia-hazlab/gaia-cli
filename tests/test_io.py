@@ -120,3 +120,17 @@ def test_save_datatree_append_keeps_groups_and_describes_the_whole_store(tmp_pat
     item = json.loads((tmp_path / "out.json").read_text())
     assert "rasters/a" in item["properties"]["description"]
     assert "rasters/b" in item["properties"]["description"]
+
+
+def test_save_datatree_keeps_packing_encoding(tmp_path):
+    # The single-chunk encoding must not replace a variable's own packing
+    da = xr.DataArray([[6.5, np.nan]], dims=("y", "x"), name="ph")
+    da.encoding = {"dtype": "uint16", "scale_factor": 0.01, "_FillValue": 65535}
+    path = tmp_path / "t.zarr"
+
+    io.save_datatree(xr.DataTree.from_dict({"a": da.to_dataset()}), str(path))
+
+    raw = xr.open_zarr(path, group="a", mask_and_scale=False).ph
+    assert raw.dtype == "uint16"
+    assert raw.values.tolist() == [[650, 65535]]
+    assert xr.open_zarr(path, group="a").ph.values.tolist()[0][0] == 6.5
