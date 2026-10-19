@@ -86,6 +86,11 @@ Example elevation staging: Copernicus 30 m (global) or USGS 3DEP 10 m (US), see 
 gaia stage dem -i $AOI -o /tmp/skagit-dem --product usgs10m
 ```
 
+Example soil staging: the seven SOLUS100 layers (CONUS, 100 m) the landlab workflow reads, see [docs/soil.md](docs/soil.md)
+```bash
+gaia stage soil -i $AOI -o /tmp/skagit-soil
+```
+
 ### Output to S3
 
 Zarr outputs are well-suited to S3-compatible object stores (e.g. AWS S3, MinIO, etc.). The examples below write to either a University of Washington object store called [Kopah](https://hyak.uw.edu/docs/systems/kopah/overview/) or [backblaze B2](https://www.backblaze.com/docs). We output to a `scratch` prefix that has a 30-day lifecycle policy (any uploaded file is deleted after 30 days). You must have credentials to write to this bucket, credentials can be configured by setting environment variables `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` or by using the AWS config files and settings AWS_PROFILE to the profile name. For example, to use the `kopah` profile, set `AWS_PROFILE=kopah` in your environment:

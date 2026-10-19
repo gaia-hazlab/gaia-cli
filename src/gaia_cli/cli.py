@@ -17,12 +17,13 @@ from .prism import fill as prism_fill
 from .prism import rebuild_catalog as prism_rebuild_catalog
 from .prism import stage as stage_prism
 from .provenance import set_command
+from .soil import stage as stage_soil
 from .stagefile import stage as stage_config
 from .synoptic import stage as stage_synoptic
 
 app = cyclopts.App()
 
-# gaia stage --config {stage.yaml,PRESET} | gaia stage {synoptic,prism,hrrr,nlcd,dem} ...
+# gaia stage --config {stage.yaml,PRESET} | gaia stage {synoptic,prism,hrrr,nlcd,dem,soil} ...
 stage_app = cyclopts.App(
     name="stage", help="Stage datasets clipped to an AOI and time range."
 )
@@ -34,6 +35,7 @@ stage_app.command(stage_prism, name="prism")
 stage_app.command(stage_hrrr, name="hrrr")
 stage_app.command(stage_nlcd, name="nlcd")
 stage_app.command(stage_dem, name="dem")
+stage_app.command(stage_soil, name="soil")
 
 # gaia align ...
 app.command(align, name="align")
