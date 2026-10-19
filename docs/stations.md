@@ -18,6 +18,15 @@ The group has `featureType: timeSeries`. `row_size` has `sample_dimension: obs`:
 first `row_size[0]` reports belong to the first station, the next `row_size[1]` to the
 second, and so on. Each station's reports are in time order.
 
+Zarr can't hold shapely objects, so the station points are stored as CF 1.8 geometries
+(`xvec.encode_cf()`). A `node` dimension holds every vertex, with its coordinates in
+`x` and `y`. A `geometry_container` variable describes the encoding in its attributes
+(`geometry_type: point`, `node_coordinates: "x y"`, the CRS through `grid_mapping`).
+The same encoding adds `lat`, `lon` and `spatial_ref`. Points have one node each, so
+`node` is as long as `geometry` and `x`/`y` repeat `lon`/`lat`. These variables aren't
+part of the ragged array. `ds.xvec.decode_cf()` turns them back into a `geometry` index
+of shapely points, and the helpers below do that for you.
+
 - `precipitation` is the running total since the station's first report in the window
   (mm), as in [precip-timing.md](precip-timing.md). It is Synoptic's derived
   `precip_accumulated_set_1d`. If the account cannot use derived precipitation, it is
