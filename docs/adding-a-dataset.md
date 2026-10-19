@@ -76,35 +76,28 @@ Example: `synoptic.py`.
    with the same CLI parameter conventions as gridded datasets. A
    DataArray's `attrs` describe the variable, so provide the source's
    provenance through a separate `source_attrs(da)` function (see
-   `synoptic.py`). Call `io.save_xvec_zarr(DA, output_path,
-   attrs=source_attrs(DA))` instead of `save_zarr` — this
-   swaps the `station` dim for `geometry`, sets an Xvec geometry index
-   (`crs="EPSG:4326"`), and CF-encodes it (`xvec.encode_cf()`) so geometries
-   round-trip through Zarr.
+   `synoptic.py`). Also write a `to_dataset(da)` that swaps the `station`
+   dim for `geometry`, sets an Xvec geometry index (`crs="EPSG:4326"`),
+   CF-encodes it (`xvec.encode_cf()`) so geometries round-trip through
+   Zarr, and sets `source_attrs(da)` (see `synoptic.to_dataset`). `stage()`
+   then writes `io.save_zarr(to_dataset(DA), output_path)`.
 4. Register the command in `cli.py`, same as above.
 
-## Wiring into `gaia stage all`
+## Wiring into stage files
 
-`all.py` combines every dataset into a single `xr.DataTree` and writes one
-Zarr store. To make a new dataset compatible with `stage all`:
+`gaia stage --config` ([stage-file.md](stage-file.md)) runs every dataset
+listed in `stagefile.DATASETS`, writing one group per dataset. To add yours:
 
-1. Import your module in `all.py`: `from . import newdataset as _newdataset`.
-2. Call `_newdataset.load(aoi, start_date, end_date, ...)` alongside the
-   existing `_synoptic.load` / `_prism.load` / `_hrrr.load` calls. Add any
-   dataset-specific keyword args (like `hrrr_variable`) as extra parameters
-   on `stage_all` if you need to expose them.
-3. Convert the result to a named `xr.Dataset`:
-   - Gridded: `ds = da.to_dataset(name=da.name or "<varname>")`
-   - Vector: apply the same xvec encoding steps as `save_xvec_zarr`
-     (`swap_dims({"station": "geometry"})` →
-     `xvec.set_geom_indexes("geometry", crs="EPSG:4326")` →
-     `to_dataset().xvec.encode_cf()`), then set
-     `ds.attrs = _newdataset.source_attrs(da)`
-4. Add it to the `xr.DataTree.from_dict({...})` call under an appropriate
-   group path — `rasters/<name>` for gridded data, `stations/<name>` for
-   vector timeseries.
-5. `io.save_datatree(dt, output_path)` handles the rest (per-node chunking
-   and Zarr write) automatically — no changes needed there.
+1. Add `"<name>": (newdataset.load, "rasters")` to `DATASETS` in
+   `stagefile.py`, with `"stations"` instead of `"rasters"` for vector
+   timeseries. The group is `<prefix>/<name>`.
+2. Stage-file options come from `load()`'s signature and type hints, so
+   every option needs a hint (`int`, `str`, an `Enum`, or a list of `str`)
+   and a default. A `load()` without `start_date`/`end_date` is static and
+   takes no window.
+3. If `load()` returns something other than a finished `xr.Dataset` with
+   provenance attrs, convert it in `stagefile._as_dataset` (vector data:
+   your module's `to_dataset`).
 
-Run `pixi run test` after wiring things up; `tests/test_all.py` exercises
-the combined `stage all` path.
+Run `pixi run test` after wiring things up, and add a case to
+`tests/test_online.py`.

@@ -115,6 +115,12 @@ def test_circle_aoi_has_true_radius():
         {"bbox": [10, 0, 5, 1]},
         {"latitude": 95, "longitude": 0, "radius_km": 1},
         {"intersects": {"type": "Blob"}},
+        {
+            "intersects": {
+                "type": "MultiPolygon",
+                "coordinates": [[[[0, 0], [1, 0], [1, 1], [0, 0]]]],
+            }
+        },
     ],
 )
 def test_bad_inline_aois(spec, tmp_path):

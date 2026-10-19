@@ -14,7 +14,7 @@ import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
 import xvec  # noqa: F401  registers the .xvec accessor
 from obstore.auth.boto3 import Boto3CredentialProvider
-from obstore.store import LocalStore, S3Store, from_url
+from obstore.store import LocalStore, from_url
 from zarr.storage import ObjectStore
 
 from . import provenance
@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 
 def load_aoi(vector_path: str) -> gpd.GeoDataFrame:
-    """Read a vector file into a GeoDataFrame.
+    """Read a vector file holding one Polygon into a GeoDataFrame.
 
     Parameters
     ----------
@@ -34,7 +34,13 @@ def load_aoi(vector_path: str) -> gpd.GeoDataFrame:
     -------
     geopandas.GeoDataFrame
     """
-    return gpd.read_file(vector_path)
+    aoi = gpd.read_file(vector_path)
+    # MultiPolygons and several features aren't supported yet
+    if (types := aoi.geom_type.tolist()) != ["Polygon"]:
+        raise ValueError(
+            f"AOI {vector_path} must be a single Polygon, not {', '.join(types) or 'empty'}"
+        )
+    return aoi
 
 
 def clip_to_aoi(
@@ -270,48 +276,6 @@ def save_zarr(ds: xr.Dataset | xr.DataArray, output_path: str, overwrite: bool =
     _write_item(output_path, xr.DataTree(ds))
 
 
-def save_xvec_zarr(
-    DA: xr.DataArray,
-    output_path: str,
-    overwrite: bool = False,
-    attrs: dict | None = None,
-):
-    """Save a station DataArray as an xvec-encoded Zarr store.
-
-    Parameters
-    ----------
-    DA : xarray.DataArray
-        Point-geometry data with a ``station`` / ``geometry`` dimension.
-    output_path : str
-        Filesystem path or ``s3://`` URL.
-    overwrite : bool, optional
-        If True, replace any existing store at *output_path*. Default False.
-    attrs : dict, optional
-        Dataset (source provenance) attributes; *DA*'s own attrs stay on the
-        variable.
-    """
-    store = _zarr_store_for_path(output_path)
-    log.info("Writing Zarr to %s", output_path)
-
-    # TODO: consider different naming conventions for geometry coordinate and station dimension
-    DA = DA.swap_dims({"station": "geometry"})
-    DA = DA.xvec.set_geom_indexes("geometry", crs="EPSG:4326")
-
-    encoded = DA.to_dataset().xvec.encode_cf()
-    encoded, encoding = _prepare_for_zarr(encoded)
-    encoded.attrs = provenance.stamp(attrs or {})
-    encoded.to_zarr(
-        store,
-        mode="w" if overwrite else "w-",
-        zarr_format=3,
-        consolidated=True,
-        write_empty_chunks=True,
-        encoding=encoding,
-    )
-    log.info("Saved %s (xvec-encoded)", output_path)
-    _write_item(output_path, xr.DataTree(encoded))
-
-
 def save_datatree(dt: xr.DataTree, output_path: str, overwrite: bool = False):
     """Write an :class:`xarray.DataTree` to a Zarr store.
 
@@ -360,38 +324,3 @@ def open_datatree(input_path: str) -> xr.DataTree:
     """Open a staged Zarr store (local path or ``s3://`` URL) as a DataTree."""
     store = _zarr_store_for_path(input_path)
     return xr.open_datatree(store, engine="zarr", zarr_format=3, consolidated=None)
-
-
-def open_s3_zarr(
-    bucket: str,
-    prefix: str,
-    *,
-    region: str = "us-west-2",
-    anonymous: bool = True,
-) -> xr.Dataset:
-    """Open a Zarr store on S3 as an xarray Dataset.
-
-    Parameters
-    ----------
-    bucket : str
-        S3 bucket name.
-    prefix : str
-        Key prefix (path within the bucket) to the Zarr store.
-    region : str, optional
-        AWS region. Default ``us-west-2``.
-    anonymous : bool, optional
-        If True, access without credentials. Default True.
-
-    Returns
-    -------
-    xarray.Dataset
-    """
-    s3 = S3Store(
-        bucket=bucket,
-        prefix=prefix,
-        region=region,
-        skip_signature=anonymous,
-    )
-    store = ObjectStore(s3, read_only=True)
-    # xarray's stub doesn't include zarr v3 stores in filename_or_obj, but the zarr engine accepts them at runtime
-    return xr.open_dataset(store, engine="zarr", consolidated=False)  # ty: ignore[invalid-argument-type]
