@@ -179,6 +179,13 @@ def _grid_from_crs_res(
     return da.rio.write_crs(crs)
 
 
+def _cell_area(da: xr.DataArray) -> float:
+    """Median cell area (m²) of *da*'s grid, from a few cells at its center."""
+    cy, cx = da.sizes["y"] // 2, da.sizes["x"] // 2
+    center = da.isel(y=slice(max(cy - 1, 0), cy + 1), x=slice(max(cx - 1, 0), cx + 1))
+    return float(np.median(regrid.cell_areas(center)))
+
+
 def _same_grid(a: xr.DataArray, b: xr.DataArray) -> bool:
     return (
         a.rio.crs == b.rio.crs
@@ -216,8 +223,10 @@ def align(
     method : {"conservative", "average", "bilinear", "cubic", "nearest"}, optional
         Spatial resampling for every continuous variable. Default: each
         variable's ``gaia:regrid-method`` attribute (its dataset's default,
-        e.g. ``bilinear`` for DEMs), else ``conservative``. Categorical
-        variables (with ``flag_values``) always use ``mode``.
+        e.g. ``bilinear`` for DEMs), else ``conservative``. ``conservative``
+        becomes ``nearest`` onto a finer grid than the source's, where the two
+        differ only along source cell edges. Categorical variables (with
+        ``flag_values``) always use ``mode``.
     aoi : geopandas.GeoDataFrame, optional
         If given, clip the output to it (cell centers) in the target CRS.
     """
@@ -260,6 +269,7 @@ def align(
     # TODO: convert heights to a common vertical datum. DEMs keep their geoid
     # (``vertical_datum``: cop30 EGM2008, usgs10m NAVD88), so differences
     # between them include the geoid separation (~1 m). See docs/dem.md.
+    target_area = _cell_area(template)
     for p, ds in rasters.items():
         out = ds.drop_vars(_raster_vars(ds))
         out = out.drop_vars([c for c in out.coords if {"x", "y"} & set(out[c].dims)])
@@ -273,6 +283,11 @@ def align(
                 m = "mode"
             else:
                 m = method or da.attrs.get(regrid.METHOD_ATTR, "conservative")
+            if m == "conservative" and target_area < _cell_area(_template(ds)):
+                # Refining: each target cell inside one source cell gets that cell's
+                # value either way, so only cells on source edges differ, and
+                # nearest avoids a polygon per target cell
+                m = "nearest"
             log.info("regridding %s/%s (%s)", p, name, m)
             out[name] = regrid.regrid(da, template, m)
             out[name].attrs["regrid_method"] = m
@@ -328,7 +343,8 @@ def run(
     method : str
         Spatial resampling for all continuous data: ``conservative``,
         ``average``, ``bilinear``, ``cubic`` or ``nearest``. Default: each
-        dataset's own (``bilinear`` for DEMs), else ``conservative``.
+        dataset's own (``bilinear`` for DEMs), else ``conservative``, which
+        becomes ``nearest`` onto a finer grid.
     aoi_path : str
         Optional vector file; clip the output to it in the target CRS.
     overwrite : bool
