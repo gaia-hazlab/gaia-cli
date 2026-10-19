@@ -15,8 +15,9 @@ s3://gaia/scratch/
     skagit-hrrr.zarr/
     skagit-hrrr.json      # STAC Item
     stage.yaml
-  skagit-daily.zarr/      # written by `gaia align -o …/skagit-daily.zarr`
-  skagit-daily.json
+  skagit-daily/            # written by `gaia align -o …/skagit-daily`
+    skagit-daily.zarr/
+    skagit-daily.json
 ```
 
 ## The Item

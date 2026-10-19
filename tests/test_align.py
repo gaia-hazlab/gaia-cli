@@ -1,6 +1,7 @@
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import pytest
 import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
 from shapely.geometry import box
@@ -87,6 +88,40 @@ def test_align_daily_on_coarsest_grid_roundtrip(tmp_path):
         assert "spatial_ref" in ds.coords
         assert ds.precipitation.rio.crs.to_epsg() == 32610
     assert prism.precipitation.attrs["regrid_method"] == "conservative"
+
+
+def test_run_writes_a_folder_named_store(tmp_path):
+    dt = xr.DataTree.from_dict({"rasters/prism": _daily(), "rasters/hrrr": _hourly()})
+    native = str(tmp_path / "native.zarr")
+    io.save_datatree(dt, native)
+    out = tmp_path / "daily"
+
+    align.run(native, str(out))
+
+    assert sorted(p.name for p in out.iterdir()) == ["daily.json", "daily.zarr"]
+    with pytest.raises(SystemExit, match="drop the .zarr"):
+        align.run(native, str(tmp_path / "daily.zarr"))
+
+
+def test_common_window_snaps_to_every_products_steps():
+    tree = xr.DataTree.from_dict({"rasters/prism": _daily(), "rasters/hrrr": _hourly()})
+    # PRISM days end at 12 UTC: Nov 30 12Z → Dec 3 12Z; HRRR hours Dec 1 12Z → Dec 3 12Z
+    t0, t1 = align.common_window(tree, "2025-12-01", "2025-12-03")
+    assert (t0, t1) == (pd.Timestamp("2025-12-01T12"), pd.Timestamp("2025-12-03T12"))
+    hrrr = xr.DataTree.from_dict({"rasters/hrrr": _hourly()})
+    assert align.common_window(hrrr, "2025-12-02", "2025-12-02T18:00") == (
+        pd.Timestamp("2025-12-02"),
+        pd.Timestamp("2025-12-02T18:00"),
+    )
+    with pytest.raises(ValueError, match="no whole time steps"):
+        align.common_window(tree, "2025-12-02T00", "2025-12-02T06")
+
+
+def test_select_window_keeps_whole_steps():
+    daily = align.select_window(_daily(), "2025-12-01T12", "2025-12-03T12")
+    assert list(daily.time.dt.day.values) == [2, 3]
+    hourly = align.select_window(_hourly(), "2025-12-01T12", "2025-12-01T15")
+    assert hourly.sizes["time"] == 3
 
 
 def test_clip_to_aoi_keeps_native_crs_and_touched_cells():

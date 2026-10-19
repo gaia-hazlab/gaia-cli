@@ -13,7 +13,6 @@ import difflib
 import inspect
 import json
 import logging
-import posixpath
 import re
 import sys
 import typing
@@ -538,18 +537,6 @@ def stage_file(
     return out
 
 
-def store_path(output: str, name: str) -> str:
-    """Path of the Zarr store in the output folder *output*."""
-    return f"{output.rstrip('/')}/{name}.zarr"
-
-
-def folder_name(output: str) -> str:
-    """The basename of the output folder, the store's name for flag-only runs."""
-    if "://" in output:
-        return posixpath.basename(output.rstrip("/"))
-    return Path(output).resolve().name
-
-
 def write_stage_file(doc: dict, output: str, merge: bool = False):
     """Write *doc* as the output folder's ``stage.yaml``; with *merge*, keep
     the datasets that the folder's existing file lists and *doc* doesn't."""
@@ -746,7 +733,7 @@ def execute(
         reasons = "; ".join(f"{n}: {r}" for n, r in skipped.items())
         sys.exit(f"Error: nothing to stage ({reasons})")
 
-    store = store_path(output, cfg.name)
+    store = io.store_path(output, cfg.name)
     append = skip_existing and io.output_exists(store)
     if skip_existing:
         io.check_s3_env(output)
@@ -869,7 +856,7 @@ def stage(
             doc["aoi"] = vectorPath
             # Like a flag-only run, the store is named after the output folder
             if output_path is not None:
-                doc["name"] = folder_name(output_path)
+                doc["name"] = io.folder_name(output_path)
             window = {"start": start_date, "end": end_date}
             if any(window.values()):
                 doc["window"] = {k: v for k, v in window.items() if v is not None}
@@ -911,7 +898,7 @@ def stage_dataset(
     store is named after the output folder.
     """
     doc: dict[str, Any] = {
-        "name": folder_name(output_path),
+        "name": io.folder_name(output_path),
         "aoi": vectorPath,
         "datasets": {name: {k: plain(v) for k, v in options.items()}},
     }

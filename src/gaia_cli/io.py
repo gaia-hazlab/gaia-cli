@@ -168,6 +168,18 @@ def write_json(path: str, doc: dict):
     write_text(path, json.dumps(doc, indent=1))
 
 
+def store_path(output: str, name: str) -> str:
+    """Path of the Zarr store *name* in the output folder *output*."""
+    return f"{output.rstrip('/')}/{name}.zarr"
+
+
+def folder_name(output: str) -> str:
+    """The basename of the output folder *output* (local or ``s3://``)."""
+    if "://" in output:
+        return posixpath.basename(output.rstrip("/"))
+    return Path(output).resolve().name
+
+
 def item_path(output_path: str) -> str:
     """Path of the STAC Item written next to the store at *output_path*."""
     return output_path.rstrip("/").removesuffix(".zarr") + ".json"

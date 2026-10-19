@@ -142,6 +142,19 @@ the window's edges, such as PRISM's 12 UTC day, are then complete, and `gaia ali
 has every source step it needs for each period in the window. `--dry-run` shows the
 interval read as `read:`. The coverage check uses the window itself.
 
+To compare products over the requested window, keep only their whole time steps inside
+it. `gaia_cli.align.common_window(tree, start, end)` returns the longest interval made of
+whole steps of every product (for a store holding PRISM, 12 UTC to 12 UTC), and
+`gaia_cli.align.select_window(ds, t0, t1)` keeps a dataset's steps inside it:
+
+```python
+from gaia_cli import align, io
+
+tree = io.open_datatree("out/skagit.zarr")
+t0, t1 = align.common_window(tree, "2025-12-01", "2025-12-16")  # 12-01T12 to 12-16T12
+prism = align.select_window(tree["rasters/prism"].to_dataset(), t0, t1)
+```
+
 A date-only `start` is 00:00 UTC and a date-only `end` includes the whole day. This
 matches how pystac-client expands dates for a STAC API search, which itself only
 accepts full RFC 3339 timestamps.

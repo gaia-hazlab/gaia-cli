@@ -61,7 +61,7 @@ gaia stage --config conus-precip -i $AOI -s 2025-12-01 -e 2025-12-20 -o /tmp/ska
 
 `stage` keeps every raster on its native grid and time step. To compare products, align them onto one grid (default: the coarsest, HRRR 3 km) and one time step (default: the coarsest, PRISM days) in a new store. See [docs/reprojecting.md](docs/reprojecting.md):
 ```bash
-gaia align -i /tmp/skagit-test/skagit-test.zarr -o /tmp/skagit-test-aligned.zarr --aoi $AOI
+gaia align -i /tmp/skagit-test/skagit-test.zarr -o /tmp/skagit-test-aligned --aoi $AOI
 ```
 
 Example stage file: one YAML file gives the AOIs, time windows and options for several datasets (see [docs/stage-file.md](docs/stage-file.md)). `--dry-run` validates it and prints the resolved configuration without fetching data:

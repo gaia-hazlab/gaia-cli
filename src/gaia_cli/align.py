@@ -3,14 +3,20 @@
 Reads a store written by ``gaia stage`` (native grids), aggregates every
 raster in time to the coarsest product's intervals, then regrids once onto
 the coarsest product's grid, and writes a *new* store. See docs/reprojecting.md.
+
+:func:`common_window` and :func:`select_window` pick the time steps that a
+comparison over a requested interval can use.
 """
 
 from __future__ import annotations
 
+import functools
 import logging
+import sys
 from typing import Annotated
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 from cyclopts import Parameter
 
@@ -40,6 +46,51 @@ def _intervals(ds: xr.Dataset) -> tuple[np.ndarray, np.ndarray, bool]:
         return t, t, True
     b = ds[name].values
     return b[:, 0], b[:, 1], False
+
+
+def common_window(tree: xr.DataTree, start, end) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """The longest interval inside ``[start, end]`` made of whole time steps
+    of every group with time bounds.
+
+    *start* and *end* are parsed like ``gaia stage -s``/``-e``: UTC, and a
+    date-only *end* includes that day. For example, PRISM days run 12–12 UTC,
+    so a request for 2025-12-01/2025-12-16 gives 2025-12-01T12 to
+    2025-12-16T12 when the tree holds PRISM, and the request itself when it
+    holds only hourly products. Groups without time bounds (station running
+    totals, instantaneous values) don't constrain the window.
+    """
+    from .stagefile import parse_time  # stagefile imports the dataset modules
+
+    lo, hi = parse_time(start), parse_time(end, end=True)
+    starts, ends = [], []
+    for node in tree.subtree:
+        ds = node.dataset
+        if "time" not in ds.dims:
+            continue
+        s, e, is_point = _intervals(ds)
+        if is_point:
+            continue
+        inside = (s >= lo.to_datetime64()) & (e <= hi.to_datetime64())
+        starts.append(pd.DatetimeIndex(s[inside]))
+        ends.append(pd.DatetimeIndex(e[inside]))
+    if not starts:
+        return lo, hi
+    # Edges that are a step edge in every product
+    s = functools.reduce(pd.DatetimeIndex.intersection, starts)
+    e = functools.reduce(pd.DatetimeIndex.intersection, ends)
+    if s.empty or e.empty or s.min() >= e.max():
+        raise ValueError(f"no whole time steps of every product lie in {start}/{end}")
+    return s.min(), e.max()
+
+
+def select_window(ds: xr.Dataset, t0, t1) -> xr.Dataset:
+    """The time steps of *ds* that lie entirely inside ``[t0, t1]``.
+
+    Point data (no time bounds) keeps the times with ``t0 <= time <= t1``.
+    """
+    s, e, _ = _intervals(ds)
+    t0, t1 = pd.Timestamp(t0).to_datetime64(), pd.Timestamp(t1).to_datetime64()
+    return ds.isel(time=(s >= t0) & (e <= t1))
 
 
 def _step(ds: xr.Dataset) -> np.timedelta64:
@@ -257,7 +308,8 @@ def run(
     input_path : str
         Store written by ``gaia stage`` (local path or ``s3://`` URL).
     output_path : str
-        Path for the aligned store. The input is never modified.
+        Output folder for the aligned store (named after the folder) and its
+        STAC Item. The input is never modified.
     like : str
         Group whose grid is the target, e.g. ``rasters/hrrr``. Default: coarsest.
     time_like : str
@@ -271,22 +323,29 @@ def run(
     aoi_path : str
         Optional vector file; clip the output to it in the target CRS.
     overwrite : bool
-        Replace the output store if it already exists. Default False.
+        Write into an output folder that isn't empty, replacing its store.
+        Default False.
 
     Examples
     --------
     Daily totals on the HRRR 3 km grid:
         $ gaia stage --config conus-precip -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit-native
-        $ gaia align -i skagit-native/skagit-native.zarr -o skagit_daily_3km.zarr --aoi $AOI
+        $ gaia align -i skagit-native/skagit-native.zarr -o skagit-daily-3km --aoi $AOI
     """
     if (crs is None) != (res is None):
         raise ValueError("--crs and --res must be given together.")
+    if output_path.rstrip("/").endswith(".zarr"):
+        sys.exit(
+            "Error: -o is a folder for <name>.zarr and its STAC Item; "
+            f"drop the .zarr from {output_path}"
+        )
     io.check_output(output_path, overwrite)
+    store = io.store_path(output_path, io.folder_name(output_path))
     dt = io.open_datatree(input_path)
     aoi = io.load_aoi(aoi_path) if aoi_path else None
     aligned = align(
         dt, like=like, time_like=time_like, crs=crs, res=res, method=method, aoi=aoi
     )
     aligned.attrs = provenance.derived_from(aligned.attrs, input_path)
-    io.save_datatree(aligned, output_path, overwrite=overwrite)
+    io.save_datatree(aligned, store, overwrite=overwrite)
     log.info("Done")
