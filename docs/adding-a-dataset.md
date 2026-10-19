@@ -22,6 +22,20 @@ and three constants:
 - `TIMED` — `False` for static layers, whose `load()` takes no
   `start_date`/`end_date`.
 
+and optionally:
+
+- `VARIANT` — the name of a `load()` option (an `Enum` with a default) whose
+  values are separate products, each written to its own top-level group
+  `<name>/<value>` instead of `<GROUPS[KIND]>/<name>`. Stage files key them
+  as `<name>/<value>` (see `dem.py`, [stage-file.md](stage-file.md)).
+- `REGRID_METHOD` — `gaia align`'s default spatial method for the dataset's
+  raster variables, one of `regrid.Method` (`conservative`, `average`,
+  `bilinear`, `cubic`, `nearest`). The runner stores it as each variable's
+  `gaia:regrid-method`, and `--method` overrides it. Without it, continuous
+  variables use `conservative`, which suits accumulations; smooth fields such
+  as elevation want `bilinear`. Categorical variables (`flag_values`) always
+  use `mode`.
+
 Datasets fall into two shapes: **gridded** (raster) data that goes
 `xarray -> zarr`, and **vector timeseries** (point) data that goes
 `xvec -> zarr`. Pick the section below that matches your new dataset.
@@ -101,7 +115,8 @@ single-dataset commands run datasets listed in `stagefile.DATASETS`,
 writing one group per dataset. To add yours:
 
 1. Add `"<name>": newdataset` (the module) to `DATASETS` in
-   `stagefile.py`. The group is `<GROUPS[KIND]>/<name>`.
+   `stagefile.py`. The group is `<GROUPS[KIND]>/<name>`, or `<name>/<value>`
+   with `VARIANT`.
 2. Stage-file options come from `load()`'s signature and type hints, so
    every option needs a hint (`int`, `str`, an `Enum`, or a list of `str`)
    and a default. `TIMED` must match whether `load()` takes

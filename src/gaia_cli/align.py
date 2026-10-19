@@ -196,7 +196,7 @@ def align(
     time_like: str | None = None,
     crs: str | None = None,
     res: float | None = None,
-    method: regrid.Method = "conservative",
+    method: regrid.Method | None = None,
     aoi=None,
 ) -> xr.DataTree:
     """Aggregate in time, then regrid once, every raster group in *dt*.
@@ -213,9 +213,11 @@ def align(
         Group whose time intervals are the target. Default: the coarsest.
     crs, res : optional
         Explicit target grid instead of ``like``.
-    method : {"conservative", "average", "bilinear", "nearest"}
-        Spatial resampling for continuous variables. Categorical variables
-        (with ``flag_values``) always use ``mode``.
+    method : {"conservative", "average", "bilinear", "cubic", "nearest"}, optional
+        Spatial resampling for every continuous variable. Default: each
+        variable's ``gaia:regrid-method`` attribute (its dataset's default,
+        e.g. ``bilinear`` for DEMs), else ``conservative``. Categorical
+        variables (with ``flag_values``) always use ``mode``.
     aoi : geopandas.GeoDataFrame, optional
         If given, clip the output to it (cell centers) in the target CRS.
     """
@@ -255,6 +257,9 @@ def align(
         template.sizes["x"],
     )
 
+    # TODO: convert heights to a common vertical datum. DEMs keep their geoid
+    # (``vertical_datum``: cop30 EGM2008, usgs10m NAVD88), so differences
+    # between them include the geoid separation (~1 m). See docs/dem.md.
     for p, ds in rasters.items():
         out = ds.drop_vars(_raster_vars(ds))
         out = out.drop_vars([c for c in out.coords if {"x", "y"} & set(out[c].dims)])
@@ -264,7 +269,10 @@ def align(
             if _same_grid(_template(ds), template):
                 out[name] = da
                 continue
-            m = "mode" if "flag_values" in da.attrs else method
+            if "flag_values" in da.attrs:
+                m = "mode"
+            else:
+                m = method or da.attrs.get(regrid.METHOD_ATTR, "conservative")
             log.info("regridding %s/%s (%s)", p, name, m)
             out[name] = regrid.regrid(da, template, m)
             out[name].attrs["regrid_method"] = m
@@ -279,7 +287,8 @@ def align(
     aligned = xr.DataTree.from_dict(nodes)
     aligned.attrs = {
         **dt.attrs,
-        "gaia_align": f"grid={target_desc}; time={time_like}; method={method}",
+        "gaia_align": f"grid={target_desc}; time={time_like}; "
+        f"method={method or 'per variable'}",
     }
     return aligned
 
@@ -291,9 +300,7 @@ def run(
     time_like: Annotated[str | None, Parameter(name=["--time-like"])] = None,
     crs: Annotated[str | None, Parameter(name=["--crs"])] = None,
     res: Annotated[float | None, Parameter(name=["--res"])] = None,
-    method: Annotated[
-        regrid.Method, Parameter(name=["--method", "-m"])
-    ] = "conservative",
+    method: Annotated[regrid.Method | None, Parameter(name=["--method", "-m"])] = None,
     aoi_path: Annotated[str | None, Parameter(name=["--aoi"])] = None,
     overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
 ):
@@ -319,7 +326,9 @@ def run(
     res : float
         Target resolution in ``--crs`` units.
     method : str
-        Spatial resampling for continuous data. Default ``conservative``.
+        Spatial resampling for all continuous data: ``conservative``,
+        ``average``, ``bilinear``, ``cubic`` or ``nearest``. Default: each
+        dataset's own (``bilinear`` for DEMs), else ``conservative``.
     aoi_path : str
         Optional vector file; clip the output to it in the target CRS.
     overwrite : bool

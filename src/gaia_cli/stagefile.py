@@ -29,7 +29,7 @@ import yaml
 from cyclopts import Parameter
 from xarray.backends.file_manager import FILE_CACHE
 
-from . import hrrr, io, nlcd, prism, provenance, synoptic
+from . import dem, hrrr, io, nlcd, prism, provenance, regrid, synoptic
 
 log = logging.getLogger(__name__)
 
@@ -44,12 +44,16 @@ TOP_KEYS = (
     "output",
     "datasets",
 )
-# Each module has load(), EXTENT (a STAC Collection extent), KIND and TIMED
+# Each module has load(), EXTENT (a STAC Collection extent), KIND and TIMED, and
+# optionally VARIANT: a load() option named by the key (`dem/usgs10m`), each
+# value its own top-level group; and REGRID_METHOD: `gaia align`'s default for
+# its raster variables (else conservative)
 DATASETS: dict[str, ModuleType] = {
     "synoptic": synoptic,
     "prism": prism,
     "hrrr": hrrr,
     "nlcd": nlcd,
+    "dem": dem,
 }
 # KIND -> group prefix in the output store
 GROUPS = {"raster": "rasters", "stations": "stations"}
@@ -110,10 +114,14 @@ class Window:
 class Request:
     """One dataset to stage: its AOI, windows and options."""
 
-    name: str
+    name: str  # the datasets key, `<dataset>` or `<dataset>/<variant>`
     aoi: str | dict
     windows: list[Window]
     options: dict[str, Any]
+
+    @property
+    def dataset(self) -> str:
+        return self.name.partition("/")[0]
 
 
 @dataclasses.dataclass
@@ -402,17 +410,31 @@ def parse_config(doc: dict, path: str, base_dir: Path) -> StageConfig:
         datasets = {}
     requests = []
     for ds_name, entry in datasets.items():
-        if ds_name not in DATASETS:
+        dataset, _, variant = str(ds_name).partition("/")
+        if dataset not in DATASETS:
             problems += [
-                f"datasets: {p}" for p in _unknown([ds_name], list(DATASETS), "dataset")
+                f"datasets: {p}" for p in _unknown([dataset], list(DATASETS), "dataset")
             ]
             continue
         entry = entry or {}
         if not isinstance(entry, dict):
             problems.append(f"{ds_name}: must be a mapping of options")
             continue
-        module = DATASETS[ds_name]
+        module = DATASETS[dataset]
         opts = options(module.load)
+        # The key names the variant option, which the entry can't repeat
+        variant_opt = getattr(module, "VARIANT", None)
+        key, variant_value = dataset, None
+        if variant_opt is not None:
+            hint, variant_value = opts.pop(variant_opt)
+            if variant:
+                variant_value = check(ds_name, coerce, variant, hint)
+            key = f"{dataset}/{plain(variant_value)}"
+            if key in [r.name for r in requests]:
+                problems.append(f"{ds_name}: {key} is listed twice")
+        elif variant:
+            problems.append(f"{ds_name}: {dataset} has no variants; use {dataset}")
+            continue
         timed = module.TIMED
         keys = [k for k in entry if k != "window"]
         problems += [
@@ -450,14 +472,14 @@ def parse_config(doc: dict, path: str, base_dir: Path) -> StageConfig:
             if any(w.start is None or w.end is None for w in windows):
                 problems.append(f"{ds_name}.window: needs both a start and an end")
 
-        values = {}
+        values = {variant_opt: variant_value} if variant_opt else {}
         for opt, (hint, default) in opts.items():
             if opt in entry:
                 values[opt] = check(f"{ds_name}.{opt}", coerce, entry[opt], hint)
             else:
                 values[opt] = default
         if aoi is not None:
-            requests.append(Request(ds_name, aoi, windows, values))
+            requests.append(Request(key, aoi, windows, values))
 
     if problems:
         raise StageFileError(path, problems)
@@ -498,7 +520,7 @@ def resolved(
         if req.windows:
             entry["window"] = str(req.windows[0])
             entry["read"] = str(req.windows[0].padded())
-        entry.update({k: plain(v) for k, v in req.options.items()})
+        entry.update(_entry_options(req))
         if skipped and req.name in skipped:
             entry["skipped"] = skipped[req.name]
         out["datasets"][req.name] = entry
@@ -532,9 +554,15 @@ def stage_file(
         entry: dict[str, Any] = {"aoi": aoi}
         if req.windows:
             entry["window"] = str(req.windows[0])
-        entry.update({k: plain(v) for k, v in req.options.items()})
+        entry.update(_entry_options(req))
         out["datasets"][req.name] = entry
     return out
+
+
+def _entry_options(req: Request) -> dict:
+    """*req*'s options as YAML data, without the variant its key names."""
+    variant_opt = getattr(DATASETS[req.dataset], "VARIANT", None)
+    return {k: plain(v) for k, v in req.options.items() if k != variant_opt}
 
 
 def write_stage_file(doc: dict, output: str, merge: bool = False):
@@ -549,7 +577,12 @@ def write_stage_file(doc: dict, output: str, merge: bool = False):
 
 
 def group(req: Request) -> str:
-    return f"{GROUPS[DATASETS[req.name].KIND]}/{req.name}"
+    """The store group: the key for variant datasets (``dem/cop30``), else
+    ``<GROUPS[KIND]>/<name>``."""
+    module = DATASETS[req.dataset]
+    if hasattr(module, "VARIANT"):
+        return req.name
+    return f"{GROUPS[module.KIND]}/{req.name}"
 
 
 def _aoi_key(spec: str | dict) -> str:
@@ -597,7 +630,7 @@ def outside_extent(req: Request, aoi: gpd.GeoDataFrame) -> str | None:
     sub-regions after the first, when there are any), and each window
     against the temporal intervals.
     """
-    extent = DATASETS[req.name].EXTENT
+    extent = DATASETS[req.dataset].EXTENT
     bboxes = extent["spatial"]["bbox"]
     aoi_bbox = [round(float(v), 4) for v in aoi.to_crs("EPSG:4326").total_bounds]
     regions = [p for b in bboxes[1:] or bboxes[:1] for p in _split_antimeridian(b)]
@@ -638,7 +671,7 @@ def run(
     """
     failures = {}
     for req in cfg.requests:
-        module = DATASETS[req.name]
+        module = DATASETS[req.dataset]
         kwargs = dict(req.options)
         if req.windows:
             w = req.windows[0].padded()
@@ -657,6 +690,10 @@ def run(
             obj = module.load(aois[_aoi_key(req.aoi)], **kwargs)
             # Station data is xvec CF-encoded for the store
             node = module.to_dataset(obj) if module.KIND == "stations" else obj
+            if method := getattr(module, "REGRID_METHOD", None):
+                for var in node.data_vars.values():
+                    if {"x", "y"} <= set(var.dims):
+                        var.attrs.setdefault(regrid.METHOD_ATTR, method)
             tree = xr.DataTree.from_dict({group(req): node})
             tree.attrs = dict(cfg.attrs)
             io.save_datatree(
@@ -690,11 +727,17 @@ def execute(
         problems = []
         if only is not None:
             names = [n.strip() for n in only.split(",") if n.strip()]
-            listed = [r.name for r in cfg.requests]
+            # `--only dem` selects every dem/<variant>
+            listed = [r.name for r in cfg.requests] + [r.dataset for r in cfg.requests]
             problems += [
-                f"--only: {p}" for p in _unknown(names, listed, "dataset in the file")
+                f"--only: {p}"
+                for p in _unknown(
+                    names, list(dict.fromkeys(listed)), "dataset in the file"
+                )
             ]
-            cfg.requests = [r for r in cfg.requests if r.name in names]
+            cfg.requests = [
+                r for r in cfg.requests if r.name in names or r.dataset in names
+            ]
         if output is None and not dry_run:
             problems.append("output: required, here or with -o")
         elif output is not None and output.rstrip("/").endswith(".zarr"):
@@ -897,10 +940,14 @@ def stage_dataset(
     Builds the stage file the flags describe and runs it like any other. The
     store is named after the output folder.
     """
+    key = name
+    if variant_opt := getattr(DATASETS[name], "VARIANT", None):
+        # `gaia stage dem -p usgs10m` is the key dem/usgs10m
+        key = f"{name}/{plain(options.pop(variant_opt))}"
     doc: dict[str, Any] = {
         "name": io.folder_name(output_path),
         "aoi": vectorPath,
-        "datasets": {name: {k: plain(v) for k, v in options.items()}},
+        "datasets": {key: {k: plain(v) for k, v in options.items()}},
     }
     if DATASETS[name].TIMED:
         doc["window"] = {"start": start_date, "end": end_date}

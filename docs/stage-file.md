@@ -2,7 +2,7 @@
 
 A stage file describes one event: its AOIs, time windows and the datasets to stage.
 `gaia stage --config` stages every dataset in it into one Zarr store, one group per
-dataset (`stations/synoptic`, `rasters/prism`, `rasters/hrrr`, `rasters/nlcd`), in an
+dataset (`stations/synoptic`, `rasters/prism`, `rasters/hrrr`, `rasters/nlcd`, `dem/cop30`), in an
 [output folder](#output-folder).
 Single-dataset commands (`gaia stage prism -i … -s … -e …`) build the same
 configuration from their flags and write the same layout, with one group.
@@ -67,11 +67,16 @@ datasets:
   hrrr: {aoi: local, window: {before: 6h, after: 1d}, variable: temperature_2m}
   prism: {variables: [ppt, tmax]}
   nlcd: {year: 2021}                 # static: takes no window
+  dem/usgs10m: {}                    # the key names the product
 ```
 
 Each dataset uses its own `aoi` and `window`, otherwise the file's defaults. Its other
 keys are the options of that dataset's `load()` function, with the same defaults as
 the CLI flags:
+
+Some datasets have variants, each its own top-level group. The key names the variant,
+so one file can list several: `dem/cop30` and `dem/usgs10m` write groups `dem/cop30`
+and `dem/usgs10m`. `--only dem` selects every variant, and `--only dem/usgs10m` one.
 
 | dataset | options |
 |---|---|
@@ -79,6 +84,7 @@ the CLI flags:
 | `prism` | `variables` (list, default `[ppt]`) |
 | `hrrr` | `variable` (default `precipitation_surface`) |
 | `nlcd` | `year` (default `2021`); static, no window |
+| `dem` | none; the key names the product: `dem/cop30` or `dem/usgs10m` (a bare `dem` is `dem/cop30`; see [dem.md](dem.md)); static, no window |
 
 ## Output folder
 
@@ -184,6 +190,7 @@ the provider.
 | `prism` | CONUS | 1981 onward |
 | `hrrr` | CONUS | 2014-10-01 onward |
 | `nlcd` | CONUS | static; years 1985–2024 |
+| `dem` | global (`usgs10m`: US only, not checked) | static |
 
 ## Validation
 

@@ -234,12 +234,14 @@ warnings.filterwarnings("ignore", message="Consolidated metadata is currently no
 
 
 def _prepare_for_zarr(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
-    """Load small datasets into memory; re-chunk large ones to ~10 MB chunks.
+    """Load datasets up to ~10 MB into memory and store each variable as one chunk.
 
-    Returns the (possibly loaded) dataset and an encoding dict.  When the
-    dataset is small enough to fit in a single chunk we set the Zarr chunk
-    shape equal to the full variable shape so that ``to_zarr`` doesn't
-    re-introduce its own default chunking.
+    Returns the (possibly loaded) dataset and an encoding dict. A small
+    dataset gets Zarr chunks equal to each variable's full shape, so
+    ``to_zarr`` doesn't introduce its own default chunking. A larger one is
+    returned unchanged: dask arrays keep their chunks (which Zarr requires to
+    be uniform, apart from the last), and in-memory arrays get Zarr's default
+    chunking.
     """
     # Fixed-width numpy strings (<U*) have no Zarr v3 spec; store as variable-length UTF-8
     ds = ds.assign_coords(
