@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from gaia_cli import stagefile, stations
+from gaia_cli import align, stagefile, stations
 
 pytestmark = pytest.mark.online
 
@@ -80,3 +80,33 @@ def test_stage(tmp_path, dataset, check):
     assert path.endswith(dataset)
     check(tree[path].to_dataset())
     assert tree[path].attrs["license"]
+
+
+# The landlab_data_prep reference event: Pioneer Fire, WA (WA4818312053120240608),
+# the perimeter's bbox. Landlab puts every layer on a 10 m UTM grid.
+PIONEER = """
+name: pioneer
+aoi: {bbox: [-120.6807, 48.0978, -120.4009, 48.3895]}
+datasets:
+  dem/cop30: {}
+  dem/usgs10m: {}
+"""
+
+
+def test_pioneer_dems_on_the_landlab_grid(tmp_path):
+    config = tmp_path / "stage.yaml"
+    config.write_text(PIONEER)
+    out = tmp_path / "out"
+    stagefile.stage(config=str(config), output_path=str(out))
+
+    tree = xr.open_datatree(out / "pioneer.zarr", engine="zarr")
+    aligned = align.align(tree, crs="EPSG:32610", res=10.0, method="bilinear")
+    cop30, usgs10m = (aligned[f"dem/{p}"].elevation for p in ("cop30", "usgs10m"))
+    assert cop30.rio.crs.to_epsg() == usgs10m.rio.crs.to_epsg() == 32610
+    assert cop30.shape == usgs10m.shape == (3311, 2185)
+    # Lake Chelan's shore (~335 m) to the Chelan Mountains (~2680 m)
+    for da in (cop30, usgs10m):
+        assert 320 < float(da.min()) < 350
+        assert 2600 < float(da.max()) < 2750
+    # Different geoids and a surface vs a bare-earth model: close, not equal
+    assert abs(float((cop30 - usgs10m).median())) < 5

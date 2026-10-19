@@ -45,7 +45,14 @@ datum conversion would go.
 ## Notes
 
 - Like every raster, the DEM stays on its native grid. `gaia align` puts it on a
-  common grid.
+  common grid. For elevation, pass `--method bilinear` (or `nearest`, `average`).
+  The default, `conservative`, suits accumulations such as precipitation, and is far
+  slower for fine grids. For the Pioneer Fire AOI (the landlab_data_prep reference
+  event), 3DEP onto the Cop30 grid takes 0.1 s with `bilinear` and 73 s with
+  `conservative`. Onto landlab's 10 m UTM grid it takes 0.4 s with `bilinear`:
+  ```bash
+  gaia align -i pioneer/pioneer.zarr -o pioneer-10m --crs EPSG:32610 --res 10 --method bilinear
+  ```
 - `processing:lineage`, `sci:doi`, `sci:citation` and a `cite-as` link record the
   source. The STAC Item's time range for Cop30 is the acquisition period
   (2011–2015). 3DEP blends source data of many dates, so it has none.
