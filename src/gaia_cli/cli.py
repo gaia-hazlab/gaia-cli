@@ -9,6 +9,7 @@ import sys
 import cyclopts
 
 from .align import run as align
+from .burn_severity import stage as stage_burn_severity
 from .catalog import rebuild as catalog_rebuild
 from .dem import stage as stage_dem
 from .hrrr import stage as stage_hrrr
@@ -23,7 +24,7 @@ from .synoptic import stage as stage_synoptic
 
 app = cyclopts.App()
 
-# gaia stage --config {stage.yaml,PRESET} | gaia stage {synoptic,prism,hrrr,nlcd,dem,soil} ...
+# gaia stage --config {stage.yaml,PRESET} | gaia stage {synoptic,prism,hrrr,nlcd,dem,soil,burn_severity} ...
 stage_app = cyclopts.App(
     name="stage", help="Stage datasets clipped to an AOI and time range."
 )
@@ -36,6 +37,7 @@ stage_app.command(stage_hrrr, name="hrrr")
 stage_app.command(stage_nlcd, name="nlcd")
 stage_app.command(stage_dem, name="dem")
 stage_app.command(stage_soil, name="soil")
+stage_app.command(stage_burn_severity, name="burn_severity")
 
 # gaia align ...
 app.command(align, name="align")

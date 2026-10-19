@@ -68,6 +68,13 @@ def check_soil(ds):
     assert ds.ph1to1h2o.attrs["gaia:regrid-method"] == "bilinear"
 
 
+def check_burn_severity(ds):
+    # The 2022 Bolt Creek fire: every class, NaN outside the mapped area
+    classes = np.unique(ds.burn_severity.values[~np.isnan(ds.burn_severity.values)])
+    assert classes.tolist() == [1, 2, 3, 4]
+    assert ds.attrs["fire_name"] == "bolt_creek_sbs"
+
+
 @pytest.mark.parametrize(
     "dataset, check, options",
     [
@@ -91,6 +98,7 @@ def check_soil(ds):
         ("dem/cop30", check_dem, {}),
         ("dem/usgs10m", check_dem, {}),
         ("soil/solus100", check_soil, {}),
+        ("burn_severity", check_burn_severity, {"fire": "bolt creek"}),
     ],
 )
 def test_stage(tmp_path, dataset, check, options):
