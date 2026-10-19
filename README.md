@@ -175,3 +175,12 @@ gh workflow run stage.yml \
   --field end_date=2025-12-30 \
   --field copy_to_s3=true
 ```
+
+## Browse staged datasets
+
+Public staged stores under `s3://gaia/scratch/public/` are listed in a STAC catalog, `s3://gaia/scratch/public/catalog.json` (rebuilt with `gaia catalog rebuild`; see [docs/stac-catalog.md](docs/stac-catalog.md)). Open it in a browser:
+
+- [STAC Browser](https://browser.moregeo.it/external/s3.kopah.uw.edu/gaia/scratch/public/catalog.json): each store's Item, with its `data` and `config` assets and provenance
+- [stac-map](https://developmentseed.org/stac-map/?href=https://s3.kopah.uw.edu/gaia/scratch/public/catalog.json): each store's footprint on a map
+
+The PRISM cache has its own STAC collection, e.g. [in STAC Browser](https://browser.moregeo.it/external/s3.kopah.uw.edu/gaia/public/prism/collection.json).
