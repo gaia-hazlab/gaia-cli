@@ -1,6 +1,7 @@
 """Network smoke tests: stage each dataset for a small Bolt Creek AOI through the
 stage-file runner. Run with ``pixi run test-online``; skipped by default."""
 
+import json
 import os
 
 import numpy as np
@@ -12,14 +13,14 @@ from gaia_cli import align, stagefile, stations
 pytestmark = pytest.mark.online
 
 # Around the 2022 Bolt Creek fire and Stevens Pass, WA (~45 x 33 km).
-# The padded read, 2025-12-09 to 2025-12-11, is already in the PRISM cache, so no write
-# credentials are needed.
+# The padded read, 2025-12-09 to 2025-12-11, is already in the PRISM cache (ppt, tmin,
+# tmax), so no write credentials are needed.
 STAGE = """
 name: bolt-creek-smoke
 aoi: {{bbox: [-121.6, 47.6, -121.0, 47.9]}}
 window: 2025-12-10/2025-12-10
 datasets:
-  {dataset}: {{}}
+  {dataset}: {options}
 """
 
 
@@ -33,6 +34,12 @@ def check_synoptic(ds):
 def check_prism(ds):
     assert ds.sizes["time"] == 3
     assert float(ds.precipitation.min()) >= 0
+
+
+def check_prism_temperature(ds):
+    assert ds.sizes["time"] == 3
+    assert bool((ds.tmin <= ds.tmax).all())
+    assert -40 < float(ds.tmin.min()) and float(ds.tmax.max()) < 30  # December, degC
 
 
 def check_hrrr(ds):
@@ -53,25 +60,32 @@ def check_dem(ds):
 
 
 @pytest.mark.parametrize(
-    "dataset, check",
+    "dataset, check, options",
     [
         pytest.param(
             "synoptic",
             check_synoptic,
+            {},
             marks=pytest.mark.skipif(
                 not os.environ.get("SYNOPTIC_TOKEN"), reason="needs SYNOPTIC_TOKEN"
             ),
         ),
-        ("prism", check_prism),
-        ("hrrr", check_hrrr),
-        ("nlcd", check_nlcd),
-        ("dem/cop30", check_dem),
-        ("dem/usgs10m", check_dem),
+        ("prism", check_prism, {}),
+        pytest.param(
+            "prism",
+            check_prism_temperature,
+            {"variables": ["ppt", "tmin", "tmax"]},
+            id="prism-temperature",
+        ),
+        ("hrrr", check_hrrr, {}),
+        ("nlcd", check_nlcd, {}),
+        ("dem/cop30", check_dem, {}),
+        ("dem/usgs10m", check_dem, {}),
     ],
 )
-def test_stage(tmp_path, dataset, check):
+def test_stage(tmp_path, dataset, check, options):
     config = tmp_path / "stage.yaml"
-    config.write_text(STAGE.format(dataset=dataset))
+    config.write_text(STAGE.format(dataset=dataset, options=json.dumps(options)))
     out = tmp_path / "out"
     stagefile.stage(config=str(config), output_path=str(out))
 

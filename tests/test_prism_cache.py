@@ -1,6 +1,8 @@
 import datetime as dt
 import json
+import typing
 
+import geopandas as gpd
 import numpy as np
 import pystac
 import pytest
@@ -8,7 +10,9 @@ import rasterio
 from obstore.store import LocalStore
 from pystac.extensions.projection import ProjectionExtension
 from rasterio.transform import from_origin
+from shapely.geometry import box
 
+from gaia_cli import prism
 from gaia_cli.prism_cache import (
     CacheMiss,
     PrismCache,
@@ -316,3 +320,31 @@ def test_from_env_cache_profile_supplies_endpoint(aws_config):
         "https://s3.us-west-004.backblazeb2.com/gaia-scratch/prism-cache"
     )
     assert c.writable
+
+
+def test_prism_load_temperatures(store_dir, fake_upstream, monkeypatch):
+    monkeypatch.setattr(PrismCache, "from_env", lambda: _cache(store_dir))
+    aoi = gpd.GeoDataFrame(geometry=[box(-125.0, 48.5, -123.0, 50.0)], crs="EPSG:4326")
+    ds = prism.load(aoi, "2025-12-01", "2025-12-02", ("ppt", "tmin", "tmax"))
+
+    assert set(ds.data_vars) == {"precipitation", "tmin", "tmax", "time_bounds"}
+    assert ds.sizes["time"] == 2
+    methods = {
+        v: ds[v].attrs["cell_methods"] for v in ("precipitation", "tmin", "tmax")
+    }
+    assert methods == {
+        "precipitation": "time: sum",
+        "tmin": "time: minimum",
+        "tmax": "time: maximum",
+    }
+    assert ds.tmin.attrs["units"] == "degC"
+    assert ds.tmax.attrs["standard_name"] == "air_temperature"
+    assert ds.tmax.attrs["long_name"] == "PRISM daily maximum temperature"
+    assert ds.tmin.attrs["prism_release"] == [4, 4]
+
+
+def test_prism_variables_are_published_and_described():
+    variables = set(typing.get_args(prism.Variable))
+    assert variables == {"ppt", "tmin", "tmax", "tmean"}
+    assert variables <= set(upstream.VARIABLES)
+    assert set(prism.STANDARD_NAMES) == set(prism.LONG_NAMES) == variables

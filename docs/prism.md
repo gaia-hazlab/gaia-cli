@@ -1,4 +1,4 @@
-# PRISM daily precipitation
+# PRISM daily precipitation and temperature
 
 Module: `src/gaia_cli/prism.py`, `src/gaia_cli/prism_cache/` · Commands:
 `gaia stage prism`, `gaia prism fill`
@@ -11,8 +11,9 @@ Module: `src/gaia_cli/prism.py`, `src/gaia_cli/prism_cache/` · Commands:
 - Access: unzipped COGs in the gaia PRISM cache (see [below](#the-gaia-prism-cache)),
   loaded with `odc.stac` from STAC items built in memory. File names look
   like `prism_ppt_us_30s_YYYYMMDD`.
-- Variables: `-v ppt tmin tmax tmean tdmean vpdmin vpdmax` (default `ppt`,
-  written as `precipitation`).
+- Variables: `-v ppt tmin tmax tmean` (default `ppt`,
+  written as `precipitation`), or `variables: [ppt, tmin, tmax]` in a
+  stage file. Other names are rejected before anything is read.
 - Reference: [PRISM Datasets (PDF)](https://prism.oregonstate.edu/documents/PRISM_datasets.pdf).
 
 ## The gaia PRISM cache
@@ -89,16 +90,29 @@ to 04:00 PST on D.
   **D 00:00**. The timestamp is only a date label: it is neither the start
   nor the end of the accumulation period.
 - `prism.load` writes CF bounds so the period is explicit:
-  `time_bounds = (time − 12 h, time + 12 h]` and
-  `precipitation.attrs["cell_methods"] = "time: sum"`.
+  `time_bounds = (time − 12 h, time + 12 h]`, and each variable's
+  `cell_methods` says how it covers that period (see [Values](#values)).
+  `tmin` and `tmax` use the same PRISM day as `ppt`.
 - Google Earth Engine's copy (`OREGONSTATE/PRISM/AN81d`) stamps assets at
   noon UTC instead. Don't mix timestamps from the two sources without
   converting.
 
 ## Values
 
-- Variable `ppt` → renamed `precipitation`, units **mm** per PRISM day,
-  float32.
+| variable | written as | units | `cell_methods` | `standard_name` |
+| --- | --- | --- | --- | --- |
+| `ppt` | `precipitation` | mm per PRISM day | `time: sum` | `lwe_thickness_of_precipitation_amount` |
+| `tmin` | `tmin` | degC | `time: minimum` | `air_temperature` |
+| `tmax` | `tmax` | degC | `time: maximum` | `air_temperature` |
+| `tmean` | `tmean` | degC | `time: mean` | `air_temperature` |
+
+- All are float32 on the same 800 m grid, each with a `long_name` and a
+  `prism_release` per time step.
+- `gaia align` combines values by `cell_methods`: sum for `ppt`, min for
+  `tmin`, max for `tmax`, otherwise mean.
+- The cache holds each variable separately, so staging `tmin`/`tmax` for
+  days only cached for `ppt` first fetches them from PRISM, which needs
+  write access. Pre-fill with `gaia prism fill -v tmin tmax -s … -e …`.
 - No-data (−9999) is converted to NaN on load.
 - In the western US, daily D2 grids are forced to sum to the monthly AN
   grids (M3). Recent days can change until the monthly product is final; see

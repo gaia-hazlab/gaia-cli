@@ -68,6 +68,19 @@ def test_point_values_are_averaged():
     np.testing.assert_allclose(out.t2m.sel(time="2025-12-02").squeeze(), 11.5)
 
 
+def test_minimum_and_maximum_keep_their_extremes():
+    times = pd.date_range("2025-12-01T13:00", "2025-12-02T12:00", freq="h")
+    da = _raster(times, 3_000, 1, 1, np.arange(24.0).reshape(24, 1, 1)).rename("tmin")
+    ds = io.with_time_bounds(da, -1, 0, "time: minimum")
+    ds["tmax"] = ds.tmin.assign_attrs(cell_methods="time: maximum")
+
+    out = align.aggregate_time(ds, *_day_bins(_daily()))
+
+    day = {"time": "2025-12-02"}
+    np.testing.assert_allclose(out.tmin.sel(day).squeeze(), 0.0)
+    np.testing.assert_allclose(out.tmax.sel(day).squeeze(), 23.0)
+
+
 def test_align_daily_on_coarsest_grid_roundtrip(tmp_path):
     dt = xr.DataTree.from_dict({"rasters/prism": _daily(), "rasters/hrrr": _hourly()})
     path = str(tmp_path / "native.zarr")

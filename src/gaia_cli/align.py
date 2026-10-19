@@ -114,7 +114,8 @@ def aggregate_time(
 
     A source interval contributes to the target interval that fully contains
     it (point values: ``start < t <= end``). Values combine according to the
-    variable's ``cell_methods`` (``time: sum`` → sum, otherwise mean). Bins
+    variable's ``cell_methods`` (``time: sum`` → sum, ``time: minimum`` → min,
+    ``time: maximum`` → max, otherwise mean). Bins
     missing any expected source step become NaN instead of a silent undercount.
     """
     start, end, is_point = _intervals(ds)
@@ -136,7 +137,14 @@ def aggregate_time(
         da = sub[name]
         method = da.attrs.get("cell_methods", "time: mean")
         grouped = da.groupby("_bin")
-        agg = grouped.sum() if "sum" in method else grouped.mean()
+        if "sum" in method:
+            agg = grouped.sum()
+        elif "minimum" in method:
+            agg = grouped.min()
+        elif "maximum" in method:
+            agg = grouped.max()
+        else:
+            agg = grouped.mean()
         agg = agg.where(grouped.count() >= expected)
         agg = agg.reindex(_bin=np.arange(len(labels))).rename(_bin="time")
         agg.attrs = {

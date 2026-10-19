@@ -323,6 +323,18 @@ def coerce(value, hint):
             isinstance(items, (list, tuple)) and all(isinstance(v, str) for v in items)
         ):
             raise ValueError(f"{value!r} is not a list of strings")
+        # A list of Literal strings, e.g. prism's variables, takes only those
+        allowed = [
+            a
+            for h in (hint, *typing.get_args(hint))
+            for e in typing.get_args(h)
+            if typing.get_origin(e) is typing.Literal
+            for a in typing.get_args(e)
+        ]
+        for v in items:
+            if allowed and v not in allowed:
+                choices = ", ".join(dict.fromkeys(allowed))
+                raise ValueError(f"{v!r} is not one of {choices}")
         return tuple(items)
     if hint in (int, str) and (not isinstance(value, hint) or isinstance(value, bool)):
         raise ValueError(f"{value!r} is not of type {hint.__name__}")

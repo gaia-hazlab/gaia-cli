@@ -118,7 +118,8 @@ writing one group per dataset. To add yours:
    `stagefile.py`. The group is `<GROUPS[KIND]>/<name>`, or `<name>/<value>`
    with `VARIANT`.
 2. Stage-file options come from `load()`'s signature and type hints, so
-   every option needs a hint (`int`, `str`, an `Enum`, or a list of `str`)
+   every option needs a hint (`int`, `str`, an `Enum`, or a list of `str` or
+   of a `Literal`, which limits its values)
    and a default. `TIMED` must match whether `load()` takes
    `start_date`/`end_date`; a test checks this for every registered module.
 3. `load()` must return a finished `xr.Dataset` with provenance attrs

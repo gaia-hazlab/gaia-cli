@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Annotated
+from typing import Annotated, Literal
 
 import geopandas as gpd
 import numpy as np
@@ -26,13 +26,34 @@ EXTENT = {
 KIND = "raster"
 TIMED = True
 
-CELL_METHODS = {"ppt": "time: sum", "tmin": "time: minimum", "tmax": "time: maximum"}
+# The daily PRISM variables gaia stages, of those it publishes (prism_cache.VARIABLES)
+Variable = Literal["ppt", "tmin", "tmax", "tmean"]
+
+# How each day's value combines over time; tmean is a daily mean
+CELL_METHODS = {
+    "ppt": "time: sum",
+    "tmin": "time: minimum",
+    "tmax": "time: maximum",
+}
+# CF names; tmin, tmax and tmean differ only in cell_methods
+STANDARD_NAMES = {
+    "ppt": "lwe_thickness_of_precipitation_amount",
+    "tmin": "air_temperature",
+    "tmax": "air_temperature",
+    "tmean": "air_temperature",
+}
+LONG_NAMES = {
+    "ppt": "total precipitation",
+    "tmin": "minimum temperature",
+    "tmax": "maximum temperature",
+    "tmean": "mean temperature",
+}
 # Variables renamed on load to match the other gaia products
 RENAMES = {"ppt": "precipitation"}
 
 
 def open_prism(
-    variables: list[str] | tuple[str, ...],
+    variables: list[Variable] | tuple[Variable, ...],
     start: str,
     end: str | None = None,
     revalidate: bool = True,
@@ -45,7 +66,7 @@ def open_prism(
     Parameters
     ----------
     variables : list of str
-        PRISM variables, e.g. ``["ppt", "tmean"]``. ``ppt`` is renamed
+        PRISM variables, e.g. ``["ppt", "tmin", "tmax"]``. ``ppt`` is renamed
         ``precipitation``.
     start : str
         Start date (inclusive), e.g. '2025-12-01'.
@@ -77,6 +98,8 @@ def open_prism(
         ds[var] = ds[var].where(ds[var] != ds[var].rio.nodata)
         ds[var].rio.write_nodata(np.nan, inplace=True)
         ds[var].attrs["units"] = prism_cache.UNITS[var]
+        ds[var].attrs["standard_name"] = STANDARD_NAMES[var]
+        ds[var].attrs["long_name"] = f"PRISM daily {LONG_NAMES[var]}"
         # PRISM release number per time step; < 8 means provisional
         ds[var].attrs["prism_release"] = [
             prism_cache.release(entries[var][d]) if d in entries[var] else 0
@@ -92,7 +115,8 @@ def stage(
     end_date: Annotated[str, Parameter(name=["--end", "-e"])],
     output_path: Annotated[str, Parameter(name=["--output", "-o"])],
     variables: Annotated[
-        tuple[str, ...], Parameter(name=["--variables", "-v"], consume_multiple=True)
+        tuple[Variable, ...],
+        Parameter(name=["--variables", "-v"], consume_multiple=True),
     ] = ("ppt",),
     dry_run: Annotated[bool, Parameter(name=["--dry-run"], negative="")] = False,
     overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
@@ -118,8 +142,9 @@ def stage(
         Output folder for the Zarr store (named after the folder), its STAC
         Item and the resolved stage.yaml.
     variables : list of str
-        PRISM variables (ppt, tmin, tmax, tmean, tdmean, vpdmin, vpdmax).
-        Default ppt, written as ``precipitation``.
+        PRISM variables (ppt, tmin, tmax, tmean).
+        Default ppt, written as ``precipitation``; the others keep their
+        names.
     dry_run : bool
         Validate the flags, read the AOI and print the resolved configuration
         without fetching any data.
@@ -134,6 +159,9 @@ def stage(
     Stage PRISM for Skagit Basin December 2025:
         $ AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
         $ gaia stage prism -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit-prism
+
+    With daily minimum and maximum temperature:
+        $ gaia stage prism -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit-prism -v ppt tmin tmax
     """
     from .stagefile import stage_dataset  # stagefile imports this module
 
@@ -154,7 +182,7 @@ def load(
     aoi: gpd.GeoDataFrame,
     start_date: str,
     end_date: str,
-    variables: list[str] | tuple[str, ...] = ("ppt",),
+    variables: list[Variable] | tuple[Variable, ...] = ("ppt",),
 ) -> xr.Dataset:
     """Load PRISM daily grids clipped to *aoi* on their native grid.
 
@@ -170,7 +198,8 @@ def load(
     end_date : str
         End date (inclusive).
     variables : list of str
-        PRISM variables. Default ``("ppt",)``, returned as ``precipitation``.
+        PRISM variables (ppt, tmin, tmax, tmean).
+        Default ``("ppt",)``, returned as ``precipitation``.
 
     Returns
     -------
@@ -200,7 +229,7 @@ def load(
                 cell_methods=CELL_METHODS.get(var, "time: mean"),
             )
         )
-    out = xr.merge(parts, combine_attrs="drop_conflicts")
+    out = xr.merge(parts, compat="override", combine_attrs="drop_conflicts")
     out.attrs = {
         **ds.attrs,
         "processing:lineage": "clipped to the AOI on the native grid; -9999 → NaN",
@@ -213,7 +242,8 @@ def fill(
     start_date: Annotated[str, Parameter(name=["--start", "-s"])],
     end_date: Annotated[str, Parameter(name=["--end", "-e"])],
     variables: Annotated[
-        tuple[str, ...], Parameter(name=["--variables", "-v"], consume_multiple=True)
+        tuple[Variable, ...],
+        Parameter(name=["--variables", "-v"], consume_multiple=True),
     ] = ("ppt",),
     revalidate: bool = True,
 ):

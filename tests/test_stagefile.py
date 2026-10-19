@@ -185,6 +185,17 @@ datasets:
         assert any(text in p for p in found), (text, found)
 
 
+def test_prism_takes_only_its_variables(tmp_path):
+    text = "name: x\naoi: {bbox: [0, 0, 1, 1]}\nwindow: 2025-12-01/2025-12-02\ndatasets:\n  prism: {variables: [ppt, tmx]}\n"
+    assert any(
+        "prism.variables: 'tmx' is not one of ppt, tmin, tmax" in p
+        for p in problems(tmp_path, text)
+    )
+    path = write(tmp_path, text.replace("tmx", "tmin"))
+    (req,) = stagefile.load_config(path).requests
+    assert req.options == {"variables": ("ppt", "tmin")}
+
+
 @pytest.mark.parametrize(
     "window, message",
     [
