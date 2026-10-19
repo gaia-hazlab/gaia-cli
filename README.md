@@ -63,6 +63,12 @@ gaia stage all -i $AOI -s 2025-12-01 -e 2025-12-20 -o /tmp/skagit-test.zarr
 gaia align -i /tmp/skagit-test.zarr -o /tmp/skagit-test-aligned.zarr --aoi $AOI
 ```
 
+Example stage file: one YAML file gives the AOIs, time windows and options for several datasets (see [docs/stage-file.md](docs/stage-file.md)). `--dry-run` validates it and prints the resolved configuration without fetching data:
+```bash
+gaia stage --config examples/skagit-2025.yaml --dry-run
+gaia stage --config examples/skagit-2025.yaml -o /tmp/skagit-config.zarr
+```
+
 Example static landcover staging (NLCD 2021)
 ```bash
 AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json

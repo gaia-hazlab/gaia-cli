@@ -75,15 +75,9 @@ def stage(
     ds_hrrr = _hrrr.load(aoi, hrrr_start, end_date, variable=hrrr_variable)
 
     # ---- assemble DataTree ------------------------------------------------
-    # Synoptic point data needs xvec CF encoding for Zarr compatibility
-    da_synoptic = da_synoptic.swap_dims({"station": "geometry"})
-    da_synoptic = da_synoptic.xvec.set_geom_indexes("geometry", crs="EPSG:4326")
-    ds_synoptic = da_synoptic.to_dataset().xvec.encode_cf()
-    ds_synoptic.attrs = _synoptic.source_attrs(da_synoptic)
-
     dt = xr.DataTree.from_dict(
         {
-            "stations/synoptic": ds_synoptic,
+            "stations/synoptic": _synoptic.to_dataset(da_synoptic),
             "rasters/prism": ds_prism,
             "rasters/hrrr": ds_hrrr,
         }

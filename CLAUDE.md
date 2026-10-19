@@ -38,6 +38,7 @@ src/gaia_cli/
   prism.py      # PRISM daily grids (from the S3 cache, via in-memory STAC)
   prism_cache/  # Rolling S3 cache of unzipped PRISM COGs (no other gaia_cli imports)
   hrrr.py       # HRRR analysis precipitation (Icechunk)
+  stagefile.py  # "stage --config" – stage.yaml parser, window grammar, runner
   all.py        # "stage all" – loads every product into an xr.DataTree
 
 tests/

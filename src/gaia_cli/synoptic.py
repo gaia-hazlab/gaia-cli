@@ -354,6 +354,15 @@ def stage(
     log.info("Done")
 
 
+def to_dataset(da: xr.DataArray) -> xr.Dataset:
+    """*da* from :func:`load` as an xvec CF-encoded Dataset, for a DataTree group."""
+    da = da.swap_dims({"station": "geometry"})
+    da = da.xvec.set_geom_indexes("geometry", crs="EPSG:4326")
+    ds = da.to_dataset().xvec.encode_cf()
+    ds.attrs = source_attrs(da)
+    return ds
+
+
 def load(aoi: gpd.GeoDataFrame, start_date: str, end_date: str) -> xr.DataArray:
     """Fetch and build an hourly precipitation DataArray for stations in *aoi*.
 

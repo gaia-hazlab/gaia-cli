@@ -6,6 +6,7 @@ version = "0.1.0"
 dependencies = [
   "cyclopts>=5.2.0,<6",
   "geopandas>=1.2.0,<2",
+  "pyyaml>=6",
   "requests",
   "xarray",
   "xvec>=0.5.2,<0.6",
@@ -47,6 +48,7 @@ skagit-synoptic-s3 = "gaia stage synoptic -i https://raw.githubusercontent.com/D
 skagit-prism = "gaia stage prism -i https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json -s 2025-12-01 -e 2025-12-02 -o /tmp/skagit-prism.zarr"
 skagit-hrrr = "gaia stage hrrr -i https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json -s 2025-12-01 -e 2025-12-02 -o /tmp/skagit-hrrr.zarr"
 skagit-all = "gaia stage all -i https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json -s 2025-12-01 -e 2025-12-02 -o /tmp/skagit-all.zarr"
+skagit-config = "gaia stage --config examples/skagit-2025.yaml -o /tmp/skagit-config.zarr"
 
 
 [tool.pixi.environments]
