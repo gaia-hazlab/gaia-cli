@@ -1,5 +1,5 @@
 # Station, PRISM and HRRR precipitation. A preset has no AOI or window:
-#   gaia stage --config conus-precip -i AOI -s 2025-12-01 -e 2025-12-20 -o out.zarr
+#   gaia stage --config conus-precip -i AOI -s 2025-12-01 -e 2025-12-20 -o out
 name: conus-precip
 datasets:
   synoptic: {}

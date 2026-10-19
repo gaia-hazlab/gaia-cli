@@ -1,7 +1,7 @@
 # Skagit Basin atmospheric river, December 2025: station, PRISM and HRRR precipitation
 # plus land cover. Check with --dry-run, then stage:
 #   gaia stage --config examples/skagit-2025.yaml --dry-run
-#   gaia stage --config examples/skagit-2025.yaml -o /tmp/skagit.zarr
+#   gaia stage --config examples/skagit-2025.yaml -o /tmp/skagit
 name: skagit-2025-12
 attrs:
   title: Skagit Basin atmospheric river, December 2025

@@ -47,6 +47,7 @@ COLLECTION_FIELDS = (
 )
 COLLECTION_LINK_RELS = {"license", "about", "cite-as"}
 ZARR = "application/vnd+zarr"
+YAML = "application/yaml"
 RUN_KEYS = ("created", "gaia:cli-version", "gaia:command", "stac_extensions")
 MULTIPLE_LICENSES_NOTE = (
     "Products in this store have different licenses; check each group's "
@@ -236,12 +237,25 @@ def _unique(items: list[dict], key) -> list[dict]:
     return out
 
 
-def stac_item(tree: xr.DataTree, store_name: str) -> dict:
+def config_asset(href: str) -> dict:
+    """The ``config`` asset: the resolved stage file at *href*."""
+    return {
+        "href": href,
+        "type": YAML,
+        "title": "Resolved stage file (rerun with gaia stage --config)",
+        "roles": ["metadata"],
+    }
+
+
+def stac_item(
+    tree: xr.DataTree, store_name: str, assets: Mapping[str, dict] | None = None
+) -> dict:
     """A STAC Item for the store *store_name*, written next to it.
 
     Properties are the root attributes; when the groups hold the provenance
     (``gaia stage``), their time ranges, providers and links are merged,
-    and a single shared ``license`` is lifted to the Item.
+    and a single shared ``license`` is lifted to the Item. *assets* are
+    added after the ``data`` asset.
     """
     groups = [node.attrs for node in tree.subtree]
     props = {
@@ -284,7 +298,8 @@ def stac_item(tree: xr.DataTree, store_name: str) -> dict:
                 "title": "Zarr store (open with xarray.open_datatree)",
                 "roles": ["data"],
                 "xarray:open_kwargs": {"engine": "zarr", "consolidated": True},
-            }
+            },
+            **(assets or {}),
         },
     }
     asset_fields = [f for a in item["assets"].values() for f in a]

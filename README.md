@@ -44,7 +44,7 @@ Stage in-situ precipitation from the Synoptic API. Precipitation timeseries is r
 │ INPUT --input -i    Path to a vector file (e.g. GeoJSON, Shapefile) that contains the area-of-interest polygon. The first geometry in the file is used.                             │
 │ START --start -s    Start date/time for the timeseries (parseable by pandas.Timestamp).                                                                                             │
 │ END --end -e        End date/time for the timeseries (parseable by pandas.Timestamp).                                                                                               │
-│ OUTPUT --output -o  Path to write the resulting Zarr store.                                                                                                                         │
+│ OUTPUT --output -o  Output folder for the Zarr store (named after the folder), its STAC Item and the resolved stage.yaml.                                                           │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -54,27 +54,27 @@ Stage in-situ precipitation from the Synoptic API. Precipitation timeseries is r
 Example workflow (Skagit Basin 2025-12 Atmospheric River Event)
 ```bash
 AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
-gaia stage --config conus-precip -i $AOI -s 2025-12-01 -e 2025-12-20 -o /tmp/skagit-test.zarr
+gaia stage --config conus-precip -i $AOI -s 2025-12-01 -e 2025-12-20 -o /tmp/skagit-test
 ```
 
-`conus-precip` is a built-in preset: Synoptic stations, PRISM and HRRR precipitation. Every dataset declares its coverage, so datasets that the AOI or window misses (for example PRISM and HRRR in Alaska) are skipped with a warning. A dataset that fails doesn't stop the others; rerun with `--skip-existing` to retry only the missing groups.
+`-o` is a folder: this writes `/tmp/skagit-test/skagit-test.zarr`, its STAC Item `skagit-test.json`, and the resolved `stage.yaml`, which repeats the run with `gaia stage --config /tmp/skagit-test/stage.yaml`. `conus-precip` is a built-in preset: Synoptic stations, PRISM and HRRR precipitation. Every dataset declares its coverage, so datasets that the AOI or window misses (for example PRISM and HRRR in Alaska) are skipped with a warning. A dataset that fails doesn't stop the others; rerun with `--skip-existing` to retry only the missing groups.
 
 `stage` keeps every raster on its native grid and time step. To compare products, align them onto one grid (default: the coarsest, HRRR 3 km) and one time step (default: the coarsest, PRISM days) in a new store. See [docs/reprojecting.md](docs/reprojecting.md):
 ```bash
-gaia align -i /tmp/skagit-test.zarr -o /tmp/skagit-test-aligned.zarr --aoi $AOI
+gaia align -i /tmp/skagit-test/skagit-test.zarr -o /tmp/skagit-test-aligned --aoi $AOI
 ```
 
 Example stage file: one YAML file gives the AOIs, time windows and options for several datasets (see [docs/stage-file.md](docs/stage-file.md)). `--dry-run` validates it and prints the resolved configuration without fetching data:
 ```bash
 gaia stage --config examples/skagit-2025.yaml --dry-run
-gaia stage --config examples/skagit-2025.yaml -o /tmp/skagit-config.zarr
-gaia stage --config examples/skagit-2025.yaml -o /tmp/skagit-config.zarr --only prism,hrrr
+gaia stage --config examples/skagit-2025.yaml -o /tmp/skagit-config
+gaia stage --config examples/skagit-2025.yaml -o /tmp/skagit-config --only prism,hrrr
 ```
 
 Example static landcover staging (NLCD 2021)
 ```bash
 AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
-gaia stage nlcd -i $AOI -o s3://gaia/scratch/skagit-nlcd-2021.zarr --year 2021
+gaia stage nlcd -i $AOI -o s3://gaia/scratch/skagit-nlcd-2021 --year 2021
 ```
 
 ### Output to S3
@@ -128,7 +128,7 @@ dt["rasters/hrrr"].attrs["license"]  # 'CC-BY-4.0'
 Products have different licenses, so check each group's `license` and `links`
 before sharing a store. See [docs/provenance-metadata.md](docs/provenance-metadata.md).
 
-Each store also gets a STAC Item next to it (`out.zarr` → `out.json`).
+Each store also gets a STAC Item next to it (`out/out.zarr` → `out/out.json`).
 `gaia catalog rebuild -p s3://bucket/prefix` links every Item under a prefix
 into a `catalog.json` for browsing in stac-browser; see
 [docs/stac-catalog.md](docs/stac-catalog.md).
@@ -153,12 +153,12 @@ into a `catalog.json` for browsing in stac-browser; see
 
 ## GitHub Actions Workflow
 
-Run the data stager as a github action, saving resulting zarr as a build artifact.
+Run the data stager as a github action, saving the output folder (store, STAC Item and `stage.yaml`) as a build artifact. `subcommand` is a dataset (`synoptic`, `prism`, `hrrr`) or the `conus-precip` preset.
 
 ```bash
 gh workflow run stage.yml \
   --field workflow_name=skagit_test \
-  --field subcommand=all \
+  --field subcommand=conus-precip \
   --field aoi=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json \
   --field start_date=2025-12-01 \
   --field end_date=2025-12-02 \
@@ -169,9 +169,18 @@ gh workflow run stage.yml \
 ```bash
 gh workflow run stage.yml \
   --field workflow_name=skagit \
-  --field subcommand=all \
+  --field subcommand=conus-precip \
   --field aoi=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json \
   --field start_date=2025-12-01 \
   --field end_date=2025-12-30 \
   --field copy_to_s3=true
 ```
+
+## Browse staged datasets
+
+Public staged stores under `s3://gaia/scratch/public/` are listed in a STAC catalog, `s3://gaia/scratch/public/catalog.json` (rebuilt with `gaia catalog rebuild`; see [docs/stac-catalog.md](docs/stac-catalog.md)). Open it in a browser:
+
+- [STAC Browser](https://browser.moregeo.it/external/s3.kopah.uw.edu/gaia/scratch/public/catalog.json): each store's Item, with its `data` and `config` assets and provenance
+- [stac-map](https://developmentseed.org/stac-map/?href=https://s3.kopah.uw.edu/gaia/scratch/public/catalog.json): each store's footprint on a map
+
+The PRISM cache has its own STAC collection, e.g. [in STAC Browser](https://browser.moregeo.it/external/s3.kopah.uw.edu/gaia/public/prism/collection.json).

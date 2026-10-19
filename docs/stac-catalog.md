@@ -2,7 +2,8 @@
 
 Every `gaia stage …` and `gaia align` run writes a
 [STAC Item](https://github.com/radiantearth/stac-spec/blob/master/item-spec/item-spec.md)
-next to its Zarr store. `gaia catalog rebuild` collects these Items into a
+next to its Zarr store. `gaia stage` writes both into its output folder, with the
+resolved `stage.yaml` ([stage-file.md](stage-file.md#output-folder)). `gaia catalog rebuild` collects these Items into a
 `catalog.json` that you can open in tools such as
 [stac-browser](https://radiantearth.github.io/stac-browser/). This is the same
 setup the PRISM cache uses.
@@ -10,11 +11,13 @@ setup the PRISM cache uses.
 ```
 s3://gaia/scratch/
   catalog.json            # written by `gaia catalog rebuild -p s3://gaia/scratch`
-  skagit-hrrr.zarr/
-  skagit-hrrr.json        # STAC Item, written by `gaia stage hrrr -o …/skagit-hrrr.zarr`
-  peters-dome/
-    all.zarr/
-    all.json
+  skagit-hrrr/             # written by `gaia stage hrrr -o …/skagit-hrrr`
+    skagit-hrrr.zarr/
+    skagit-hrrr.json      # STAC Item
+    stage.yaml
+  skagit-daily/            # written by `gaia align -o …/skagit-daily`
+    skagit-daily.zarr/
+    skagit-daily.json
 ```
 
 ## The Item
@@ -31,6 +34,7 @@ The Item is built from the store's provenance attributes (see
 | `properties.providers` | Providers from every group, one entry per name |
 | `links` | Every group's `license`, `about`, `via` and `derived_from` links, once each |
 | `assets.data` | `./<name>.zarr`, type `application/vnd+zarr`, with [xarray-assets](https://github.com/stac-extensions/xarray-assets) `xarray:open_kwargs` |
+| `assets.config` | `gaia stage` only: `./stage.yaml`, type `application/yaml`, role `metadata`, the resolved stage file that reproduces the store |
 | `stac_extensions` | Only extensions whose fields are present (their schemas reject an Item that declares an extension without its fields) |
 
 ## Rebuilding the catalog
