@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from gaia_cli import stagefile
+from gaia_cli import stagefile, stations
 
 pytestmark = pytest.mark.online
 
@@ -26,7 +26,8 @@ datasets:
 # Each window is read one day beyond each end (stagefile.PAD)
 def check_synoptic(ds):
     assert ds.sizes["geometry"] > 0
-    assert ds.sizes["time"] >= 72
+    assert int(ds.row_size.sum()) == ds.sizes["obs"]
+    assert stations.to_grid(ds).sizes["time"] >= 72
 
 
 def check_prism(ds):

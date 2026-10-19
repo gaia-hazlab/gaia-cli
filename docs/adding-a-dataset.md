@@ -79,22 +79,19 @@ See `prism.py` and `hrrr.py` for complete reference implementations.
 
 Example: `synoptic.py`.
 
-1. **Fetch station/point data** from the source API and build a tidy
-   per-station `xr.DataArray` indexed by `time`, with `station`,
-   `elevation`, and a `geometry` (shapely `Point`) coordinate per station
-   (see `construct_uniform_datarray`).
-2. **Concatenate stations** along a `station` dimension
-   (`xr.concat(..., dim="station", join="outer")`), so gaps between
-   stations with different coverage become `NaN` rather than raising.
-3. **Implement `load()`** returning that `xr.DataArray`, and **`stage()`**
-   with the same CLI parameter conventions as gridded datasets. A
-   DataArray's `attrs` describe the variable, so provide the source's
-   provenance through a separate `source_attrs(da)` function (see
-   `synoptic.py`). Also write a `to_dataset(da)` that swaps the `station`
-   dim for `geometry`, sets an Xvec geometry index (`crs="EPSG:4326"`),
-   CF-encodes it (`xvec.encode_cf()`) so geometries round-trip through
-   Zarr, and sets `source_attrs(da)` (see `synoptic.to_dataset`). With
-   `KIND = "stations"` the runner calls it before writing.
+1. **Fetch station/point data** from the source API and keep every report:
+   one `pd.DataFrame` per station, indexed by `time`, with a column per
+   variable, plus an `xr.Dataset` of station variables along `station`
+   (ids) with a `geometry` (shapely `Point`) coordinate.
+2. **Build a CF ragged array** with `stations.ragged(stations, reports)`
+   (see `synoptic.construct_ragged` and [stations.md](stations.md)). Don't
+   resample onto a grid; readers use `stations.to_grid`.
+3. **Implement `load()`** returning that `xr.Dataset` with provenance
+   attributes, and **`stage()`** with the same CLI parameter conventions as
+   gridded datasets. Also write a `to_dataset(ds)` that CF-encodes it
+   (`xvec.encode_cf()`, keeping `attrs`) so geometries round-trip through
+   Zarr (see `synoptic.to_dataset`). With `KIND = "stations"` the runner
+   calls it before writing.
 4. Register the command in `cli.py`, same as above.
 
 ## Wiring into stage files
@@ -110,7 +107,7 @@ writing one group per dataset. To add yours:
    and a default. `TIMED` must match whether `load()` takes
    `start_date`/`end_date`; a test checks this for every registered module.
 3. `load()` must return a finished `xr.Dataset` with provenance attrs
-   (station data: the DataArray its `to_dataset` converts).
+   (station data: decoded; the runner calls its `to_dataset`).
 
 Run `pixi run test` after wiring things up, and add a case to
 `tests/test_online.py`.

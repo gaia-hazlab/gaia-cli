@@ -155,5 +155,14 @@ def test_derived_from_keeps_input_run():
 
 def test_synoptic_attrs_never_include_token(monkeypatch):
     monkeypatch.setattr(synoptic, "TOKEN", "secret-token-123")
-    da = _hourly()["p"]
-    assert "secret-token-123" not in json.dumps(synoptic.source_attrs(da))
+    ds = _hourly()
+    assert "secret-token-123" not in json.dumps(synoptic.source_attrs(ds))
+
+
+def test_time_extent_of_station_reports():
+    times = pd.to_datetime(["2025-12-01T00:28", "2025-12-01T03:28"])
+    ds = xr.Dataset({"p": ("obs", [0.0, 1.0])}, coords={"time": ("obs", times)})
+    assert provenance.time_extent(ds) == {
+        "start_datetime": "2025-12-01T00:28:00Z",
+        "end_datetime": "2025-12-01T03:28:00Z",
+    }
