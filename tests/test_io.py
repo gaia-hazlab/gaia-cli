@@ -44,11 +44,11 @@ def test_clip_to_aoi():
     assert clipped.sizes["x"] < da.sizes["x"]
 
 
-def test_save_zarr_roundtrip(tmp_path):
+def test_save_datatree_root_roundtrip(tmp_path):
     ds = xr.Dataset({"precip": (("time",), np.arange(5.0))})
     output_path = tmp_path / "test.zarr"
 
-    io.save_zarr(ds, str(output_path))
+    io.save_datatree(xr.DataTree(ds), str(output_path))
     result = xr.open_zarr(output_path, consolidated=False)
 
     np.testing.assert_array_equal(result["precip"].values, ds["precip"].values)
@@ -74,11 +74,15 @@ def test_check_output_overwrite_ok(tmp_path):
     io.check_output(str(tmp_path / "new.zarr"))
 
 
-def test_save_zarr_overwrite(tmp_path):
+def test_save_datatree_root_overwrite(tmp_path):
     output_path = str(tmp_path / "test.zarr")
-    io.save_zarr(xr.Dataset({"precip": (("time",), np.arange(5.0))}), output_path)
-    io.save_zarr(
-        xr.Dataset({"precip": (("time",), np.zeros(3))}), output_path, overwrite=True
+    io.save_datatree(
+        xr.DataTree(xr.Dataset({"precip": (("time",), np.arange(5.0))})), output_path
+    )
+    io.save_datatree(
+        xr.DataTree(xr.Dataset({"precip": (("time",), np.zeros(3))})),
+        output_path,
+        overwrite=True,
     )
     result = xr.open_zarr(output_path, consolidated=False)
     np.testing.assert_array_equal(result["precip"].values, np.zeros(3))

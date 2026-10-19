@@ -45,8 +45,8 @@ gaia stage --config conus-precip -i aoi.geojson -s 2025-12-01 -e 2025-12-20 -o o
 | `conus-precip` | `synoptic`, `prism`, `hrrr` |
 
 The presets are in [src/gaia_cli/presets/](../src/gaia_cli/presets/). `-s` and `-e`
-are literal UTC bounds for every dataset (a date-only `-e` includes the whole day);
-each dataset's own time convention applies inside them.
+are literal UTC bounds for every dataset (a date-only `-e` includes the whole day),
+read with the same one-day padding as any window.
 
 ## Example
 
@@ -106,6 +106,16 @@ UTC, and offsets (`2025-12-01T00:00-08:00`) are converted.
 | `{start, after}`, `{before, end}` | mixed absolute and relative |
 | `{pre: {...}, post: {...}}` | named sub-windows (for scene-based datasets) |
 | `select: all \| first \| last \| nearest`, `count: N` | which scenes to keep (scene-based datasets) |
+
+Timed datasets are **read one day beyond each end** of their window, so a window
+`2025-12-01/2025-12-20` reads `2025-11-30` through `2025-12-21`. Periods that straddle
+the window's edges, such as PRISM's 12 UTC day, are then complete, and `gaia align`
+has every source step it needs for each period in the window. `--dry-run` shows the
+interval read as `read:`. The coverage check uses the window itself.
+
+A date-only `start` is 00:00 UTC and a date-only `end` includes the whole day. This
+matches how pystac-client expands dates for a STAC API search, which itself only
+accepts full RFC 3339 timestamps.
 
 Durations are a number and a unit (`s`, `min`, `h`, `d`, `w`), such as `17min` or `30d`,
 or ISO 8601 (`PT17M`). Months and years aren't durations; use absolute dates.

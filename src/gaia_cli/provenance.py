@@ -1,7 +1,7 @@
 """Provenance attributes for staged Zarr stores, named after STAC fields.
 
 Each product's ``load()`` sets *source* attributes (``license``, ``providers``,
-``links``, ...) on the Dataset it returns. The ``io.save_*`` functions add
+``links``, ...) on the Dataset it returns. ``io.save_datatree`` adds
 *run* attributes (``created``, ``gaia:cli-version``, ``gaia:command``) to the
 store's root group. See docs/provenance-metadata.md.
 """

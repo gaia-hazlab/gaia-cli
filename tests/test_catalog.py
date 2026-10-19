@@ -33,8 +33,8 @@ def _read(path):
     return json.loads(path.read_text())
 
 
-def test_save_zarr_writes_item_next_to_store(tmp_path):
-    io.save_zarr(_raster(), str(tmp_path / "r.zarr"))
+def test_save_datatree_root_writes_item_next_to_store(tmp_path):
+    io.save_datatree(xr.DataTree(_raster()), str(tmp_path / "r.zarr"))
 
     item = _read(tmp_path / "r.json")
     assert item["id"] == "r"
@@ -66,10 +66,10 @@ def test_tree_item_merges_groups(tmp_path):
 
 
 def test_rebuild_links_live_items_only(tmp_path):
-    io.save_zarr(_raster(), str(tmp_path / "a.zarr"))
+    io.save_datatree(xr.DataTree(_raster()), str(tmp_path / "a.zarr"))
     (tmp_path / "event").mkdir()
-    io.save_zarr(_raster(), str(tmp_path / "event" / "b.zarr"))
-    io.save_zarr(_raster(), str(tmp_path / "gone.zarr"))
+    io.save_datatree(xr.DataTree(_raster()), str(tmp_path / "event" / "b.zarr"))
+    io.save_datatree(xr.DataTree(_raster()), str(tmp_path / "gone.zarr"))
     shutil.rmtree(tmp_path / "gone.zarr")
     (tmp_path / "notes.json").write_text('{"not": "an item"}')
 
@@ -81,7 +81,7 @@ def test_rebuild_links_live_items_only(tmp_path):
 
 
 def test_find_json_skips_zarr_stores(tmp_path):
-    io.save_zarr(_raster(), str(tmp_path / "a.zarr"))
+    io.save_datatree(xr.DataTree(_raster()), str(tmp_path / "a.zarr"))
     assert catalog.find_json(io.object_store(str(tmp_path))) == ["a.json"]
 
 

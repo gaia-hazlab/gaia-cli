@@ -57,7 +57,7 @@ Examples: `prism.py`, `hrrr.py`.
    with `version` if the source has one and
    `provenance.time_extent(ds)`. If the source publishes a STAC collection,
    start from `provenance.from_stac_collection(url)` (see `hrrr.py`);
-   otherwise write them out (see `nlcd.py`). `io.save_*` adds the run
+   otherwise write them out (see `nlcd.py`). `io.save_datatree` adds the run
    attributes (`created`, `gaia:cli-version`, `gaia:command`); see
    [provenance-metadata.md](provenance-metadata.md).
 6. **Implement `load()`** returning the clipped `xr.Dataset`, and

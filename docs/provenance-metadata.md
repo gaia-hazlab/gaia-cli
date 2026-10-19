@@ -13,8 +13,8 @@ The code is in [`provenance.py`](../src/gaia_cli/provenance.py).
 
 There are two kinds of attributes.
 
-- **Run attributes** say who made the store, when, and how. The `io.save_*`
-  functions add them to the root group when they write the store.
+- **Run attributes** say who made the store, when, and how. `io.save_datatree`
+  adds them to the root group when they write the store.
 - **Source attributes** describe one upstream product. Each product's `load()`
   sets them on the Dataset it returns.
 
@@ -29,7 +29,7 @@ There are two kinds of attributes.
 |---|---|
 | `created` | Write time, RFC 3339 UTC (STAC common metadata). |
 | `gaia:cli-version` | Commit SHA of the gaia-cli that wrote the store (see below). |
-| `gaia:command` | The `gaia …` command line. Only present when the CLI wrote the store, not when `io.save_*` is called from Python. |
+| `gaia:command` | The `gaia …` command line. Only present when the CLI wrote the store, not when `io.save_datatree` is called from Python. |
 | `stac_extensions` | Schema URLs for the STAC extensions whose fields appear in the root group (omitted if none). |
 | `gaia:license-note` | Present when the product groups have different licenses. The root then has no `license`. |
 | `gaia:inputs` | `gaia align` only: the run attributes and `href` of each input store, oldest first. |

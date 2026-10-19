@@ -62,9 +62,9 @@ In other words, **precipitation is hour-ending**: the value stamped
 
 To match PRISM day D, which covers (D−1 12:00, D 12:00] UTC (see
 [prism.md](prism.md)), sum the 24 hour-ending HRRR values stamped
-**D−1 13:00 … D 12:00**. `gaia stage` takes every window literally, in UTC,
-so HRRR staged for `2025-12-01/2025-12-20` starts at `2025-12-01T00:00`. When
-aligned against PRISM its first day is incomplete, and `gaia align` sets that
-day to NaN rather than undercounting it. To get a complete first day, start
-the HRRR window 11 h earlier in a stage file, as
-[examples/skagit-2025.yaml](../examples/skagit-2025.yaml) does.
+**D−1 13:00 … D 12:00**. `gaia stage` reads every timed dataset one day
+beyond each end of its window ([stage-file.md](stage-file.md#windows)), so for
+`2025-12-01/2025-12-20` HRRR covers `2025-11-30T00:00` to `2025-12-21T23:00` and
+every PRISM day in the window is complete after `gaia align`. Only the padding
+day before the window is incomplete, and `gaia align` sets it to NaN rather than
+undercounting it.

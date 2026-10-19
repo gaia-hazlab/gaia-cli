@@ -63,6 +63,10 @@ DURATION = re.compile(r"(\d+(?:\.\d+)?)(s|min|h|d|w)")
 SECONDS = {"s": 1, "min": 60, "h": 3600, "d": 86400, "w": 604800}
 DATE_ONLY = re.compile(r"\d{4}-\d{2}-\d{2}")
 AOI_FORMS = ({"bbox"}, {"intersects"}, {"latitude", "longitude", "radius_km"})
+# Timed datasets are read this far beyond each end of their window, so that
+# periods straddling the window's edges (e.g. PRISM's 12 UTC day) are complete
+# when `gaia align` aggregates one product into another's time steps
+PAD = pd.Timedelta(days=1)
 
 
 class StageFileError(ValueError):
@@ -87,6 +91,14 @@ class Window:
     def __str__(self) -> str:
         return "/".join(
             ".." if t is None else t.isoformat() for t in (self.start, self.end)
+        )
+
+    def padded(self) -> Window:
+        """The interval actually read: ``PAD`` beyond each closed end."""
+        return dataclasses.replace(
+            self,
+            start=None if self.start is None else self.start - PAD,
+            end=None if self.end is None else self.end + PAD,
         )
 
 
@@ -477,6 +489,7 @@ def resolved(
             ]
         if req.windows:
             entry["window"] = str(req.windows[0])
+            entry["read"] = str(req.windows[0].padded())
         entry.update({k: plain(v) for k, v in req.options.items()})
         if skipped and req.name in skipped:
             entry["skipped"] = skipped[req.name]
@@ -575,13 +588,17 @@ def run(
         module = DATASETS[req.name]
         kwargs = dict(req.options)
         if req.windows:
-            w = req.windows[0]
+            w = req.windows[0].padded()
             assert w.start is not None and w.end is not None  # checked in load_config
             # load() takes inclusive bounds; the window's end is exclusive
             kwargs["start_date"] = w.start.isoformat()
             kwargs["end_date"] = (w.end - pd.Timedelta(seconds=1)).isoformat()
         log.info(
-            "%s: loading (%s)", req.name, req.windows[0] if req.windows else "static"
+            "%s: loading (%s)",
+            req.name,
+            f"{req.windows[0]}, read as {req.windows[0].padded()}"
+            if req.windows
+            else "static",
         )
         try:
             obj = module.load(aois[_aoi_key(req.aoi)], **kwargs)

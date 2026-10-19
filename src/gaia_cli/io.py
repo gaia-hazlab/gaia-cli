@@ -242,41 +242,6 @@ def _prepare_for_zarr(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
     return ds, {}
 
 
-def save_zarr(ds: xr.Dataset | xr.DataArray, output_path: str, overwrite: bool = False):
-    """Write an xarray Dataset or DataArray to a Zarr store.
-
-    Datasets smaller than 10 MB are loaded into memory (no chunking on
-    disk).  Larger datasets are written with dask chunks as-is.
-
-    Parameters
-    ----------
-    ds : xarray.Dataset or xarray.DataArray
-        The gridded (raster) data to save.
-    output_path : str
-        Filesystem path or ``s3://`` URL.
-    overwrite : bool, optional
-        If True, replace any existing store at *output_path*. Default False.
-    """
-    if isinstance(ds, xr.DataArray):
-        ds = ds.to_dataset(name=ds.name or "data")
-
-    ds, encoding = _prepare_for_zarr(ds)
-    ds.attrs = provenance.stamp(ds.attrs)
-
-    store = _zarr_store_for_path(output_path)
-    log.info("Writing Zarr to %s", output_path)
-    ds.to_zarr(
-        store,
-        mode="w" if overwrite else "w-",
-        zarr_format=3,
-        consolidated=True,
-        write_empty_chunks=True,
-        encoding=encoding,
-    )
-    log.info("Saved %s", output_path)
-    _write_item(output_path, xr.DataTree(ds))
-
-
 def save_datatree(
     dt: xr.DataTree, output_path: str, overwrite: bool = False, append: bool = False
 ):

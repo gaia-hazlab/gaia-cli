@@ -211,6 +211,7 @@ def test_dry_run_prints_resolved_config(tmp_path, capsys):
     stagefile.stage(config=write(tmp_path, PETERS), dry_run=True)
     out = capsys.readouterr().out
     assert "window: 2023-09-13T20:06:49/2023-09-15T02:06:49" in out
+    assert "read: 2023-09-12T20:06:49/2023-09-16T02:06:49" in out
     assert "variable: temperature_2m" in out
     assert "aoi_bbox: [-152.2, 62.75, -150.2, 63.55]" in out
     # Peters Dome is in Alaska, outside the CONUS-only datasets
@@ -246,9 +247,9 @@ def test_run_writes_one_group_per_dataset(tmp_path, monkeypatch):
     out = tmp_path / "out.zarr"
     stagefile.stage(config=write(tmp_path, text), output_path=str(out))
 
-    # The window's exclusive end becomes load()'s inclusive end
+    # Read a day beyond each end; the exclusive end becomes load()'s inclusive end
     assert calls == [
-        ("prism", "2023-06-01T00:00:00", "2023-09-21T23:59:59", ("ppt", "tmax"))
+        ("prism", "2023-05-31T00:00:00", "2023-09-22T23:59:59", ("ppt", "tmax"))
     ]
     tree = xr.open_datatree(out, engine="zarr")
     assert tree.attrs["title"] == "Bolt Creek"
@@ -445,6 +446,6 @@ def test_flags_run_through_the_same_runner(tmp_path, monkeypatch):
         ],
         result_action="return_value",
     )
-    assert calls == [("prism", "2025-12-01T00:00:00", "2025-12-20T23:59:59", ("tmax",))]
+    assert calls == [("prism", "2025-11-30T00:00:00", "2025-12-21T23:59:59", ("tmax",))]
     tree = xr.open_datatree(out, engine="zarr")
     assert tree["rasters/prism"].attrs["title"] == "prism"

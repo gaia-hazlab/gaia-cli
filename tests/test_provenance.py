@@ -106,12 +106,12 @@ def test_hrrr_source_attrs_prefer_store_version(monkeypatch):
     assert rels["via"] == "s3://bucket/prefix/"
 
 
-def test_save_zarr_writes_run_and_source_attrs(tmp_path):
+def test_save_datatree_root_writes_run_and_source_attrs(tmp_path):
     ds = _hourly()
     ds.attrs = nlcd.source_attrs(2021)
     path = str(tmp_path / "t.zarr")
 
-    io.save_zarr(ds, path)
+    io.save_datatree(xr.DataTree(ds), path)
     attrs = xr.open_zarr(path).attrs
 
     assert attrs["gaia:cli-version"] == provenance.cli_version()
