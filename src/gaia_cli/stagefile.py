@@ -1,6 +1,8 @@
-"""``gaia stage --config`` – stage several datasets described by one ``stage.yaml``.
+"""``gaia stage`` – stage several datasets described by one ``stage.yaml``.
 
-See docs/stage-file.md for the file format.
+Every run goes through :func:`execute`: a stage file, a built-in preset filled
+in with ``-i``/``-s``/``-e``, or a single dataset's flags (``gaia stage prism``),
+which build the same configuration. See docs/stage-file.md for the file format.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import sys
 import typing
 from enum import Enum
 from pathlib import Path
+from types import ModuleType
 from typing import Annotated, Any
 
 import geopandas as gpd
@@ -41,13 +44,17 @@ TOP_KEYS = (
     "output",
     "datasets",
 )
-# name -> (load function, group prefix in the output store)
-DATASETS: dict[str, tuple[typing.Callable, str]] = {
-    "synoptic": (synoptic.load, "stations"),
-    "prism": (prism.load, "rasters"),
-    "hrrr": (hrrr.load, "rasters"),
-    "nlcd": (nlcd.load, "rasters"),
+# Each module has load(), EXTENT (a STAC Collection extent), KIND and TIMED
+DATASETS: dict[str, ModuleType] = {
+    "synoptic": synoptic,
+    "prism": prism,
+    "hrrr": hrrr,
+    "nlcd": nlcd,
 }
+# KIND -> group prefix in the output store
+GROUPS = {"raster": "rasters", "stations": "stations"}
+# Built-in stage files without AOIs or windows, used as --config NAME -i -s -e
+PRESETS = Path(__file__).parent / "presets"
 WINDOW_ARGS = ("start_date", "end_date")
 WINDOW_KEYS = ("start", "end", "before", "after", "select", "count")
 NAMED_WINDOWS = ("pre", "post")
@@ -288,7 +295,9 @@ def coerce(value, hint):
     kinds = [typing.get_origin(h) for h in (hint, *typing.get_args(hint))]
     if list in kinds or tuple in kinds:
         items = [value] if isinstance(value, str) else value
-        if not (isinstance(items, list) and all(isinstance(v, str) for v in items)):
+        if not (
+            isinstance(items, (list, tuple)) and all(isinstance(v, str) for v in items)
+        ):
             raise ValueError(f"{value!r} is not a list of strings")
         return tuple(items)
     if hint in (int, str) and (not isinstance(value, hint) or isinstance(value, bool)):
@@ -299,16 +308,30 @@ def coerce(value, hint):
 # ---- loading a file ----------------------------------------------------------
 
 
-def load_config(path: str) -> StageConfig:
-    """Read and validate a stage file; raise :class:`StageFileError` listing
-    every problem found. No network calls are made."""
+def presets() -> list[str]:
+    return sorted(p.stem for p in PRESETS.glob("*.yaml"))
+
+
+def read_config(path: str) -> dict:
+    """The YAML document in *path*; raise :class:`StageFileError` if unreadable."""
     try:
         doc = yaml.safe_load(Path(path).read_text())
     except (OSError, yaml.YAMLError) as e:
         raise StageFileError(path, [str(e)]) from None
     if not isinstance(doc, dict):
         raise StageFileError(path, ["the file must be a mapping of keys to values"])
-    base_dir = Path(path).resolve().parent
+    return doc
+
+
+def load_config(path: str) -> StageConfig:
+    """Read and validate a stage file; raise :class:`StageFileError` listing
+    every problem found. No network calls are made."""
+    return parse_config(read_config(path), path, Path(path).resolve().parent)
+
+
+def parse_config(doc: dict, path: str, base_dir: Path) -> StageConfig:
+    """Validate a stage file's contents; relative AOI paths resolve against
+    *base_dir*, and *path* names the source in errors."""
     problems = _unknown(doc, TOP_KEYS, "key")
 
     def check(where: str, fn, *args):
@@ -368,9 +391,9 @@ def load_config(path: str) -> StageConfig:
         if not isinstance(entry, dict):
             problems.append(f"{ds_name}: must be a mapping of options")
             continue
-        load, _ = DATASETS[ds_name]
-        opts = options(load)
-        timed = all(a in inspect.signature(load).parameters for a in WINDOW_ARGS)
+        module = DATASETS[ds_name]
+        opts = options(module.load)
+        timed = module.TIMED
         keys = [k for k in entry if k != "window"]
         problems += [
             f"{ds_name}: {p}"
@@ -418,23 +441,26 @@ def load_config(path: str) -> StageConfig:
 
     if problems:
         raise StageFileError(path, problems)
+    assert isinstance(name, str)  # checked above
     return StageConfig(name, output, time, origin, attrs, requests)
+
+
+def plain(v):
+    """An option value as YAML data."""
+    if isinstance(v, Enum):
+        return v.value
+    if isinstance(v, tuple):
+        return list(v)
+    return v
 
 
 def resolved(
     cfg: StageConfig,
     output: str | None,
     aois: dict[str, gpd.GeoDataFrame] | None = None,
+    skipped: dict[str, str] | None = None,
 ) -> dict:
     """The configuration after defaults and AOIs are resolved, as plain YAML data."""
-
-    def plain(v):
-        if isinstance(v, Enum):
-            return v.value
-        if isinstance(v, tuple):
-            return list(v)
-        return v
-
     out: dict[str, Any] = {"name": cfg.name, "output": output}
     if cfg.time is not None:
         out["time"] = cfg.time.isoformat()
@@ -452,12 +478,14 @@ def resolved(
         if req.windows:
             entry["window"] = str(req.windows[0])
         entry.update({k: plain(v) for k, v in req.options.items()})
+        if skipped and req.name in skipped:
+            entry["skipped"] = skipped[req.name]
         out["datasets"][req.name] = entry
     return out
 
 
 def group(req: Request) -> str:
-    return f"{DATASETS[req.name][1]}/{req.name}"
+    return f"{GROUPS[DATASETS[req.name].KIND]}/{req.name}"
 
 
 def _aoi_key(spec: str | dict) -> str:
@@ -480,17 +508,53 @@ def load_aois(cfg: StageConfig, path: str) -> dict[str, gpd.GeoDataFrame]:
     return aois
 
 
+# ---- coverage ------------------------------------------------------------------
+
+
+def _split_antimeridian(b: list) -> list[list]:
+    """*b* as one or two bboxes with west <= east."""
+    if b[0] <= b[2]:
+        return [b]
+    return [[b[0], b[1], 180.0, b[3]], [-180.0, b[1], b[2], b[3]]]
+
+
+def _intersects(a, b) -> bool:
+    return a[0] <= b[2] and a[2] >= b[0] and a[1] <= b[3] and a[3] >= b[1]
+
+
+def _utc(value: str | None) -> pd.Timestamp | None:
+    return None if value is None else parse_time(value)
+
+
+def outside_extent(req: Request, aoi: gpd.GeoDataFrame) -> str | None:
+    """Why *req* misses its dataset's ``EXTENT``, or None if it may have data.
+
+    A coarse check: the AOI's bounds against the extent's bboxes (the
+    sub-regions after the first, when there are any), and each window
+    against the temporal intervals.
+    """
+    extent = DATASETS[req.name].EXTENT
+    bboxes = extent["spatial"]["bbox"]
+    aoi_bbox = [round(float(v), 4) for v in aoi.to_crs("EPSG:4326").total_bounds]
+    regions = [p for b in bboxes[1:] or bboxes[:1] for p in _split_antimeridian(b)]
+    if not any(_intersects(aoi_bbox, r) for r in regions):
+        return f"AOI {aoi_bbox} is outside the dataset's extent {bboxes[0]}"
+    intervals = [(_utc(s), _utc(e)) for s, e in extent["temporal"]["interval"]]
+    for w in req.windows:
+        if not any(
+            (w.start is None or e is None or w.start <= e)
+            and (w.end is None or s is None or w.end > s)
+            for s, e in intervals
+        ):
+            spans = ", ".join(
+                f"{'..' if s is None else s.isoformat()}/{'..' if e is None else e.isoformat()}"
+                for s, e in intervals
+            )
+            return f"window {w} is outside the dataset's time extent {spans}"
+    return None
+
+
 # ---- running -----------------------------------------------------------------
-
-
-def _as_dataset(req: Request, obj) -> xr.Dataset:
-    if req.name == "synoptic":
-        return synoptic.to_dataset(obj)
-    if req.name == "nlcd":
-        ds = obj.to_dataset()
-        ds.attrs = nlcd.source_attrs(req.options["year"])
-        return ds
-    return obj
 
 
 def run(
@@ -498,11 +562,17 @@ def run(
     aois: dict[str, gpd.GeoDataFrame],
     output: str,
     overwrite: bool = False,
-):
-    """Load every requested dataset and write them as groups of one store."""
-    nodes = {}
+    append: bool = False,
+) -> dict[str, str]:
+    """Load every requested dataset and write them as groups of one store.
+
+    A dataset that fails doesn't stop the others; returns ``{name: error}``
+    for the ones that failed. With *append*, the groups are added to the
+    existing store.
+    """
+    nodes, failures = {}, {}
     for req in cfg.requests:
-        load, _ = DATASETS[req.name]
+        module = DATASETS[req.name]
         kwargs = dict(req.options)
         if req.windows:
             w = req.windows[0]
@@ -513,70 +583,247 @@ def run(
         log.info(
             "%s: loading (%s)", req.name, req.windows[0] if req.windows else "static"
         )
-        nodes[group(req)] = _as_dataset(req, load(aois[_aoi_key(req.aoi)], **kwargs))
+        try:
+            obj = module.load(aois[_aoi_key(req.aoi)], **kwargs)
+            # Station data is xvec CF-encoded for the store
+            nodes[group(req)] = (
+                module.to_dataset(obj) if module.KIND == "stations" else obj
+            )
+        except Exception as e:
+            log.error("%s: failed: %s", req.name, e)
+            log.debug("%s: traceback", req.name, exc_info=True)
+            failures[req.name] = f"{type(e).__name__}: {e}"
 
-    tree = xr.DataTree.from_dict(nodes)
-    tree.attrs = dict(cfg.attrs)
-    io.save_datatree(tree, output, overwrite=overwrite)
-    # Close cached remote GDAL handles before interpreter shutdown (see nlcd.stage)
+    if nodes:
+        tree = xr.DataTree.from_dict(nodes)
+        tree.attrs = dict(cfg.attrs)
+        io.save_datatree(tree, output, overwrite=overwrite, append=append)
+    # Close cached remote GDAL handles before interpreter shutdown, where their
+    # cleanup can crash sys.excepthook on Python 3.14
     FILE_CACHE.clear()
+    return failures
+
+
+def execute(
+    cfg: StageConfig,
+    path: str,
+    output: str | None,
+    only: str | None = None,
+    dry_run: bool = False,
+    overwrite: bool = False,
+    skip_existing: bool = False,
+):
+    """Check *cfg* (from *path*) and stage it: the one code path for every run.
+
+    Exits with an error listing every problem, or every failed dataset.
+    """
+    try:
+        problems = []
+        if only is not None:
+            names = [n.strip() for n in only.split(",") if n.strip()]
+            listed = [r.name for r in cfg.requests]
+            problems += [
+                f"--only: {p}" for p in _unknown(names, listed, "dataset in the file")
+            ]
+            cfg.requests = [r for r in cfg.requests if r.name in names]
+        if output is None and not dry_run:
+            problems.append("output: required, here or with -o")
+        if overwrite and skip_existing:
+            problems.append("--overwrite and --skip-existing can't be combined")
+        if problems:
+            raise StageFileError(path, problems)
+        aois = load_aois(cfg, path)
+    except StageFileError as e:
+        sys.exit(f"Error: {e}")
+
+    skipped = {
+        req.name: reason
+        for req in cfg.requests
+        if (reason := outside_extent(req, aois[_aoi_key(req.aoi)]))
+    }
+    if dry_run:
+        print(
+            yaml.safe_dump(
+                resolved(cfg, output, aois, skipped),
+                sort_keys=False,
+                default_flow_style=None,
+            ),
+            end="",
+        )
+        return
+    assert output is not None
+    for name, reason in skipped.items():
+        log.warning("%s: skipped, %s", name, reason)
+    requests = [r for r in cfg.requests if r.name not in skipped]
+    if not requests:
+        reasons = "; ".join(f"{n}: {r}" for n, r in skipped.items())
+        sys.exit(f"Error: nothing to stage ({reasons})")
+
+    append = skip_existing and io.output_exists(output)
+    if append:
+        existing = io.groups(output)
+        for req in requests:
+            if group(req) in existing:
+                log.info("%s: skipped, %s already exists", req.name, group(req))
+        requests = [r for r in requests if group(r) not in existing]
+        if not requests:
+            log.info("Done: every group already exists")
+            return
+    else:
+        io.check_output(output, overwrite)
+    failures = run(
+        dataclasses.replace(cfg, requests=requests),
+        aois,
+        output,
+        overwrite=overwrite,
+        append=append,
+    )
+    if failures:
+        lines = "\n".join(f"  - {n}: {e}" for n, e in failures.items())
+        written = len(requests) - len(failures)
+        hint = " Rerun with --skip-existing to retry them." if written else ""
+        sys.exit(
+            f"Error: {len(failures)} of {len(requests)} dataset(s) failed; "
+            f"{written} written to {output}.{hint}\n{lines}"
+        )
+    log.info("Done")
 
 
 def stage(
     # Collects any other tokens, so data flags get a clear error, not "Unknown option"
     *flags: Annotated[str, Parameter(allow_leading_hyphen=True, show=False)],
     config: Annotated[str, Parameter(name=["--config", "-c"])],
+    vectorPath: Annotated[str | None, Parameter(name=["--input", "-i"])] = None,
+    start_date: Annotated[str | None, Parameter(name=["--start", "-s"])] = None,
+    end_date: Annotated[str | None, Parameter(name=["--end", "-e"])] = None,
     output_path: Annotated[str | None, Parameter(name=["--output", "-o"])] = None,
+    only: Annotated[str | None, Parameter(name=["--only"])] = None,
     dry_run: Annotated[bool, Parameter(name=["--dry-run"], negative="")] = False,
     overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
+    skip_existing: Annotated[
+        bool, Parameter(name=["--skip-existing"], negative="")
+    ] = False,
 ):
-    """Stage every dataset in a stage file into one store.
+    """Stage every dataset in a stage file, or a built-in preset, into one store.
 
     The file gives the AOIs, time windows and options for each dataset (see
     docs/stage-file.md). It replaces ``-i``, ``-s``, ``-e`` and dataset
-    options, which can't be combined with it.
+    options, which can't be combined with it. A preset (``conus-precip``) is
+    a built-in file without an AOI or window: give those with ``-i``, ``-s``
+    and ``-e``.
+
+    Datasets whose extent the AOI or window misses are skipped with a
+    warning. A dataset that fails doesn't stop the others; every failure is
+    reported at the end.
 
     Parameters
     ----------
     config : str
-        Path to a ``stage.yaml`` file.
+        Path to a ``stage.yaml`` file, or the name of a preset.
+    vectorPath : str
+        With a preset only: path to a vector file defining the AOI.
+    start_date : str
+        With a preset only: start (inclusive), a date or UTC time.
+    end_date : str
+        With a preset only: end; a date includes the whole day.
     output_path : str
         Path to write the Zarr store. Default: the file's ``output``.
+    only : str
+        Comma-separated datasets from the file to stage, e.g. ``prism,hrrr``.
     dry_run : bool
-        Validate the file, read the AOIs and print the resolved configuration
-        without fetching any data.
+        Validate the file, read the AOIs and print the resolved configuration,
+        including datasets skipped for coverage, without fetching any data.
     overwrite : bool
         Replace the output store if it already exists. Default False.
+    skip_existing : bool
+        Add to an existing store, skipping datasets whose group it already
+        has. Use it to retry the datasets that failed. Default False.
 
     Examples
     --------
     Check, then stage, the Skagit Basin December 2025 atmospheric river:
         $ gaia stage --config examples/skagit-2025.yaml --dry-run
         $ gaia stage --config examples/skagit-2025.yaml -o skagit.zarr
+
+    Station, PRISM and HRRR precipitation for any CONUS AOI:
+        $ AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
+        $ gaia stage --config conus-precip -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit.zarr
     """
-    if flags:
+    preset = PRESETS / f"{config}.yaml"
+    is_preset = config in presets() and not Path(config).exists()
+    data_flags = [
+        f
+        for f, v in (("-i", vectorPath), ("-s", start_date), ("-e", end_date))
+        if v is not None
+    ]
+    if flags or (data_flags and not is_preset):
         sys.exit(
-            f"Error: --config can't be combined with {' '.join(flags)}; "
+            f"Error: --config can't be combined with {' '.join([*data_flags, *flags])}; "
             f"set the AOI, window and options in {config} instead"
         )
     try:
-        cfg = load_config(config)
-        output = output_path or cfg.output
-        if output is None and not dry_run:
-            raise StageFileError(config, ["output: required, here or with -o"])
-        aois = load_aois(cfg, config)
+        if is_preset:
+            if vectorPath is None:
+                raise StageFileError(
+                    config, ["the preset has no AOI; give one with -i (and -s, -e)"]
+                )
+            doc = read_config(str(preset))
+            doc["aoi"] = vectorPath
+            window = {"start": start_date, "end": end_date}
+            if any(window.values()):
+                doc["window"] = {k: v for k, v in window.items() if v is not None}
+            cfg = parse_config(doc, config, Path.cwd())
+        elif not Path(config).exists():
+            raise StageFileError(
+                config,
+                [f"file not found, and not a preset ({', '.join(presets())})"],
+            )
+        else:
+            cfg = load_config(config)
     except StageFileError as e:
         sys.exit(f"Error: {e}")
+    execute(
+        cfg,
+        config,
+        output_path or cfg.output,
+        only=only,
+        dry_run=dry_run,
+        overwrite=overwrite,
+        skip_existing=skip_existing,
+    )
 
-    if dry_run:
-        print(
-            yaml.safe_dump(
-                resolved(cfg, output, aois), sort_keys=False, default_flow_style=None
-            ),
-            end="",
-        )
-        return
-    assert output is not None
-    io.check_output(output, overwrite)
-    run(cfg, aois, output, overwrite=overwrite)
-    log.info("Done")
+
+def stage_dataset(
+    name: str,
+    vectorPath: str,
+    start_date: str | None,
+    end_date: str | None,
+    output_path: str,
+    dry_run: bool = False,
+    overwrite: bool = False,
+    skip_existing: bool = False,
+    **options,
+):
+    """Stage one dataset from its CLI flags (``gaia stage prism -i … -s …``).
+
+    Builds the stage file the flags describe and runs it like any other.
+    """
+    doc: dict[str, Any] = {
+        "name": name,
+        "aoi": vectorPath,
+        "datasets": {name: {k: plain(v) for k, v in options.items()}},
+    }
+    if DATASETS[name].TIMED:
+        doc["window"] = {"start": start_date, "end": end_date}
+    try:
+        cfg = parse_config(doc, f"gaia stage {name}", Path.cwd())
+    except StageFileError as e:
+        sys.exit(f"Error: {e}")
+    execute(
+        cfg,
+        f"gaia stage {name}",
+        output_path,
+        dry_run=dry_run,
+        overwrite=overwrite,
+        skip_existing=skip_existing,
+    )

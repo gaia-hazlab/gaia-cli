@@ -20,8 +20,7 @@ There are two kinds of attributes.
 
 | Store | Root group | Product groups |
 |---|---|---|
-| `gaia stage <product>` | run + source attributes | n/a (single group) |
-| `gaia stage all` | run attributes, plus `gaia:license-note` | source attributes on `rasters/hrrr`, `rasters/prism`, `stations/synoptic` |
+| `gaia stage <product>`, `gaia stage --config` | run attributes, plus `gaia:license-note` when the groups' licenses differ | source attributes on each group (`rasters/hrrr`, `rasters/prism`, `stations/synoptic`, …) |
 | `gaia align` | new run attributes; the input's run moves to `gaia:inputs` | carried through; time extent updated after aggregation |
 
 ## Run attributes (root)

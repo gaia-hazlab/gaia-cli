@@ -105,7 +105,9 @@ gaia stage prism -i aoi.geojson -s 2025-12-01 -e 2025-12-20 -o out/   # flags on
   repeatable with `gaia stage --config <output>/stage.yaml`, and there is one code path.
 - `gaia stage all` is replaced by `gaia stage --config` with a built-in `conus-precip`
   preset that lists synoptic, prism and hrrr. No alias is kept
-  ([design goal 3](README.md#design-goals)).
+  ([design goal 3](README.md#design-goals)). A preset has no AOI or window, so it is
+  the one exception to exclusivity: `gaia stage --config conus-precip -i … -s … -e …`.
+  The flags fill what the preset leaves out, so there is still nothing to merge.
 - Runs continue past a failed dataset, report every failure at the end, and skip groups
   that already exist (`--skip-existing`). This matches `stage_all.sh`.
 - `--dry-run` prints the resolved AOI, window and options for every dataset, plus the

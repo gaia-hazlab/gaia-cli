@@ -13,6 +13,7 @@ import obstore
 import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
 import xvec  # noqa: F401  registers the .xvec accessor
+import zarr
 from obstore.auth.boto3 import Boto3CredentialProvider
 from obstore.store import LocalStore, from_url
 from zarr.storage import ObjectStore
@@ -276,7 +277,9 @@ def save_zarr(ds: xr.Dataset | xr.DataArray, output_path: str, overwrite: bool =
     _write_item(output_path, xr.DataTree(ds))
 
 
-def save_datatree(dt: xr.DataTree, output_path: str, overwrite: bool = False):
+def save_datatree(
+    dt: xr.DataTree, output_path: str, overwrite: bool = False, append: bool = False
+):
     """Write an :class:`xarray.DataTree` to a Zarr store.
 
     Each leaf node in the tree that is small enough (≤ 10 MB) is loaded
@@ -290,6 +293,10 @@ def save_datatree(dt: xr.DataTree, output_path: str, overwrite: bool = False):
         Filesystem path or ``s3://`` URL.
     overwrite : bool, optional
         If True, replace any existing store at *output_path*. Default False.
+    append : bool, optional
+        If True, add *dt*'s groups to the existing store at *output_path*,
+        keeping its other groups; the root attributes and STAC Item then
+        describe the whole store. Default False.
     """
     # Walk the tree and prepare each leaf node
     nodes: dict[str, xr.Dataset] = {}
@@ -310,14 +317,26 @@ def save_datatree(dt: xr.DataTree, output_path: str, overwrite: bool = False):
     log.info("Writing Zarr to %s", output_path)
     prepared.to_zarr(
         store,
-        mode="w" if overwrite else "w-",
+        mode="a" if append else "w" if overwrite else "w-",
         zarr_format=3,
         consolidated=True,
         write_empty_chunks=True,
         encoding=encoding or None,
     )
+    if append:
+        # The root attributes written above describe only the new groups
+        prepared = open_datatree(output_path)
+        prepared.attrs = provenance.stamp_tree(prepared)
+        root = zarr.open_group(store, mode="r+", zarr_format=3)
+        root.attrs.put({str(k): v for k, v in prepared.attrs.items()})
+        zarr.consolidate_metadata(store)
     log.info("Saved %s", output_path)
     _write_item(output_path, prepared)
+
+
+def groups(path: str) -> set[str]:
+    """Paths of the groups in the store at *path*, without a leading ``/``."""
+    return {g.lstrip("/") for g in open_datatree(path).groups if g != "/"}
 
 
 def open_datatree(input_path: str) -> xr.DataTree:

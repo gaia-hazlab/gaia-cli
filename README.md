@@ -25,7 +25,6 @@ Usage: gaia stage COMMAND
 Stage datasets clipped to an AOI and time range.
 
 ╭─ Commands ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ all       Stage all precipitation products clipped to an AOI as a single DataTree.                                                                                            │
 │ hrrr      Stage HRRR analysis data clipped to an AOI. The HRRR precipitation rate (kg m-2 s-1) is converted to hourly accumulation (mm).  Requires AWS_PROFILE environment    │
 │           variable if writing to S3.                                                                                                                                          │
 │ prism     Stage PRISM daily precipitation clipped to an AOI.                                                                                                                  │
@@ -55,8 +54,10 @@ Stage in-situ precipitation from the Synoptic API. Precipitation timeseries is r
 Example workflow (Skagit Basin 2025-12 Atmospheric River Event)
 ```bash
 AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
-gaia stage all -i $AOI -s 2025-12-01 -e 2025-12-20 -o /tmp/skagit-test.zarr
+gaia stage --config conus-precip -i $AOI -s 2025-12-01 -e 2025-12-20 -o /tmp/skagit-test.zarr
 ```
+
+`conus-precip` is a built-in preset: Synoptic stations, PRISM and HRRR precipitation. Every dataset declares its coverage, so datasets that the AOI or window misses (for example PRISM and HRRR in Alaska) are skipped with a warning. A dataset that fails doesn't stop the others; rerun with `--skip-existing` to retry only the missing groups.
 
 `stage` keeps every raster on its native grid and time step. To compare products, align them onto one grid (default: the coarsest, HRRR 3 km) and one time step (default: the coarsest, PRISM days) in a new store. See [docs/reprojecting.md](docs/reprojecting.md):
 ```bash
@@ -67,6 +68,7 @@ Example stage file: one YAML file gives the AOIs, time windows and options for s
 ```bash
 gaia stage --config examples/skagit-2025.yaml --dry-run
 gaia stage --config examples/skagit-2025.yaml -o /tmp/skagit-config.zarr
+gaia stage --config examples/skagit-2025.yaml -o /tmp/skagit-config.zarr --only prism,hrrr
 ```
 
 Example static landcover staging (NLCD 2021)

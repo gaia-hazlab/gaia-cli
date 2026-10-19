@@ -240,7 +240,7 @@ def stac_item(tree: xr.DataTree, store_name: str) -> dict:
     """A STAC Item for the store *store_name*, written next to it.
 
     Properties are the root attributes; when the groups hold the provenance
-    (``gaia stage all``), their time ranges, providers and links are merged,
+    (``gaia stage``), their time ranges, providers and links are merged,
     and a single shared ``license`` is lifted to the Item.
     """
     groups = [node.attrs for node in tree.subtree]

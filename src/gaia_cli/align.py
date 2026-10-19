@@ -276,7 +276,7 @@ def run(
     Examples
     --------
     Daily totals on the HRRR 3 km grid:
-        $ gaia stage all -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit_native.zarr
+        $ gaia stage --config conus-precip -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit_native.zarr
         $ gaia align -i skagit_native.zarr -o skagit_daily_3km.zarr --aoi $AOI
     """
     if (crs is None) != (res is None):

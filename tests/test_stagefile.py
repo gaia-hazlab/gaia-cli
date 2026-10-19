@@ -1,9 +1,11 @@
+import inspect
+
 import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
 
-from gaia_cli import stagefile
+from gaia_cli import hrrr, prism, stagefile
 from gaia_cli.cli import stage_app
 from gaia_cli.hrrr import HRRRVariable
 
@@ -199,8 +201,10 @@ def test_current_datasets_take_one_closed_window(tmp_path, window, message):
 
 
 def test_data_flags_are_rejected_with_config(tmp_path):
-    with pytest.raises(SystemExit, match="can't be combined with -s 2023-09-14"):
+    with pytest.raises(SystemExit, match="can't be combined with -s"):
         stage_app(["--config", write(tmp_path, PETERS), "-s", "2023-09-14"])
+    with pytest.raises(SystemExit, match="can't be combined with --variables"):
+        stage_app(["--config", write(tmp_path, PETERS), "--variables", "ppt"])
 
 
 def test_dry_run_prints_resolved_config(tmp_path, capsys):
@@ -209,28 +213,238 @@ def test_dry_run_prints_resolved_config(tmp_path, capsys):
     assert "window: 2023-09-13T20:06:49/2023-09-15T02:06:49" in out
     assert "variable: temperature_2m" in out
     assert "aoi_bbox: [-152.2, 62.75, -150.2, 63.55]" in out
+    # Peters Dome is in Alaska, outside the CONUS-only datasets
+    assert "skipped: AOI [-152.2, 62.75, -150.2, 63.55] is outside" in out
+
+
+# Around Bolt Creek, WA: inside every current dataset's extent
+CONUS = """
+name: bolt-creek
+attrs: {title: Bolt Creek}
+aoi: {bbox: [-121.6, 47.6, -121.0, 47.9]}
+window: 2023-06-01/2023-09-21
+datasets:
+"""
+
+
+def fake_load(name, calls, fail=False):
+    """A load() for *name* that records its arguments in *calls*."""
+
+    def load(aoi, start_date, end_date, variables: tuple[str, ...] = ("ppt",)):
+        calls.append((name, start_date, end_date, variables))
+        if fail:
+            raise RuntimeError(f"{name} is down")
+        return xr.Dataset({"v": ("time", [1.0])}, attrs={"title": name})
+
+    return load
 
 
 def test_run_writes_one_group_per_dataset(tmp_path, monkeypatch):
-    calls = {}
-
-    def fake_prism(aoi, start_date, end_date, variables: tuple[str, ...] = ("ppt",)):
-        calls["prism"] = (start_date, end_date, variables)
-        return xr.Dataset({"precipitation": ("time", [1.0])}, attrs={"title": "PRISM"})
-
-    monkeypatch.setitem(stagefile.DATASETS, "prism", (fake_prism, "rasters"))
-    text = (
-        PETERS.split("datasets:")[0] + "datasets:\n  prism: {variables: [ppt, tmax]}\n"
-    )
+    calls = []
+    monkeypatch.setattr(prism, "load", fake_load("prism", calls))
+    text = CONUS + "  prism: {variables: [ppt, tmax]}\n"
     out = tmp_path / "out.zarr"
     stagefile.stage(config=write(tmp_path, text), output_path=str(out))
 
     # The window's exclusive end becomes load()'s inclusive end
-    assert calls["prism"] == (
-        "2023-06-01T00:00:00",
-        "2023-09-21T23:59:59",
-        ("ppt", "tmax"),
-    )
+    assert calls == [
+        ("prism", "2023-06-01T00:00:00", "2023-09-21T23:59:59", ("ppt", "tmax"))
+    ]
     tree = xr.open_datatree(out, engine="zarr")
-    assert tree.attrs["title"] == "Peters Dome"
-    assert tree["rasters/prism"].attrs["title"] == "PRISM"
+    assert tree.attrs["title"] == "Bolt Creek"
+    assert tree["rasters/prism"].attrs["title"] == "prism"
+
+
+# ---- registry and extent -----------------------------------------------------
+
+
+@pytest.mark.parametrize("name", list(stagefile.DATASETS))
+def test_registered_modules_declare_kind_timed_and_extent(name):
+    module = stagefile.DATASETS[name]
+    assert module.KIND in stagefile.GROUPS
+    params = inspect.signature(module.load).parameters
+    assert module.TIMED == all(a in params for a in stagefile.WINDOW_ARGS)
+    (overall, *_) = module.EXTENT["spatial"]["bbox"]
+    assert len(overall) == 4
+    for start, end in module.EXTENT["temporal"]["interval"]:
+        for t in (start, end):
+            assert t is None or stagefile.parse_time(t)
+
+
+def request(name, bbox, window="2023-06-01/2023-09-21"):
+    aoi = {"bbox": bbox}
+    return stagefile.Request(name, aoi, stagefile.parse_window(window, None), {})
+
+
+def test_outside_extent_checks_bbox_and_window():
+    aoi = stagefile.load_aoi
+    bolt, peters = [-121.6, 47.6, -121.0, 47.9], [-152.2, 62.75, -150.2, 63.55]
+    assert stagefile.outside_extent(request("prism", bolt), aoi({"bbox": bolt})) is None
+    reason = stagefile.outside_extent(request("prism", peters), aoi({"bbox": peters}))
+    assert reason is not None and "outside the dataset's extent" in reason
+    assert (
+        stagefile.outside_extent(request("synoptic", peters), aoi({"bbox": peters}))
+        is None
+    )
+    early = request("hrrr", bolt, "2010-01-01/2010-01-31")
+    reason = stagefile.outside_extent(early, aoi({"bbox": bolt}))
+    assert reason is not None and "time extent 2014-10-01T00:00:00/.." in reason
+
+
+def test_outside_extent_handles_antimeridian_and_sub_regions(monkeypatch):
+    # An Aleutians-to-Alaska bbox crossing the antimeridian, plus two sub-regions
+    extent = {
+        "spatial": {
+            "bbox": [
+                [170.0, 50.0, -130.0, 72.0],
+                [170.0, 50.0, -170.0, 56.0],
+                [-160.0, 58.0, -140.0, 70.0],
+            ]
+        },
+        "temporal": {"interval": [[None, None]]},
+    }
+    monkeypatch.setattr(prism, "EXTENT", extent)
+    for bbox, inside in [
+        ([175.0, 51.0, 176.0, 52.0], True),  # west of the antimeridian
+        ([-151.0, 63.0, -150.0, 64.0], True),  # in the second sub-region
+        ([-165.0, 59.0, -164.0, 60.0], False),  # in the overall bbox only
+        ([-121.6, 47.6, -121.0, 47.9], False),
+    ]:
+        gdf = stagefile.load_aoi({"bbox": bbox})
+        assert (stagefile.outside_extent(request("prism", bbox), gdf) is None) == inside
+
+
+def test_datasets_outside_their_extent_are_skipped(tmp_path, monkeypatch, caplog):
+    calls = []
+    monkeypatch.setattr(prism, "load", fake_load("prism", calls))
+    monkeypatch.setattr(stagefile.synoptic, "load", fake_load("synoptic", calls))
+    monkeypatch.setattr(stagefile.synoptic, "to_dataset", lambda ds: ds)
+    text = CONUS.replace(
+        "[-121.6, 47.6, -121.0, 47.9]", "[-152.2, 62.75, -150.2, 63.55]"
+    )
+    out = tmp_path / "out.zarr"
+    stagefile.stage(
+        config=write(tmp_path, text + "  prism: {}\n  synoptic: {}\n"),
+        output_path=str(out),
+    )
+    assert [c[0] for c in calls] == ["synoptic"]
+    assert "prism: skipped, AOI" in caplog.text
+    assert set(xr.open_datatree(out, engine="zarr").children["stations"].children) == {
+        "synoptic"
+    }
+
+
+def test_single_dataset_outside_its_extent_is_an_error(tmp_path):
+    aoi = tmp_path / "alaska.geojson"
+    stagefile.load_aoi({"bbox": [-152.2, 62.75, -150.2, 63.55]}).to_file(aoi)
+    args = ["prism", "-i", str(aoi), "-s", "2023-06-01", "-e", "2023-06-02"]
+    with pytest.raises(SystemExit, match="nothing to stage .prism: AOI .* is outside"):
+        stage_app([*args, "-o", str(tmp_path / "out.zarr")])
+
+
+# ---- runner controls -----------------------------------------------------------
+
+
+def test_only_selects_datasets_and_rejects_unknown_names(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(prism, "load", fake_load("prism", calls))
+    monkeypatch.setattr(hrrr, "load", fake_load("hrrr", calls))
+    config = write(tmp_path, CONUS + "  prism: {}\n  nlcd: {}\n")
+    with pytest.raises(SystemExit, match="unknown dataset in the file 'hrrr'"):
+        stagefile.stage(config=config, only="prism,hrrr", dry_run=True)
+    stagefile.stage(config=config, only="prism", output_path=str(tmp_path / "o.zarr"))
+    assert [c[0] for c in calls] == ["prism"]
+
+
+def test_failures_are_reported_and_retried_with_skip_existing(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(prism, "load", fake_load("prism", calls, fail=True))
+    monkeypatch.setattr(hrrr, "load", fake_load("hrrr", calls))
+    config = write(tmp_path, CONUS + "  prism: {}\n  hrrr: {}\n")
+    out = str(tmp_path / "out.zarr")
+    with pytest.raises(SystemExit, match=r"1 of 2 dataset\(s\) failed; 1 written") as e:
+        stagefile.stage(config=config, output_path=out)
+    assert "prism: RuntimeError: prism is down" in str(e.value)
+    assert set(xr.open_datatree(out, engine="zarr")["rasters"].children) == {"hrrr"}
+
+    with pytest.raises(SystemExit, match="already exists"):
+        stagefile.stage(config=config, output_path=out)
+    with pytest.raises(SystemExit, match="can't be combined"):
+        stagefile.stage(
+            config=config, output_path=out, overwrite=True, skip_existing=True
+        )
+
+    calls.clear()
+    monkeypatch.setattr(prism, "load", fake_load("prism", calls))
+    stagefile.stage(config=config, output_path=out, skip_existing=True)
+    assert [c[0] for c in calls] == ["prism"]  # hrrr was already there
+    tree = xr.open_datatree(out, engine="zarr")
+    assert set(tree["rasters"].children) == {"hrrr", "prism"}
+    assert tree.attrs["title"] == "Bolt Creek"
+
+
+# ---- presets and flags -----------------------------------------------------------
+
+
+def test_conus_precip_preset_takes_aoi_and_window_from_flags(tmp_path, capsys):
+    aoi = tmp_path / "aoi.geojson"
+    stagefile.load_aoi({"bbox": [-121.6, 47.6, -121.0, 47.9]}).to_file(aoi)
+    stage_app(
+        [
+            "--config",
+            "conus-precip",
+            "-i",
+            str(aoi),
+            "-s",
+            "2025-12-01",
+            "-e",
+            "2025-12-20",
+            "--dry-run",
+        ],
+        result_action="return_value",
+    )
+    out = stagefile.yaml.safe_load(capsys.readouterr().out)
+    assert list(out["datasets"]) == ["synoptic", "prism", "hrrr"]
+    for entry in out["datasets"].values():
+        assert entry["aoi"] == str(aoi)
+        assert entry["window"] == "2025-12-01T00:00:00/2025-12-21T00:00:00"
+        assert "skipped" not in entry
+
+
+@pytest.mark.parametrize(
+    "args, message",
+    [
+        (["--config", "conus-precip"], "the preset has no AOI"),
+        (["--config", "conus-precipitation"], "not a preset .conus-precip"),
+    ],
+)
+def test_preset_errors(args, message):
+    with pytest.raises(SystemExit, match=message):
+        stage_app([*args, "--dry-run"])
+
+
+def test_flags_run_through_the_same_runner(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(prism, "load", fake_load("prism", calls))
+    aoi = tmp_path / "aoi.geojson"
+    stagefile.load_aoi({"bbox": [-121.6, 47.6, -121.0, 47.9]}).to_file(aoi)
+    out = tmp_path / "out.zarr"
+    stage_app(
+        [
+            "prism",
+            "-i",
+            str(aoi),
+            "-s",
+            "2025-12-01",
+            "-e",
+            "2025-12-20",
+            "-v",
+            "tmax",
+            "-o",
+            str(out),
+        ],
+        result_action="return_value",
+    )
+    assert calls == [("prism", "2025-12-01T00:00:00", "2025-12-20T23:59:59", ("tmax",))]
+    tree = xr.open_datatree(out, engine="zarr")
+    assert tree["rasters/prism"].attrs["title"] == "prism"

@@ -9,7 +9,7 @@ import xarray as xr
 from cyclopts import Parameter
 from shapely.geometry import Point
 
-from . import io, provenance
+from . import provenance
 
 log = logging.getLogger(__name__)
 
@@ -19,6 +19,14 @@ RESET_MM = 10  # drops in raw gauge accumulation larger than this are treated as
 # Oldest report used for an hourly value: just under an hour, so an hour with no
 # report of its own is NaN rather than a copy of the previous hour
 REPORT_TOLERANCE = pd.Timedelta(hours=1) - pd.Timedelta(seconds=1)
+# Written by hand (no STAC Collection): stations are mostly in the US, Alaska
+# included, but the API serves networks worldwide
+EXTENT = {
+    "spatial": {"bbox": [[-180.0, -90.0, 180.0, 90.0]]},
+    "temporal": {"interval": [[None, None]]},
+}
+KIND = "stations"
+TIMED = True
 PROVENANCE = {
     "title": "Synoptic Data station precipitation",
     "description": "Hourly precipitation accumulation at weather stations, "
@@ -301,7 +309,11 @@ def stage(
     start_date: Annotated[str, Parameter(name=["--start", "-s"])],
     end_date: Annotated[str, Parameter(name=["--end", "-e"])],
     output_path: Annotated[str, Parameter(name=["--output", "-o"])],
+    dry_run: Annotated[bool, Parameter(name=["--dry-run"], negative="")] = False,
     overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
+    skip_existing: Annotated[
+        bool, Parameter(name=["--skip-existing"], negative="")
+    ] = False,
 ):
     """Stage in-situ precipitation from the Synoptic API.
     Precipitation timeseries is resampled to construct a uniform hourly DataArray.
@@ -319,8 +331,13 @@ def stage(
         End date/time for the timeseries (parseable by pandas.Timestamp).
     output_path : str
         Path to write the resulting Zarr store.
+    dry_run : bool
+        Validate the flags, read the AOI and print the resolved configuration
+        without fetching any data.
     overwrite : bool
         Replace the output store if it already exists. Default False.
+    skip_existing : bool
+        Add to an existing store, unless it already has this dataset's group.
 
     Examples
     --------
@@ -332,15 +349,18 @@ def stage(
     -------
     None
     """
-    _check_token()
-    io.check_output(output_path, overwrite)
+    from .stagefile import stage_dataset  # stagefile imports this module
 
-    aoi = io.load_aoi(vectorPath)
-    DA = load(aoi, start_date, end_date)
-
-    io.save_zarr(to_dataset(DA), output_path, overwrite=overwrite)
-
-    log.info("Done")
+    stage_dataset(
+        "synoptic",
+        vectorPath,
+        start_date,
+        end_date,
+        output_path,
+        dry_run=dry_run,
+        overwrite=overwrite,
+        skip_existing=skip_existing,
+    )
 
 
 def to_dataset(da: xr.DataArray) -> xr.Dataset:

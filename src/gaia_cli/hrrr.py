@@ -17,6 +17,13 @@ DEFAULT_BUCKET = "dynamical-noaa-hrrr"
 DEFAULT_PREFIX = "noaa-hrrr-analysis/v0.2.0.icechunk/"
 DEFAULT_REGION = "us-west-2"
 STAC_COLLECTION = "https://stac.dynamical.org/noaa-hrrr-analysis/collection.json"
+# Copied from STAC_COLLECTION
+EXTENT = {
+    "spatial": {"bbox": [[-134.095474, 21.138123, -60.917194, 52.615654]]},
+    "temporal": {"interval": [["2014-10-01T00:00:00Z", None]]},
+}
+KIND = "raster"
+TIMED = True
 
 
 class HRRRVariable(str, Enum):
@@ -122,7 +129,11 @@ def stage(
     variable: Annotated[
         HRRRVariable, Parameter(name=["--variable", "-v"])
     ] = HRRRVariable.precipitation_surface,
+    dry_run: Annotated[bool, Parameter(name=["--dry-run"], negative="")] = False,
     overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
+    skip_existing: Annotated[
+        bool, Parameter(name=["--skip-existing"], negative="")
+    ] = False,
 ):
     """Stage HRRR analysis data clipped to an AOI.
     The HRRR precipitation rate (kg m-2 s-1) is converted to hourly
@@ -141,8 +152,13 @@ def stage(
         Path to write the resulting Zarr store.
     variable : HRRRVariable
         HRRR variable name to extract. Default ``precipitation-surface``.
+    dry_run : bool
+        Validate the flags, read the AOI and print the resolved configuration
+        without fetching any data.
     overwrite : bool
         Replace the output store if it already exists. Default False.
+    skip_existing : bool
+        Add to an existing store, unless it already has this dataset's group.
 
     Examples
     --------
@@ -150,13 +166,19 @@ def stage(
         $ AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
         $ gaia stage hrrr -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit_hrrr.zarr
     """
-    io.check_output(output_path, overwrite)
+    from .stagefile import stage_dataset  # stagefile imports this module
 
-    aoi = io.load_aoi(vectorPath)
-    clipped = load(aoi, start_date, end_date, variable)
-    io.save_zarr(clipped, output_path, overwrite=overwrite)
-
-    log.info("Done")
+    stage_dataset(
+        "hrrr",
+        vectorPath,
+        start_date,
+        end_date,
+        output_path,
+        dry_run=dry_run,
+        overwrite=overwrite,
+        skip_existing=skip_existing,
+        variable=variable,
+    )
 
 
 def load(

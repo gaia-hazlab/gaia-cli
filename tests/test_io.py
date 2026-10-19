@@ -1,3 +1,5 @@
+import json
+
 import geopandas as gpd
 import numpy as np
 import pytest
@@ -97,3 +99,20 @@ def test_save_datatree_writes_fill_value_chunks(tmp_path):
     io.save_datatree(xr.DataTree.from_dict({"a": da.to_dataset()}), str(path))
 
     assert (path / "a" / "spatial_ref" / "c").exists()
+
+
+def test_save_datatree_append_keeps_groups_and_describes_the_whole_store(tmp_path):
+    path = str(tmp_path / "out.zarr")
+    a = xr.Dataset({"v": ("time", [1.0])}, attrs={"license": "CC-BY-4.0"})
+    b = xr.Dataset({"w": ("time", [2.0])}, attrs={"license": "other"})
+    io.save_datatree(xr.DataTree.from_dict({"rasters/a": a}), path)
+    io.save_datatree(xr.DataTree.from_dict({"rasters/b": b}), path, append=True)
+
+    tree = xr.open_datatree(path, engine="zarr", consolidated=True)
+    assert set(tree["rasters"].children) == {"a", "b"}
+    assert float(tree["rasters/a/v"][0]) == 1.0
+    # The note covers both groups' licenses, not just the appended one
+    assert "gaia:license-note" in tree.attrs
+    item = json.loads((tmp_path / "out.json").read_text())
+    assert "rasters/a" in item["properties"]["description"]
+    assert "rasters/b" in item["properties"]["description"]

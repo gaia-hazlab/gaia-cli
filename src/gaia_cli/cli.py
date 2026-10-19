@@ -9,7 +9,6 @@ import sys
 import cyclopts
 
 from .align import run as align
-from .all import stage as stage_all
 from .catalog import rebuild as catalog_rebuild
 from .hrrr import stage as stage_hrrr
 from .nlcd import stage as stage_nlcd
@@ -22,7 +21,7 @@ from .synoptic import stage as stage_synoptic
 
 app = cyclopts.App()
 
-# gaia stage --config stage.yaml | gaia stage {synoptic,prism,hrrr,all,nlcd} ...
+# gaia stage --config {stage.yaml,PRESET} | gaia stage {synoptic,prism,hrrr,nlcd} ...
 stage_app = cyclopts.App(
     name="stage", help="Stage datasets clipped to an AOI and time range."
 )
@@ -32,7 +31,6 @@ stage_app.default(stage_config)
 stage_app.command(stage_synoptic, name="synoptic")
 stage_app.command(stage_prism, name="prism")
 stage_app.command(stage_hrrr, name="hrrr")
-stage_app.command(stage_all, name="all")
 stage_app.command(stage_nlcd, name="nlcd")
 
 # gaia align ...
