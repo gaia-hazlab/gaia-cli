@@ -4,9 +4,11 @@ stage-file runner. Run with ``pixi run test-online``; skipped by default."""
 import json
 import os
 
+import geopandas as gpd
 import numpy as np
 import pytest
 import xarray as xr
+from shapely.geometry import box
 
 from gaia_cli import align, runner, stations
 
@@ -124,12 +126,13 @@ def test_stage(tmp_path, dataset, check, options):
 
 # The landlab_data_prep reference event: Pioneer Fire, WA (WA4818312053120240608),
 # the perimeter's bbox. Landlab puts every layer on a 10 m UTM grid.
-PIONEER = """
+PIONEER_BBOX = [-120.6807, 48.0978, -120.4009, 48.3895]
+PIONEER = f"""
 name: pioneer
-aoi: {bbox: [-120.6807, 48.0978, -120.4009, 48.3895]}
+aoi: {{bbox: {PIONEER_BBOX}}}
 datasets:
-  dem/cop30: {}
-  dem/usgs10m: {}
+  dem/cop30: {{}}
+  dem/usgs10m: {{}}
 """
 
 
@@ -140,12 +143,15 @@ def test_pioneer_dems_on_the_landlab_grid(tmp_path):
     runner.stage(config=str(config), output_path=str(out))
 
     tree = xr.open_datatree(out / "pioneer.zarr", engine="zarr")
+    aoi = gpd.GeoDataFrame(geometry=[box(*PIONEER_BBOX)], crs="EPSG:4326")
     # The DEM's default method (bilinear), as gaia align would use it
-    aligned = align.align(tree, crs="EPSG:32610", res=10.0)
+    aligned = align.align(tree, crs="utm", res=10.0, aoi=aoi)
     cop30, usgs10m = (aligned[f"dem/{p}"].elevation for p in ("cop30", "usgs10m"))
     assert cop30.attrs["regrid_method"] == usgs10m.attrs["regrid_method"] == "bilinear"
     assert cop30.rio.crs.to_epsg() == usgs10m.rio.crs.to_epsg() == 32610
-    assert cop30.shape == usgs10m.shape == (3311, 2185)
+    # The contract's grid: AOI bounds snapped outward to 10 m
+    assert cop30.shape == usgs10m.shape == (3309, 2182)
+    assert cop30.rio.bounds() == (671_690, 5_329_770, 693_510, 5_362_860)
     # Lake Chelan's shore (~335 m) to the Chelan Mountains (~2680 m)
     for da in (cop30, usgs10m):
         assert 320 < float(da.min()) < 350
