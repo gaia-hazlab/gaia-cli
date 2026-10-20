@@ -1,6 +1,6 @@
 # Burn severity
 
-Module: `src/gaia_cli/burn_severity.py` · Command: `gaia stage burn_severity`
+Module: `src/gaia_cli/datasets/burn_severity.py` · Command: `gaia stage burn-severity`
 
 ## Source
 
@@ -18,7 +18,7 @@ older fires, are missing.
 
 ## How a fire is chosen
 
-`burn_severity` is static and driven by the AOI, like the other static datasets:
+`burn-severity` is static and driven by the AOI, like the other static datasets:
 
 1. The service's catalog is queried for the fire rasters whose footprints intersect
    the AOI.
@@ -33,12 +33,12 @@ older fires, are missing.
    identical to the GeoTIFF in the USGS download zip within the fire's classes.
 
 ```bash
-gaia stage burn_severity -i pioneer-aoi.geojson -o /tmp/pioneer-sbs --fire pioneer
+gaia stage burn-severity -i pioneer-aoi.geojson -o /tmp/pioneer-sbs --fire pioneer
 ```
 
 ```yaml
 datasets:
-  burn_severity: {fire: bolt creek}     # the Bolt Creek AOI also meets Irving Peak (2022)
+  burn-severity: {fire: bolt creek}     # the Bolt Creek AOI also meets Irving Peak (2022)
 ```
 
 Each fire keeps its own grid: usually 20 m (Sentinel-2) or 30 m (Landsat), in a UTM or

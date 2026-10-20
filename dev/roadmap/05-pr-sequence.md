@@ -31,7 +31,7 @@ Ordered by the priorities in [04](04-datasets.md#prioritized-new-datasets).
 | 1.1 | `dem --product {cop30,usgs10m}` | 0.2 | Priority 1: both workflows need it. Both products are public VRT mosaics read with rioxarray (Cop30 from OpenTopography, 3DEP 1/3 arc-second from USGS): no key, no new dependency, no STAC helper. Heights keep each product's geoid; vertical datum conversion in `align` is a TODO ([04](04-datasets.md#dem-resolution)). Supersedes PR #7. |
 | 1.2 | `prism --variables` | — | Adds tmin and tmax alongside ppt, at 800 m as today |
 | 1.3 | `soil --product solus100` | 0.2 | The 7 layers landlab requires. CONUS only. |
-| 1.4 | `burn_severity` (SBS) | 0.1 | USFS BAER image service, found by AOI, with `fire`/`year` to choose among overlapping fires (revised from USGS zip downloads and filename templating; see [burn_severity.md](../burn_severity.md)). Skip dNBR, which nothing reads. |
+| 1.4 | `burn_severity` (SBS) | 0.1 | USFS BAER image service, found by AOI, with `fire`/`year` to choose among overlapping fires (revised from USGS zip downloads and filename templating; see [burn-severity.md](../burn-severity.md)). Skip dNBR, which nothing reads. |
 | 1.5 | `soil --product statsgo` | 1.3 | The STATSGO K-factor (`kffact`), required by the [landlab contract](https://github.com/gaia-hazlab/landlab_data_prep/blob/master/docs/landlab_workflow_contract.md) ([#18 comment](https://github.com/gaia-hazlab/gaia-cli/pull/18#issuecomment-6262020297)). USGS 30 m COG, CONUS only. |
 
 ## Phase 2: Alaska landslide (Peters Dome reference)

@@ -21,7 +21,7 @@ import requests
 import xarray as xr
 from shapely.geometry import Point
 
-from . import provenance, stations
+from .. import provenance, stations
 
 log = logging.getLogger(__name__)
 

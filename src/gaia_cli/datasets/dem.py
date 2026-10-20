@@ -14,7 +14,7 @@ import rasterio
 import rioxarray
 import xarray as xr
 
-from . import io, provenance
+from .. import io, provenance
 
 log = logging.getLogger(__name__)
 

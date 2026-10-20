@@ -10,7 +10,7 @@ title: Datasets
 | [`nlcd`](#nlcd) | Annual NLCD land cover | CONUS, 1985–2024 | 30 m | static | `rasters/nlcd` |
 | [`dem`](#dem) | elevation | global (`cop30`), US (`usgs10m`) | 30 m, 10 m | static | `dem/<product>` |
 | [`soil`](#soil) | soil properties | CONUS | 100 m, 30 m | static | `soil/<product>` |
-| [`burn_severity`](#burn-severity) | BAER soil burn severity | CONUS, fires 2017 on | 20–30 m | static | `rasters/burn_severity` |
+| [`burn-severity`](#burn-severity) | BAER soil burn severity | CONUS, fires 2017 on | 20–30 m | static | `rasters/burn-severity` |
 
 A dataset that the AOI or window misses (for example `prism` in Alaska) is skipped
 with a warning. Licenses differ: check each group's `license` attribute before sharing

@@ -1,6 +1,6 @@
 # Soil properties
 
-Module: `src/gaia_cli/soil.py` · Command: `gaia stage soil`
+Module: `src/gaia_cli/datasets/soil.py` · Command: `gaia stage soil`
 
 ## Source
 

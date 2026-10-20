@@ -23,7 +23,7 @@ import odc.stac
 import xarray as xr
 from cyclopts import Parameter
 
-from . import io, prism_cache, provenance
+from .. import io, prism_cache, provenance
 
 log = logging.getLogger(__name__)
 

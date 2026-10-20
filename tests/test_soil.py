@@ -5,9 +5,10 @@ import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
 from shapely.geometry import box
 
-from gaia_cli import io, soil, stagefile
+from gaia_cli import io, stagefile
 from gaia_cli.aoi import load_aoi
-from gaia_cli.soil import Product
+from gaia_cli.datasets import soil
+from gaia_cli.datasets.soil import Product
 
 # Near Bolt Creek, WA, in the SOLUS grid's CRS (CONUS Albers)
 X0, Y0 = -1890000.0, 3000000.0

@@ -1,7 +1,8 @@
 # Adding a New Dataset to `gaia stage`
 
-Each dataset lives in its own module under `src/gaia_cli/` (e.g. `prism.py`,
-`hrrr.py`, `synoptic.py`), registered in `stagefile.DATASETS`. The module has:
+Each dataset lives in its own module under `src/gaia_cli/datasets/` (e.g.
+`prism.py`, `hrrr.py`, `synoptic.py`), registered in `datasets.DATASETS`. The
+module has:
 
 - a **module docstring**: the `gaia stage <name>` help. Its first line is the
   summary in `gaia stage --help`.
@@ -92,8 +93,10 @@ Example: `synoptic.py`.
 
 ## Registering
 
-Add `"<name>": newdataset` (the module) to `DATASETS` in `stagefile.py`. That
-registers `gaia stage <name>` and the stage-file key. A test checks every
+Add `"<name>": newdataset` (the module) to `DATASETS` in `datasets/__init__.py`.
+`<name>` is the `gaia stage <name>` command, the stage-file key and the group's
+last part, hyphenated if it has several words (`burn-severity`); the module name
+uses underscores. A test checks every
 registered module's `KIND`, `EXTENT`, `VARIANT` and `REGRID_METHOD`.
 
 Run `pixi run test`, and add a case to `tests/test_online.py`.

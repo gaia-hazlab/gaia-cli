@@ -38,7 +38,7 @@ src/gaia_cli/
   __main__.py     # python -m gaia_cli entrypoint
   cli.py          # CLI app & subcommand registration
   runner.py       # "gaia stage": runs a stage file, preset or one dataset's flags; builds the dataset commands
-  stagefile.py    # stage.yaml: read, validate, resolve; DATASETS registry; coverage checks
+  stagefile.py    # stage.yaml: read, validate, resolve; coverage checks
   aoi.py          # AOI forms: vector file, bbox, intersects, circle
   window.py       # times, durations and window grammar
   io.py           # Shared I/O: clipping, Zarr and STAC Item writing, object stores
@@ -47,11 +47,14 @@ src/gaia_cli/
   align.py        # "gaia align": time aggregation and regridding onto one grid
   regrid.py       # per-array spatial regridding methods
   presets/        # built-in stage files (conus-precip)
-  # one module per dataset (load(), EXTENT, KIND; see dev/adding-a-dataset.md):
-  synoptic.py     # Synoptic API station reports (CF ragged array); stations.py: to_dataframe, to_grid
-  prism.py        # PRISM daily grids (from the S3 cache); prism_cache/: the cache (no other gaia_cli imports)
-  hrrr.py         # HRRR analysis (Icechunk)
-  nlcd.py, dem.py, soil.py, burn_severity.py   # static layers
+  stations.py     # ragged-array helpers for station data: to_dataframe, to_grid
+  prism_cache/    # rolling S3 cache of PRISM COGs (no other gaia_cli imports)
+  datasets/       # one module per data source (load(), EXTENT, KIND; see dev/adding-a-dataset.md)
+    __init__.py   # DATASETS registry: name -> module
+    synoptic.py   # Synoptic API station reports (CF ragged array)
+    prism.py      # PRISM daily grids (from prism_cache); also `gaia prism fill`
+    hrrr.py       # HRRR analysis (Icechunk)
+    nlcd.py, dem.py, soil.py, burn_severity.py   # static layers
 
 tests/          # pytest suite; test_online.py needs network
 docs/           # user docs (MyST, GitHub Pages): keep concise; reference.md is generated

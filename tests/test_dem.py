@@ -5,10 +5,11 @@ import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
 from shapely.geometry import box
 
-from gaia_cli import dem, runner, stagefile
+from gaia_cli import runner, stagefile
 from gaia_cli.aoi import load_aoi
 from gaia_cli.cli import stage_app
-from gaia_cli.dem import Product
+from gaia_cli.datasets import dem
+from gaia_cli.datasets.dem import Product
 
 
 @pytest.fixture

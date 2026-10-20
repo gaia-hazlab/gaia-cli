@@ -1,6 +1,6 @@
 # PRISM daily precipitation and temperature
 
-Module: `src/gaia_cli/prism.py`, `src/gaia_cli/prism_cache/` · Commands:
+Module: `src/gaia_cli/datasets/prism.py`, `src/gaia_cli/prism_cache/` · Commands:
 `gaia stage prism`, `gaia prism fill`
 
 ## Source

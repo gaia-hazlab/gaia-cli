@@ -1,4 +1,4 @@
-from gaia_cli import hrrr
+from gaia_cli.datasets import hrrr
 
 
 def test_open_hrrr_pins_aws_endpoint(monkeypatch):

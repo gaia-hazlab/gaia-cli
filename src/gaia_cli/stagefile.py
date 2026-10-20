@@ -22,17 +22,9 @@ import pandas as pd
 import shapely
 import yaml
 
-from . import (
-    burn_severity,
-    dem,
-    hrrr,
-    io,
-    nlcd,
-    prism,
-    soil,
-    synoptic,
-)
+from . import io
 from .aoi import aoi_key, check_lonlat, load_aoi, parse_aoi
+from .datasets import DATASETS
 from .window import Window, parse_time, parse_window, unknown
 
 log = logging.getLogger(__name__)
@@ -48,19 +40,6 @@ TOP_KEYS = (
     "output",
     "datasets",
 )
-# Each module has load(), EXTENT (a STAC Collection extent) and KIND, and
-# optionally VARIANT: a load() option named by the key (`dem/usgs10m`), each
-# value its own top-level group; and REGRID_METHOD: `gaia align`'s default for
-# its raster variables (else nearest)
-DATASETS: dict[str, ModuleType] = {
-    "synoptic": synoptic,
-    "prism": prism,
-    "hrrr": hrrr,
-    "nlcd": nlcd,
-    "dem": dem,
-    "soil": soil,
-    "burn_severity": burn_severity,
-}
 # KIND -> group prefix in the output store
 GROUPS = {"raster": "rasters", "stations": "stations"}
 # Built-in stage files without AOIs or windows, used as --config NAME -i -s -e

@@ -1,6 +1,6 @@
 """USFS BAER soil burn severity map, clipped to an AOI.
 
-See dev/burn_severity.md.
+See dev/burn-severity.md.
 """
 
 from __future__ import annotations
@@ -17,13 +17,13 @@ import shapely
 import xarray as xr
 from rasterio.io import MemoryFile
 
-from . import io, provenance
+from .. import io, provenance
 
 log = logging.getLogger(__name__)
 
 # Written by hand (no STAC Collection): the image service's extent in EPSG:4326
 # and its years. Static: the fire is chosen by the AOI and options, not a window.
-# See dev/burn_severity.md.
+# See dev/burn-severity.md.
 EXTENT = {
     "spatial": {"bbox": [[-124.47, 31.44, -76.91, 50.03]]},
     "temporal": {"interval": [["2017-01-01T00:00:00Z", None]]},

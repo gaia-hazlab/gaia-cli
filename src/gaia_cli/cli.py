@@ -10,12 +10,12 @@ import cyclopts
 
 from .align import run as align
 from .catalog import rebuild as catalog_rebuild
-from .prism import fill as prism_fill
-from .prism import rebuild_catalog as prism_rebuild_catalog
+from .datasets import DATASETS
+from .datasets.prism import fill as prism_fill
+from .datasets.prism import rebuild_catalog as prism_rebuild_catalog
 from .provenance import set_command
 from .runner import dataset_command
 from .runner import stage as stage_config
-from .stagefile import DATASETS
 
 app = cyclopts.App(name="gaia")
 

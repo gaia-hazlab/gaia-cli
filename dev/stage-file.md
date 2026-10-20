@@ -2,7 +2,7 @@
 
 A stage file describes one event: its AOIs, time windows and the datasets to stage.
 `gaia stage --config` stages every dataset in it into one Zarr store, one group per
-dataset (`stations/synoptic`, `rasters/prism`, `rasters/hrrr`, `rasters/nlcd`, `dem/cop30`, `soil/solus100`, `soil/statsgo`, `rasters/burn_severity`), in an
+dataset (`stations/synoptic`, `rasters/prism`, `rasters/hrrr`, `rasters/nlcd`, `dem/cop30`, `soil/solus100`, `soil/statsgo`, `rasters/burn-severity`), in an
 [output folder](#output-folder).
 Single-dataset commands (`gaia stage prism -i … -s … -e …`) build the same
 configuration from their flags and write the same layout, with one group.
@@ -86,7 +86,7 @@ and `dem/usgs10m`. `--only dem` selects every variant, and `--only dem/usgs10m` 
 | `nlcd` | `year` (default `2021`); static, no window |
 | `dem` | none; the key names the product: `dem/cop30` or `dem/usgs10m` (a bare `dem` is `dem/cop30`; see [dem.md](dem.md)); static, no window |
 | `soil` | none; the key names the product: `soil/solus100` or `soil/statsgo` (a bare `soil` is `soil/solus100`; see [soil.md](soil.md)); static, no window |
-| `burn_severity` | `fire` (part of the fire's name) and `year`, needed only when several fires intersect the AOI (see [burn_severity.md](burn_severity.md)); static, no window |
+| `burn-severity` | `fire` (part of the fire's name) and `year`, needed only when several fires intersect the AOI (see [burn-severity.md](burn-severity.md)); static, no window |
 
 ## Output folder
 
@@ -194,7 +194,7 @@ the provider.
 | `nlcd` | CONUS | static; years 1985–2024 |
 | `dem` | global (`usgs10m`: US only, not checked) | static |
 | `soil` | CONUS | static |
-| `burn_severity` | CONUS (USFS assessments) | static; fires from 2017 on |
+| `burn-severity` | CONUS (USFS assessments) | static; fires from 2017 on |
 
 ## Validation
 

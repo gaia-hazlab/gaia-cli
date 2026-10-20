@@ -105,7 +105,7 @@ def check_statsgo(ds):
         ("dem/cop30", check_dem, {}),
         ("dem/usgs10m", check_dem, {}),
         ("soil/solus100", check_soil, {}),
-        ("burn_severity", check_burn_severity, {"fire": "bolt creek"}),
+        ("burn-severity", check_burn_severity, {"fire": "bolt creek"}),
         ("soil/statsgo", check_statsgo, {}),
     ],
 )

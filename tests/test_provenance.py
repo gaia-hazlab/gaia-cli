@@ -5,7 +5,8 @@ import pandas as pd
 import requests
 import xarray as xr
 
-from gaia_cli import hrrr, io, nlcd, provenance, synoptic
+from gaia_cli import io, provenance
+from gaia_cli.datasets import hrrr, nlcd, synoptic
 
 COLLECTION = {
     "type": "Collection",

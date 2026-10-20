@@ -6,10 +6,11 @@ import pandas as pd
 import pytest
 import xarray as xr
 
-from gaia_cli import hrrr, prism, regrid, runner, stagefile
+from gaia_cli import regrid, runner, stagefile
 from gaia_cli.aoi import load_aoi, parse_aoi
 from gaia_cli.cli import stage_app
-from gaia_cli.hrrr import HRRRVariable
+from gaia_cli.datasets import hrrr, prism, synoptic
+from gaia_cli.datasets.hrrr import HRRRVariable
 from gaia_cli.window import parse_duration, parse_time, parse_window
 
 T = pd.Timestamp("2023-09-14T02:06:49")
@@ -333,8 +334,8 @@ def test_outside_extent_handles_antimeridian_and_sub_regions(monkeypatch):
 def test_datasets_outside_their_extent_are_skipped(tmp_path, monkeypatch, caplog):
     calls = []
     monkeypatch.setattr(prism, "load", fake_load("prism", calls))
-    monkeypatch.setattr(stagefile.synoptic, "load", fake_load("synoptic", calls))
-    monkeypatch.setattr(stagefile.synoptic, "to_dataset", lambda ds: ds)
+    monkeypatch.setattr(synoptic, "load", fake_load("synoptic", calls))
+    monkeypatch.setattr(synoptic, "to_dataset", lambda ds: ds)
     text = CONUS.replace(
         "[-121.6, 47.6, -121.0, 47.9]", "[-152.2, 62.75, -150.2, 63.55]"
     )
