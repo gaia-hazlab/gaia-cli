@@ -1,7 +1,7 @@
 import numpy as np
 import xarray as xr
 
-from gaia_cli import nlcd
+from gaia_cli.datasets import nlcd
 
 
 def test_nlcd_classes_are_cf_flags(monkeypatch):

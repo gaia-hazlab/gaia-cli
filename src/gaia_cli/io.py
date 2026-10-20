@@ -23,27 +23,6 @@ from . import provenance
 log = logging.getLogger(__name__)
 
 
-def load_aoi(vector_path: str) -> gpd.GeoDataFrame:
-    """Read a vector file holding one Polygon into a GeoDataFrame.
-
-    Parameters
-    ----------
-    vector_path : str
-        Path or URL to a vector file (GeoJSON, Shapefile, etc.).
-
-    Returns
-    -------
-    geopandas.GeoDataFrame
-    """
-    aoi = gpd.read_file(vector_path)
-    # MultiPolygons and several features aren't supported yet
-    if (types := aoi.geom_type.tolist()) != ["Polygon"]:
-        raise ValueError(
-            f"AOI {vector_path} must be a single Polygon, not {', '.join(types) or 'empty'}"
-        )
-    return aoi
-
-
 def clip_to_aoi(
     da: xr.DataArray,
     aoi: gpd.GeoDataFrame,
@@ -214,12 +193,12 @@ def check_output(output_path: str, overwrite: bool = False):
 
 
 def check_s3_env(output_path: str):
-    """Raise early if S3 credentials are missing."""
-    if output_path.startswith("s3://") and "AWS_PROFILE" not in os.environ:
-        raise ValueError(
-            "AWS_PROFILE environment variable not set. "
-            "Please set it to the AWS profile name with write permissions "
-            "to the target S3 bucket."
+    """Exit early if *output_path* is on S3 and no AWS credentials are set."""
+    if output_path.startswith("s3://") and boto3.Session().get_credentials() is None:
+        sys.exit(
+            f"Error: no AWS credentials to write to {output_path}. Set AWS_PROFILE "
+            "to a profile with write access, or AWS_ACCESS_KEY_ID and "
+            "AWS_SECRET_ACCESS_KEY."
         )
 
 

@@ -7,7 +7,8 @@ import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
 from shapely.geometry import box
 
-from gaia_cli import burn_severity, io, stagefile
+from gaia_cli import io, stagefile
+from gaia_cli.datasets import burn_severity
 
 # A 10 x 10 fire raster at 20 m in UTM 10N, like the service's per-fire rasters
 X0, Y0, RES = 680000.0, 5350000.0, 20.0
@@ -169,12 +170,12 @@ def test_load_keeps_classes_and_masks_the_rest(service):
 def test_store_keeps_the_source_bytes(service, tmp_path):
     ds = burn_severity.load(whole_fire())
     path = tmp_path / "t.zarr"
-    io.save_datatree(xr.DataTree.from_dict({"rasters/burn_severity": ds}), str(path))
+    io.save_datatree(xr.DataTree.from_dict({"rasters/burn-severity": ds}), str(path))
 
-    raw = xr.open_zarr(path, group="rasters/burn_severity", mask_and_scale=False)
+    raw = xr.open_zarr(path, group="rasters/burn-severity", mask_and_scale=False)
     assert raw.burn_severity.dtype == "uint8"
     assert int(raw.burn_severity.values[9, 0]) == burn_severity.FILL
-    back = xr.open_zarr(path, group="rasters/burn_severity").load()
+    back = xr.open_zarr(path, group="rasters/burn-severity").load()
     np.testing.assert_array_equal(back.burn_severity.values, ds.burn_severity.values)
 
 
@@ -189,17 +190,17 @@ def config(tmp_path, datasets):
 
 def test_stage_file_options_and_group(tmp_path):
     cfg = stagefile.load_config(
-        config(tmp_path, "  burn_severity: {fire: bolt creek, year: 2022}\n")
+        config(tmp_path, "  burn-severity: {fire: bolt creek, year: 2022}\n")
     )
     (req,) = cfg.requests
     assert req.options == {"fire": "bolt creek", "year": 2022}
-    assert stagefile.group(req) == "rasters/burn_severity"
+    assert stagefile.group(req) == "rasters/burn-severity"
     assert req.windows == []
 
 
 def test_stage_file_rejects_a_window(tmp_path):
     with pytest.raises(stagefile.StageFileError) as e:
         stagefile.load_config(
-            config(tmp_path, "  burn_severity: {window: 2022-01-01/2022-12-31}\n")
+            config(tmp_path, "  burn-severity: {window: 2022-01-01/2022-12-31}\n")
         )
-    assert "burn_severity: is static and takes no window" in e.value.problems
+    assert "burn-severity: is static and takes no window" in e.value.problems

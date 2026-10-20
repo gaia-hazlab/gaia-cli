@@ -12,7 +12,7 @@ from pystac.extensions.projection import ProjectionExtension
 from rasterio.transform import from_origin
 from shapely.geometry import box
 
-from gaia_cli import prism
+from gaia_cli.datasets import prism
 from gaia_cli.prism_cache import (
     CacheMiss,
     PrismCache,

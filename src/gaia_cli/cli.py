@@ -9,35 +9,25 @@ import sys
 import cyclopts
 
 from .align import run as align
-from .burn_severity import stage as stage_burn_severity
 from .catalog import rebuild as catalog_rebuild
-from .dem import stage as stage_dem
-from .hrrr import stage as stage_hrrr
-from .nlcd import stage as stage_nlcd
-from .prism import fill as prism_fill
-from .prism import rebuild_catalog as prism_rebuild_catalog
-from .prism import stage as stage_prism
+from .datasets import DATASETS
+from .datasets.prism import fill as prism_fill
+from .datasets.prism import rebuild_catalog as prism_rebuild_catalog
 from .provenance import set_command
-from .soil import stage as stage_soil
-from .stagefile import stage as stage_config
-from .synoptic import stage as stage_synoptic
+from .runner import dataset_command
+from .runner import stage as stage_config
 
 app = cyclopts.App(name="gaia")
 
-# gaia stage --config {stage.yaml,PRESET} | gaia stage {synoptic,prism,hrrr,nlcd,dem,soil,burn_severity} ...
+# gaia stage --config {stage.yaml,PRESET} | gaia stage <dataset> ...
 stage_app = cyclopts.App(
     name="stage", help="Stage datasets clipped to an AOI and time range."
 )
 app.command(stage_app)
 stage_app.default(stage_config)
 
-stage_app.command(stage_synoptic, name="synoptic")
-stage_app.command(stage_prism, name="prism")
-stage_app.command(stage_hrrr, name="hrrr")
-stage_app.command(stage_nlcd, name="nlcd")
-stage_app.command(stage_dem, name="dem")
-stage_app.command(stage_soil, name="soil")
-stage_app.command(stage_burn_severity, name="burn_severity")
+for name in DATASETS:
+    stage_app.command(dataset_command(name), name=name)
 
 # gaia align ...
 app.command(align, name="align")

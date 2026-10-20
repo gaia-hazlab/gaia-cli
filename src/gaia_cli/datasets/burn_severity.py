@@ -1,9 +1,13 @@
+"""USFS BAER soil burn severity map, clipped to an AOI.
+
+See dev/burn-severity.md.
+"""
+
 from __future__ import annotations
 
 import json
 import logging
 import math
-from typing import Annotated
 
 import geopandas as gpd
 import pyproj
@@ -11,22 +15,20 @@ import requests
 import rioxarray
 import shapely
 import xarray as xr
-from cyclopts import Parameter
 from rasterio.io import MemoryFile
 
-from . import io, provenance
+from .. import io, provenance
 
 log = logging.getLogger(__name__)
 
 # Written by hand (no STAC Collection): the image service's extent in EPSG:4326
 # and its years. Static: the fire is chosen by the AOI and options, not a window.
-# See dev/burn_severity.md.
+# See dev/burn-severity.md.
 EXTENT = {
     "spatial": {"bbox": [[-124.47, 31.44, -76.91, 50.03]]},
     "temporal": {"interval": [["2017-01-01T00:00:00Z", None]]},
 }
 KIND = "raster"
-TIMED = False
 # Categorical: `gaia align` uses mode for flag variables whatever this says
 REGRID_METHOD = "nearest"
 
@@ -225,6 +227,14 @@ def load(
 ) -> xr.Dataset:
     """BAER soil burn severity for the one fire in *aoi* matching *fire* and
     *year*, clipped to *aoi* on its native grid, with provenance attributes.
+
+    Parameters
+    ----------
+    fire : str
+        Part of the fire's BAER name (e.g. ``bolt creek``), to choose when
+        several fires intersect the AOI. Case and spaces are ignored.
+    year : int
+        The fire's year, to choose when several fires intersect the AOI.
     """
     chosen = select_fire(find_fires(aoi), fire, year)
     log.info("BAER: %s (%s)", chosen["name"], chosen["year"])
@@ -245,53 +255,3 @@ def load(
     ds = da.to_dataset()
     ds.attrs = source_attrs(chosen)
     return ds
-
-
-def stage(
-    vectorPath: Annotated[str, Parameter(name=["--input", "-i"])],
-    output_path: Annotated[str, Parameter(name=["--output", "-o"])],
-    fire: Annotated[str | None, Parameter(name=["--fire", "-f"])] = None,
-    year: Annotated[int | None, Parameter(name=["--year", "-y"])] = None,
-    dry_run: Annotated[bool, Parameter(name=["--dry-run"], negative="")] = False,
-    overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
-    skip_existing: Annotated[
-        bool, Parameter(name=["--skip-existing"], negative="")
-    ] = False,
-):
-    """Stage a BAER soil burn severity map clipped to an AOI.
-
-    Parameters
-    ----------
-    vectorPath : str
-        Path to a vector file (e.g. GeoJSON, Shapefile) defining the AOI.
-    output_path : str
-        Output folder for the Zarr store (named after the folder), its STAC
-        Item and the resolved stage.yaml.
-    fire : str
-        Part of the fire's BAER name (e.g. ``bolt creek``), to choose when
-        several fires intersect the AOI. Case and spaces are ignored.
-    year : int
-        The fire's year, to choose when several fires intersect the AOI.
-    dry_run : bool
-        Validate the flags, read the AOI and print the resolved configuration
-        without fetching any data.
-    overwrite : bool
-        Write into an output folder that isn't empty, replacing its store.
-        Default False.
-    skip_existing : bool
-        Add to an existing store, unless it already has this dataset's group.
-    """
-    from .stagefile import stage_dataset  # stagefile imports this module
-
-    stage_dataset(
-        "burn_severity",
-        vectorPath,
-        None,
-        None,
-        output_path,
-        dry_run=dry_run,
-        overwrite=overwrite,
-        skip_existing=skip_existing,
-        fire=fire,
-        year=year,
-    )

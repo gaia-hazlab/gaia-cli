@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from gaia_cli import align, stagefile, stations
+from gaia_cli import align, runner, stations
 
 pytestmark = pytest.mark.online
 
@@ -24,7 +24,7 @@ datasets:
 """
 
 
-# Each window is read one day beyond each end (stagefile.PAD)
+# Each window is read one day beyond each end (PAD)
 def check_synoptic(ds):
     assert ds.sizes["geometry"] > 0
     assert int(ds.row_size.sum()) == ds.sizes["obs"]
@@ -105,7 +105,7 @@ def check_statsgo(ds):
         ("dem/cop30", check_dem, {}),
         ("dem/usgs10m", check_dem, {}),
         ("soil/solus100", check_soil, {}),
-        ("burn_severity", check_burn_severity, {"fire": "bolt creek"}),
+        ("burn-severity", check_burn_severity, {"fire": "bolt creek"}),
         ("soil/statsgo", check_statsgo, {}),
     ],
 )
@@ -113,7 +113,7 @@ def test_stage(tmp_path, dataset, check, options):
     config = tmp_path / "stage.yaml"
     config.write_text(STAGE.format(dataset=dataset, options=json.dumps(options)))
     out = tmp_path / "out"
-    stagefile.stage(config=str(config), output_path=str(out))
+    runner.stage(config=str(config), output_path=str(out))
 
     tree = xr.open_datatree(out / "bolt-creek-smoke.zarr", engine="zarr")
     (path,) = [p for p in tree.groups if p.count("/") == 2]
@@ -137,7 +137,7 @@ def test_pioneer_dems_on_the_landlab_grid(tmp_path):
     config = tmp_path / "stage.yaml"
     config.write_text(PIONEER)
     out = tmp_path / "out"
-    stagefile.stage(config=str(config), output_path=str(out))
+    runner.stage(config=str(config), output_path=str(out))
 
     tree = xr.open_datatree(out / "pioneer.zarr", engine="zarr")
     # The DEM's default method (bilinear), as gaia align would use it

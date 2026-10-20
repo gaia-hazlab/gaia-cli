@@ -1,16 +1,20 @@
+"""Digital elevation model, clipped to an AOI.
+
+See dev/dem.md.
+"""
+
 from __future__ import annotations
 
 import logging
 from enum import Enum
-from typing import Annotated, Any
+from typing import Any
 
 import geopandas as gpd
 import rasterio
 import rioxarray
 import xarray as xr
-from cyclopts import Parameter
 
-from . import io, provenance
+from .. import io, provenance
 
 log = logging.getLogger(__name__)
 
@@ -21,7 +25,6 @@ EXTENT = {
     "temporal": {"interval": [["1923-01-01T00:00:00Z", None]]},
 }
 KIND = "raster"
-TIMED = False
 # Each product is its own group, dem/<product>, keyed so in stage files
 VARIANT = "product"
 # `gaia align` default: a smooth surface, not an accumulation
@@ -135,6 +138,12 @@ def load(aoi: gpd.GeoDataFrame, product: Product = Product.cop30) -> xr.Dataset:
     """*product* elevation clipped to *aoi* on its native grid, with provenance attributes.
 
     Heights stay relative to the product's geoid (``vertical_datum``).
+
+    Parameters
+    ----------
+    product : Product
+        ``cop30`` (Copernicus GLO-30, global, EGM2008 heights) or ``usgs10m``
+        (USGS 3DEP 1/3 arc-second, US, NAVD88 heights).
     """
     # Each VRT lists its tiles, so GDAL needn't list directories or probe for
     # sidecar files. rioxarray reads lazily, so load before leaving the Env.
@@ -142,49 +151,3 @@ def load(aoi: gpd.GeoDataFrame, product: Product = Product.cop30) -> xr.Dataset:
         ds = io.clip_to_aoi(open_dem(product), aoi).to_dataset().load()
     ds.attrs = source_attrs(product)
     return ds
-
-
-def stage(
-    vectorPath: Annotated[str, Parameter(name=["--input", "-i"])],
-    output_path: Annotated[str, Parameter(name=["--output", "-o"])],
-    product: Annotated[Product, Parameter(name=["--product", "-p"])] = Product.cop30,
-    dry_run: Annotated[bool, Parameter(name=["--dry-run"], negative="")] = False,
-    overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
-    skip_existing: Annotated[
-        bool, Parameter(name=["--skip-existing"], negative="")
-    ] = False,
-):
-    """Stage a digital elevation model clipped to an AOI.
-
-    Parameters
-    ----------
-    vectorPath : str
-        Path to a vector file (e.g. GeoJSON, Shapefile) defining the AOI.
-    output_path : str
-        Output folder for the Zarr store (named after the folder), its STAC
-        Item and the resolved stage.yaml.
-    product : Product
-        ``cop30`` (Copernicus GLO-30, global, EGM2008 heights) or ``usgs10m``
-        (USGS 3DEP 1/3 arc-second, US, NAVD88 heights). Default cop30.
-    dry_run : bool
-        Validate the flags, read the AOI and print the resolved configuration
-        without fetching any data.
-    overwrite : bool
-        Write into an output folder that isn't empty, replacing its store.
-        Default False.
-    skip_existing : bool
-        Add to an existing store, unless it already has this dataset's group.
-    """
-    from .stagefile import stage_dataset  # stagefile imports this module
-
-    stage_dataset(
-        "dem",
-        vectorPath,
-        None,
-        None,
-        output_path,
-        dry_run=dry_run,
-        overwrite=overwrite,
-        skip_existing=skip_existing,
-        product=product,
-    )

@@ -1,6 +1,6 @@
 # HRRR analysis
 
-Module: `src/gaia_cli/hrrr.py` · Command: `gaia stage hrrr`
+Module: `src/gaia_cli/datasets/hrrr.py` · Command: `gaia stage hrrr`
 
 ## Source
 

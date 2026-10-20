@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 from shapely.geometry import box
 
-from gaia_cli import synoptic
+from gaia_cli.datasets import synoptic
 
 OK = {"RESPONSE_CODE": 1, "RESPONSE_MESSAGE": "OK"}
 FORBIDDEN = {"RESPONSE_CODE": 403, "RESPONSE_MESSAGE": "no access"}

@@ -1,15 +1,24 @@
+"""HRRR hourly analysis, clipped to an AOI.
+
+Precipitation rate (kg m-2 s-1) is staged as hourly accumulation (mm). See
+dev/hrrr.md.
+
+Examples
+--------
+    $ AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
+    $ gaia stage hrrr -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit-hrrr
+"""
+
 from __future__ import annotations
 
 import logging
 from enum import Enum
-from typing import Annotated
 
 import geopandas as gpd
 import icechunk
 import xarray as xr
-from cyclopts import Parameter
 
-from . import io, provenance
+from .. import io, provenance
 
 log = logging.getLogger(__name__)
 
@@ -23,7 +32,6 @@ EXTENT = {
     "temporal": {"interval": [["2014-10-01T00:00:00Z", None]]},
 }
 KIND = "raster"
-TIMED = True
 # `gaia align` default: area-weighted, so totals and means are preserved
 REGRID_METHOD = "conservative"
 
@@ -121,68 +129,6 @@ def source_attrs(ds: xr.Dataset) -> dict:
             provenance.link("via", ds.encoding["source"], title="Icechunk repository")
         )
     return attrs
-
-
-def stage(
-    vectorPath: Annotated[str, Parameter(name=["--input", "-i"])],
-    start_date: Annotated[str, Parameter(name=["--start", "-s"])],
-    end_date: Annotated[str, Parameter(name=["--end", "-e"])],
-    output_path: Annotated[str, Parameter(name=["--output", "-o"])],
-    variable: Annotated[
-        HRRRVariable, Parameter(name=["--variable", "-v"])
-    ] = HRRRVariable.precipitation_surface,
-    dry_run: Annotated[bool, Parameter(name=["--dry-run"], negative="")] = False,
-    overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
-    skip_existing: Annotated[
-        bool, Parameter(name=["--skip-existing"], negative="")
-    ] = False,
-):
-    """Stage HRRR analysis data clipped to an AOI.
-    The HRRR precipitation rate (kg m-2 s-1) is converted to hourly
-    accumulation (mm).  Requires AWS_PROFILE environment variable if
-    writing to S3.
-
-    Parameters
-    ----------
-    vectorPath : str
-        Path to a vector file (e.g. GeoJSON, Shapefile) defining the AOI.
-    start_date : str
-        Start date (inclusive), e.g. '2025-12-01'.
-    end_date : str
-        End date (inclusive), e.g. '2025-12-20'.
-    output_path : str
-        Output folder for the Zarr store (named after the folder), its STAC
-        Item and the resolved stage.yaml.
-    variable : HRRRVariable
-        HRRR variable name to extract. Default ``precipitation-surface``.
-    dry_run : bool
-        Validate the flags, read the AOI and print the resolved configuration
-        without fetching any data.
-    overwrite : bool
-        Write into an output folder that isn't empty, replacing its store.
-        Default False.
-    skip_existing : bool
-        Add to an existing store, unless it already has this dataset's group.
-
-    Examples
-    --------
-    Stage HRRR precipitation for Skagit Basin December 2025:
-        $ AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
-        $ gaia stage hrrr -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit-hrrr
-    """
-    from .stagefile import stage_dataset  # stagefile imports this module
-
-    stage_dataset(
-        "hrrr",
-        vectorPath,
-        start_date,
-        end_date,
-        output_path,
-        dry_run=dry_run,
-        overwrite=overwrite,
-        skip_existing=skip_existing,
-        variable=variable,
-    )
 
 
 def load(

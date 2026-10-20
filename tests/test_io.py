@@ -8,6 +8,7 @@ import xarray as xr
 from shapely.geometry import box
 
 from gaia_cli import io
+from gaia_cli.aoi import load_aoi
 
 
 def test_load_aoi_requires_a_single_polygon(tmp_path):
@@ -16,13 +17,18 @@ def test_load_aoi_requires_a_single_polygon(tmp_path):
         geometry=[box(0, 0, 1, 1), box(2, 2, 3, 3)], crs="EPSG:4326"
     ).to_file(path)
     with pytest.raises(ValueError, match="single Polygon, not Polygon, Polygon"):
-        io.load_aoi(str(path))
+        load_aoi(str(path))
 
 
-def test_check_s3_env_raises_without_aws_profile(monkeypatch):
-    monkeypatch.delenv("AWS_PROFILE", raising=False)
-    with pytest.raises(ValueError):
+def test_check_s3_env_exits_without_credentials(no_aws_credentials):
+    with pytest.raises(SystemExit, match="no AWS credentials"):
         io.check_s3_env("s3://some-bucket/output.zarr")
+
+
+def test_check_s3_env_accepts_access_keys(no_aws_credentials, monkeypatch):
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+    io.check_s3_env("s3://some-bucket/output.zarr")
 
 
 def test_check_s3_env_local_path_ok():

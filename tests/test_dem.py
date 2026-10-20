@@ -5,9 +5,11 @@ import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
 from shapely.geometry import box
 
-from gaia_cli import dem, stagefile
+from gaia_cli import runner, stagefile
+from gaia_cli.aoi import load_aoi
 from gaia_cli.cli import stage_app
-from gaia_cli.dem import Product
+from gaia_cli.datasets import dem
+from gaia_cli.datasets.dem import Product
 
 
 @pytest.fixture
@@ -101,7 +103,7 @@ def test_both_products_go_in_one_store(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(dem, "load", fake_load(calls))
     aoi = tmp_path / "aoi.geojson"
-    stagefile.load_aoi({"bbox": [-121.6, 47.6, -121.0, 47.9]}).to_file(aoi)
+    load_aoi({"bbox": [-121.6, 47.6, -121.0, 47.9]}).to_file(aoi)
     out = tmp_path / "out"
     stage_app(["dem", "-i", str(aoi), "-o", str(out)], result_action="return_value")
     stage_app(
@@ -125,6 +127,6 @@ def test_only_dem_selects_every_product(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(dem, "load", fake_load(calls))
     path = config(tmp_path, "  dem/cop30: {}\n  dem/usgs10m: {}\n")
-    stagefile.stage(config=path, output_path=str(tmp_path / "a"), only="dem")
-    stagefile.stage(config=path, output_path=str(tmp_path / "b"), only="dem/usgs10m")
+    runner.stage(config=path, output_path=str(tmp_path / "a"), only="dem")
+    runner.stage(config=path, output_path=str(tmp_path / "b"), only="dem/usgs10m")
     assert calls == [Product.cop30, Product.usgs10m, Product.usgs10m]

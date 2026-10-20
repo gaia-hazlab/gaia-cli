@@ -1,18 +1,27 @@
+"""Weather station reports from the Synoptic API, clipped to an AOI.
+
+Every report is kept, as a CF ragged array (see dev/stations.md). Requires
+SYNOPTIC_TOKEN (https://docs.synopticdata.com).
+
+Examples
+--------
+    $ AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
+    $ gaia stage synoptic -i $AOI -s 2025-12-01 -e 2025-12-31 -o skagit-precip
+"""
+
 import logging
 import os
 import re
 from collections.abc import Sequence
-from typing import Annotated
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import requests
 import xarray as xr
-from cyclopts import Parameter
 from shapely.geometry import Point
 
-from . import provenance, stations
+from .. import provenance, stations
 
 log = logging.getLogger(__name__)
 
@@ -27,7 +36,6 @@ EXTENT = {
     "temporal": {"interval": [[None, None]]},
 }
 KIND = "stations"
-TIMED = True
 PROVENANCE = {
     "title": "Synoptic Data station observations",
     "description": "Every report of precipitation and other requested "
@@ -316,72 +324,6 @@ def construct_ragged(data: dict, variables: Sequence[str] = (PRECIP,)) -> xr.Dat
 
 
 # CLI entrypoint
-def stage(
-    vectorPath: Annotated[str, Parameter(name=["--input", "-i"])],
-    start_date: Annotated[str, Parameter(name=["--start", "-s"])],
-    end_date: Annotated[str, Parameter(name=["--end", "-e"])],
-    output_path: Annotated[str, Parameter(name=["--output", "-o"])],
-    variables: Annotated[
-        tuple[str, ...], Parameter(name=["--variables", "-v"], consume_multiple=True)
-    ] = (PRECIP,),
-    dry_run: Annotated[bool, Parameter(name=["--dry-run"], negative="")] = False,
-    overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
-    skip_existing: Annotated[
-        bool, Parameter(name=["--skip-existing"], negative="")
-    ] = False,
-):
-    """Stage weather station reports from the Synoptic API.
-    Every report is kept, as a CF ragged array (see dev/stations.md).
-    Requires SYNOPTIC_TOKEN environment variable (https://docs.synopticdata.com).
-    Requires AWS_PROFILE environment variable if writing to S3.
-
-    Parameters
-    ----------
-    vectorPath : str
-        Path to a vector file (e.g. GeoJSON, Shapefile) that contains the
-        area-of-interest polygon. The first geometry in the file is used.
-    start_date : str
-        Start date/time for the timeseries (parseable by pandas.Timestamp).
-    end_date : str
-        End date/time for the timeseries (parseable by pandas.Timestamp).
-    output_path : str
-        Output folder for the Zarr store (named after the folder), its STAC
-        Item and the resolved stage.yaml.
-    variables : list of str
-        Synoptic variables, e.g. ``precip_accum air_temp``. ``precip_accum``
-        is staged as ``precipitation``, a running total. Default precip_accum.
-    dry_run : bool
-        Validate the flags, read the AOI and print the resolved configuration
-        without fetching any data.
-    overwrite : bool
-        Write into an output folder that isn't empty, replacing its store.
-        Default False.
-    skip_existing : bool
-        Add to an existing store, unless it already has this dataset's group.
-
-    Examples
-    --------
-    Stage precipitation data for Skagit Basin December 2025 Atmospheric River:
-        $ AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
-        $ gaia stage synoptic -i $AOI -s 2025-12-01 -e 2025-12-31 -o skagit-precip
-
-    Returns
-    -------
-    None
-    """
-    from .stagefile import stage_dataset  # stagefile imports this module
-
-    stage_dataset(
-        "synoptic",
-        vectorPath,
-        start_date,
-        end_date,
-        output_path,
-        dry_run=dry_run,
-        overwrite=overwrite,
-        skip_existing=skip_existing,
-        variables=variables,
-    )
 
 
 def to_dataset(ds: xr.Dataset) -> xr.Dataset:
@@ -395,7 +337,7 @@ def load(
     aoi: gpd.GeoDataFrame,
     start_date: str,
     end_date: str,
-    variables: list[str] | tuple[str, ...] = (PRECIP,),
+    variables: tuple[str, ...] = (PRECIP,),
 ) -> xr.Dataset:
     """Every report of *variables* at stations in *aoi*, with provenance attributes.
 
@@ -408,7 +350,8 @@ def load(
     end_date : str
         End date/time (parseable by pandas.Timestamp).
     variables : list of str
-        Synoptic variables (see :func:`construct_ragged`).
+        Synoptic variables, e.g. ``precip_accum air_temp``. ``precip_accum``
+        is staged as ``precipitation``, a running total.
 
     Returns
     -------

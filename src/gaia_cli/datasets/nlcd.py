@@ -1,14 +1,14 @@
+"""Annual NLCD land cover, clipped to an AOI."""
+
 from __future__ import annotations
 
 import logging
-from typing import Annotated
 
 import geopandas as gpd
 import rioxarray
 import xarray as xr
-from cyclopts import Parameter
 
-from . import io, provenance
+from .. import io, provenance
 
 log = logging.getLogger(__name__)
 
@@ -19,7 +19,6 @@ EXTENT = {
     "temporal": {"interval": [["1985-01-01T00:00:00Z", "2024-12-31T23:59:59Z"]]},
 }
 KIND = "raster"
-TIMED = False
 
 # Land cover classes: code -> (name, color), the COG's own color table
 CLASSES = {
@@ -103,52 +102,13 @@ def open_nlcd(year: int = 2021) -> xr.DataArray:
 
 
 def load(aoi: gpd.GeoDataFrame, year: int = 2021) -> xr.Dataset:
-    """NLCD land cover for *year* clipped to *aoi*, with provenance attributes."""
-    ds = io.clip_to_aoi(open_nlcd(year), aoi).to_dataset()
-    ds.attrs = source_attrs(year)
-    return ds
-
-
-def stage(
-    vectorPath: Annotated[str, Parameter(name=["--input", "-i"])],
-    output_path: Annotated[str, Parameter(name=["--output", "-o"])],
-    year: Annotated[int, Parameter(name=["--year", "-y"])] = 2021,
-    dry_run: Annotated[bool, Parameter(name=["--dry-run"], negative="")] = False,
-    overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
-    skip_existing: Annotated[
-        bool, Parameter(name=["--skip-existing"], negative="")
-    ] = False,
-):
-    """Stage NLCD land cover clipped to an AOI.
+    """NLCD land cover for *year* clipped to *aoi*, with provenance attributes.
 
     Parameters
     ----------
-    vectorPath : str
-        Path to a vector file (e.g. GeoJSON, Shapefile) defining the AOI.
-    output_path : str
-        Output folder for the Zarr store (named after the folder), its STAC
-        Item and the resolved stage.yaml.
     year : int
-        Land cover year (1985-2024). Default 2021.
-    dry_run : bool
-        Validate the flags, read the AOI and print the resolved configuration
-        without fetching any data.
-    overwrite : bool
-        Write into an output folder that isn't empty, replacing its store.
-        Default False.
-    skip_existing : bool
-        Add to an existing store, unless it already has this dataset's group.
+        Land cover year (1985-2024).
     """
-    from .stagefile import stage_dataset  # stagefile imports this module
-
-    stage_dataset(
-        "nlcd",
-        vectorPath,
-        None,
-        None,
-        output_path,
-        dry_run=dry_run,
-        overwrite=overwrite,
-        skip_existing=skip_existing,
-        year=year,
-    )
+    ds = io.clip_to_aoi(open_nlcd(year), aoi).to_dataset()
+    ds.attrs = source_attrs(year)
+    return ds

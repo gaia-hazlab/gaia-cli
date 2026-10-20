@@ -1,6 +1,6 @@
 # Digital elevation models
 
-Module: `src/gaia_cli/dem.py` · Command: `gaia stage dem`
+Module: `src/gaia_cli/datasets/dem.py` · Command: `gaia stage dem`
 
 ## Sources
 
