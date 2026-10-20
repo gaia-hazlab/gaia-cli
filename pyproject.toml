@@ -2,7 +2,8 @@
 authors = [{name = "Scott Henderson", email = "3924836+scottyhq@users.noreply.github.com"}]
 name = "gaia-cli"
 requires-python = ">= 3.11"
-version = "0.1.0"
+# From the git tag (hatch-vcs); see dev/releasing.md
+dynamic = ["version"]
 # Everything src/gaia_cli imports. Pixi installs most of these from
 # conda-forge ([tool.pixi.dependencies]).
 dependencies = [
@@ -61,7 +62,10 @@ skip_covered = true
 
 [build-system]
 build-backend = "hatchling.build"
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
+
+[tool.hatch.version]
+source = "vcs"
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]

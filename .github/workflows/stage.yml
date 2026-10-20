@@ -64,6 +64,9 @@ jobs:
       S3_DEST: s3://${{ vars.S3_BUCKET || 'gaia' }}/scratch/github-workflows/${{ inputs.workflow_name }}-${{ inputs.subcommand }}-${{ inputs.start_date }}_${{ inputs.end_date }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Tags, for the package version (hatch-vcs)
+          fetch-depth: 0
 
       - uses: prefix-dev/setup-pixi@v0.10.2
         with:

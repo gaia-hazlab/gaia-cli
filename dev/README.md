@@ -12,6 +12,7 @@ published at <https://gaia-hazlab.github.io/gaia-cli/>.
 | [stac-catalog.md](stac-catalog.md) | STAC Items and `gaia catalog rebuild` |
 | [prism.md](prism.md), [hrrr.md](hrrr.md), [stations.md](stations.md), [precip-timing.md](precip-timing.md), [dem.md](dem.md), [soil.md](soil.md), [burn-severity.md](burn-severity.md) | per-dataset details: sources, grids, time conventions, caveats |
 | [backblaze.md](backblaze.md) | Backblaze B2 setup |
+| [releasing.md](releasing.md) | versions from git tags; cutting a release |
 
 ## Object store credentials
 
