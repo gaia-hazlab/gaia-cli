@@ -249,7 +249,9 @@ def _prepare_for_zarr(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
     # "coordinates" attr, so spatial_ref would reopen as a data variable.
     # GDAL's Zarr driver reads neither: it takes the CRS from a `_CRS` attribute
     # and nodata from the array's fill_value, which xarray leaves at 0 for
-    # integers, writing _FillValue only as an attribute (docs/gdal.md)
+    # integers and NaN for floats, writing _FillValue only as an attribute
+    # (docs/gdal.md). Floats read with masked=True carry their source's
+    # _FillValue (3DEP: -999999): drop it so NaNs are written as NaN.
     if "spatial_ref" in ds.coords:
         wkt = ds.spatial_ref.attrs.get("crs_wkt")
         for var in ds.data_vars.values():
@@ -260,7 +262,9 @@ def _prepare_for_zarr(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
                     var.attrs["_CRS"] = {"wkt": wkt}
     for var in ds.data_vars.values():
         dtype = np.dtype(var.encoding.get("dtype", var.dtype))
-        if dtype.kind in "iu" and "_FillValue" in var.encoding:
+        if dtype.kind == "f":
+            var.encoding.pop("_FillValue", None)
+        elif dtype.kind in "iu" and "_FillValue" in var.encoding:
             var.encoding["fill_value"] = var.encoding["_FillValue"]
     if ds.nbytes <= _CHUNK_TARGET_BYTES:
         ds = ds.load()

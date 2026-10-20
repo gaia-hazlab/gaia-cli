@@ -29,12 +29,14 @@ with -9999 for nodata:
 ```bash
 gdal raster pipeline read 'ZARR:"pioneer-10m/pioneer-10m.zarr":/soil/solus100/cec7' \
   ! unscale --ot Float32 \
-  ! write cec7.tif
+  ! write cec7.vrt
+gdal raster calc -i A=cec7.vrt --calc A --ot Float32 --nodata -9999 --propagate-nodata cec7.tif
 gdal raster convert cec7.tif cec7.asc
 ```
 
-`unscale` applies the `scale_factor` of packed integers (soil properties); it's a no-op
-otherwise.
+`unscale` applies the `scale_factor` of packed integers (soil properties), or only
+casts otherwise, but keeps the old nodata value (65535 here); `calc` writes every
+nodata cell as -9999.
 
 Some things to know:
 

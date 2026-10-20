@@ -152,12 +152,15 @@ def test_save_datatree_is_readable_by_gdal(tmp_path, monkeypatch, single_chunk):
     sbs = xr.DataArray([[1.0, np.nan], [3.0, 4.0]], coords, ("y", "x"), name="sbs")
     sbs.encoding = {"dtype": "uint8", "_FillValue": 15}
     dem = xr.DataArray([[1.5, np.nan], [3.0, 4.0]], coords, ("y", "x"), name="dem")
-    ds = xr.Dataset({"sbs": sbs, "dem": dem}).rio.write_crs("EPSG:32610")
+    # a float read with masked=True keeps its source nodata (3DEP: -999999)
+    usgs = dem.copy().rename("usgs")
+    usgs.encoding = {"_FillValue": -999999.0}
+    ds = xr.Dataset({"sbs": sbs, "dem": dem, "usgs": usgs}).rio.write_crs("EPSG:32610")
     path = tmp_path / "t.zarr"
 
     io.save_datatree(xr.DataTree.from_dict({"rasters/a": ds}), str(path))
 
-    for name, nodata in [("sbs", 15), ("dem", None)]:
+    for name, nodata in [("sbs", 15), ("dem", None), ("usgs", None)]:
         with rasterio.open(f'ZARR:"{path}":/rasters/a/{name}') as src:
             assert src.crs.to_epsg() == 32610
             assert src.transform == rasterio.Affine(10, 0, 500_000, 0, -10, 5_000_020)
