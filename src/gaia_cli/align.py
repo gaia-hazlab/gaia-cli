@@ -21,6 +21,8 @@ import xarray as xr
 from cyclopts import Parameter
 
 from . import io, provenance, regrid
+from .aoi import load_aoi
+from .window import parse_time
 
 log = logging.getLogger(__name__)
 
@@ -59,8 +61,6 @@ def common_window(tree: xr.DataTree, start, end) -> tuple[pd.Timestamp, pd.Times
     holds only hourly products. Groups without time bounds (station running
     totals, instantaneous values) don't constrain the window.
     """
-    from .stagefile import parse_time  # stagefile imports the dataset modules
-
     lo, hi = parse_time(start), parse_time(end, end=True)
     starts, ends = [], []
     for node in tree.subtree:
@@ -377,7 +377,7 @@ def run(
     io.check_output(output_path, overwrite)
     store = io.store_path(output_path, io.folder_name(output_path))
     dt = io.open_datatree(input_path)
-    aoi = io.load_aoi(aoi_path) if aoi_path else None
+    aoi = load_aoi(aoi_path) if aoi_path else None
     aligned = align(
         dt, like=like, time_like=time_like, crs=crs, res=res, method=method, aoi=aoi
     )

@@ -32,7 +32,7 @@ and optionally:
 
 ## Options come from `load()`
 
-There is no per-dataset CLI code. `stagefile.dataset_command` builds
+There is no per-dataset CLI code. `runner.dataset_command` builds
 `gaia stage <name>` from `load()`: the common flags (`-i`, `-s`/`-e` for timed
 datasets, `-o`, `--dry-run`, `--overwrite`, `--skip-existing`) plus one flag per
 other `load()` argument, `--<option>` and `-<first letter>`. Stage files take the

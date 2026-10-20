@@ -35,17 +35,23 @@ This project uses [ruff](https://docs.astral.sh/ruff/) for linting and formattin
 
 ```
 src/gaia_cli/
-  __init__.py   # Public exports
-  __main__.py   # python -m gaia_cli entrypoint
-  cli.py        # CLI app & subcommand registration
-  io.py         # Shared I/O: AOI loading, clipping, Zarr writing
-  synoptic.py   # Synoptic API station reports (CF ragged array)
-  stations.py   # Ragged-array helpers: to_dataframe, to_grid
-  prism.py      # PRISM daily grids (from the S3 cache, via in-memory STAC)
-  prism_cache/  # Rolling S3 cache of unzipped PRISM COGs (no other gaia_cli imports)
-  hrrr.py       # HRRR analysis precipitation (Icechunk)
-  stagefile.py  # "stage --config" – stage.yaml parser, window grammar, runner
-  all.py        # "stage all" – loads every product into an xr.DataTree
+  __main__.py     # python -m gaia_cli entrypoint
+  cli.py          # CLI app & subcommand registration
+  runner.py       # "gaia stage": runs a stage file, preset or one dataset's flags; builds the dataset commands
+  stagefile.py    # stage.yaml: read, validate, resolve; DATASETS registry; coverage checks
+  aoi.py          # AOI forms: vector file, bbox, intersects, circle
+  window.py       # times, durations and window grammar
+  io.py           # Shared I/O: clipping, Zarr and STAC Item writing, object stores
+  provenance.py   # provenance attributes and STAC Items
+  catalog.py      # "gaia catalog rebuild"
+  align.py        # "gaia align": time aggregation and regridding onto one grid
+  regrid.py       # per-array spatial regridding methods
+  presets/        # built-in stage files (conus-precip)
+  # one module per dataset (load(), EXTENT, KIND; see dev/adding-a-dataset.md):
+  synoptic.py     # Synoptic API station reports (CF ragged array); stations.py: to_dataframe, to_grid
+  prism.py        # PRISM daily grids (from the S3 cache); prism_cache/: the cache (no other gaia_cli imports)
+  hrrr.py         # HRRR analysis (Icechunk)
+  nlcd.py, dem.py, soil.py, burn_severity.py   # static layers
 
 tests/          # pytest suite; test_online.py needs network
 docs/           # user docs (MyST, GitHub Pages): keep concise; reference.md is generated

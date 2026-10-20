@@ -6,9 +6,11 @@ import pandas as pd
 import pytest
 import xarray as xr
 
-from gaia_cli import hrrr, prism, regrid, stagefile
+from gaia_cli import hrrr, prism, regrid, runner, stagefile
+from gaia_cli.aoi import load_aoi, parse_aoi
 from gaia_cli.cli import stage_app
 from gaia_cli.hrrr import HRRRVariable
+from gaia_cli.window import parse_duration, parse_time, parse_window
 
 T = pd.Timestamp("2023-09-14T02:06:49")
 
@@ -46,26 +48,24 @@ def problems(tmp_path, text):
 
 
 def test_date_only_end_includes_the_day_and_offsets_become_utc():
-    (w,) = stagefile.parse_window("2025-12-01/2025-12-20", None)
+    (w,) = parse_window("2025-12-01/2025-12-20", None)
     assert (w.start, w.end) == (pd.Timestamp("2025-12-01"), pd.Timestamp("2025-12-21"))
-    (w,) = stagefile.parse_window(
-        {"start": "2025-12-01T00:00-08:00", "end": "2025-12-02"}, None
-    )
+    (w,) = parse_window({"start": "2025-12-01T00:00-08:00", "end": "2025-12-02"}, None)
     assert w.start == pd.Timestamp("2025-12-01T08:00")
 
 
 def test_relative_and_mixed_windows():
-    (w,) = stagefile.parse_window({"before": "17min", "after": "23min"}, T)
+    (w,) = parse_window({"before": "17min", "after": "23min"}, T)
     assert (w.start, w.end) == (
         T - pd.Timedelta(minutes=17),
         T + pd.Timedelta(minutes=23),
     )
-    (w,) = stagefile.parse_window({"start": "2023-06-01", "after": "1w"}, T)
+    (w,) = parse_window({"start": "2023-06-01", "after": "1w"}, T)
     assert (w.start, w.end) == (pd.Timestamp("2023-06-01"), T + pd.Timedelta(days=7))
 
 
 def test_pre_post_windows_default_to_time_on_the_missing_side():
-    pre, post = stagefile.parse_window(
+    pre, post = parse_window(
         {"pre": {"before": "30d", "select": "last"}, "post": {"after": "30d"}}, T
     )
     assert (pre.name, pre.start, pre.end, pre.select) == (
@@ -90,24 +90,22 @@ def test_pre_post_windows_default_to_time_on_the_missing_side():
 )
 def test_bad_windows(spec, message):
     with pytest.raises(ValueError, match=message):
-        stagefile.parse_window(spec, None)
+        parse_window(spec, None)
 
 
 def test_durations():
-    assert stagefile.parse_duration("30d") == pd.Timedelta(days=30)
-    assert stagefile.parse_duration("PT17M") == pd.Timedelta(minutes=17)
+    assert parse_duration("30d") == pd.Timedelta(days=30)
+    assert parse_duration("PT17M") == pd.Timedelta(minutes=17)
     for bad in ("3M", "30m", "-1d"):  # no months; minutes are min
         with pytest.raises(ValueError):
-            stagefile.parse_duration(bad)
+            parse_duration(bad)
 
 
 # ---- AOIs ------------------------------------------------------------------
 
 
 def test_circle_aoi_has_true_radius():
-    gdf = stagefile.load_aoi(
-        {"latitude": 63.1455, "longitude": -151.1904, "radius_km": 400}
-    )
+    gdf = load_aoi({"latitude": 63.1455, "longitude": -151.1904, "radius_km": 400})
     utm = gdf.to_crs(gdf.estimate_utm_crs())
     assert utm.area.iloc[0] == pytest.approx(np.pi * 400e3**2, rel=0.01)
 
@@ -128,7 +126,7 @@ def test_circle_aoi_has_true_radius():
 )
 def test_bad_inline_aois(spec, tmp_path):
     with pytest.raises(ValueError):
-        stagefile.parse_aoi(spec, tmp_path)
+        parse_aoi(spec, tmp_path)
 
 
 def test_relative_aoi_paths_resolve_against_the_file(tmp_path):
@@ -220,7 +218,7 @@ def test_data_flags_are_rejected_with_config(tmp_path):
 
 
 def test_dry_run_prints_resolved_config(tmp_path, capsys):
-    stagefile.stage(config=write(tmp_path, PETERS), dry_run=True)
+    runner.stage(config=write(tmp_path, PETERS), dry_run=True)
     out = capsys.readouterr().out
     assert "window: 2023-09-13T20:06:49/2023-09-15T02:06:49" in out
     assert "read: 2023-09-12T20:06:49/2023-09-16T02:06:49" in out
@@ -257,7 +255,7 @@ def test_run_writes_one_group_per_dataset(tmp_path, monkeypatch):
     monkeypatch.setattr(prism, "load", fake_load("prism", calls))
     text = CONUS + "  prism: {variables: [ppt, tmax]}\n"
     out = tmp_path / "out"
-    stagefile.stage(config=write(tmp_path, text), output_path=str(out))
+    runner.stage(config=write(tmp_path, text), output_path=str(out))
 
     # Read a day beyond each end; the exclusive end becomes load()'s inclusive end
     assert calls == [
@@ -286,16 +284,16 @@ def test_registered_modules_declare_kind_and_extent(name):
     assert len(overall) == 4
     for start, end in module.EXTENT["temporal"]["interval"]:
         for t in (start, end):
-            assert t is None or stagefile.parse_time(t)
+            assert t is None or parse_time(t)
 
 
 def request(name, bbox, window="2023-06-01/2023-09-21"):
     aoi = {"bbox": bbox}
-    return stagefile.Request(name, aoi, stagefile.parse_window(window, None), {})
+    return stagefile.Request(name, aoi, parse_window(window, None), {})
 
 
 def test_outside_extent_checks_bbox_and_window():
-    aoi = stagefile.load_aoi
+    aoi = load_aoi
     bolt, peters = [-121.6, 47.6, -121.0, 47.9], [-152.2, 62.75, -150.2, 63.55]
     assert stagefile.outside_extent(request("prism", bolt), aoi({"bbox": bolt})) is None
     reason = stagefile.outside_extent(request("prism", peters), aoi({"bbox": peters}))
@@ -328,7 +326,7 @@ def test_outside_extent_handles_antimeridian_and_sub_regions(monkeypatch):
         ([-165.0, 59.0, -164.0, 60.0], False),  # in the overall bbox only
         ([-121.6, 47.6, -121.0, 47.9], False),
     ]:
-        gdf = stagefile.load_aoi({"bbox": bbox})
+        gdf = load_aoi({"bbox": bbox})
         assert (stagefile.outside_extent(request("prism", bbox), gdf) is None) == inside
 
 
@@ -341,7 +339,7 @@ def test_datasets_outside_their_extent_are_skipped(tmp_path, monkeypatch, caplog
         "[-121.6, 47.6, -121.0, 47.9]", "[-152.2, 62.75, -150.2, 63.55]"
     )
     out = tmp_path / "out"
-    stagefile.stage(
+    runner.stage(
         config=write(tmp_path, text + "  prism: {}\n  synoptic: {}\n"),
         output_path=str(out),
     )
@@ -356,7 +354,7 @@ def test_datasets_outside_their_extent_are_skipped(tmp_path, monkeypatch, caplog
 
 def test_single_dataset_outside_its_extent_is_an_error(tmp_path):
     aoi = tmp_path / "alaska.geojson"
-    stagefile.load_aoi({"bbox": [-152.2, 62.75, -150.2, 63.55]}).to_file(aoi)
+    load_aoi({"bbox": [-152.2, 62.75, -150.2, 63.55]}).to_file(aoi)
     args = ["prism", "-i", str(aoi), "-s", "2023-06-01", "-e", "2023-06-02"]
     with pytest.raises(SystemExit, match="nothing to stage .prism: AOI .* is outside"):
         stage_app([*args, "-o", str(tmp_path / "out")])
@@ -371,8 +369,8 @@ def test_only_selects_datasets_and_rejects_unknown_names(tmp_path, monkeypatch):
     monkeypatch.setattr(hrrr, "load", fake_load("hrrr", calls))
     config = write(tmp_path, CONUS + "  prism: {}\n  nlcd: {}\n")
     with pytest.raises(SystemExit, match="unknown dataset in the file 'hrrr'"):
-        stagefile.stage(config=config, only="prism,hrrr", dry_run=True)
-    stagefile.stage(config=config, only="prism", output_path=str(tmp_path / "o"))
+        runner.stage(config=config, only="prism,hrrr", dry_run=True)
+    runner.stage(config=config, only="prism", output_path=str(tmp_path / "o"))
     assert [c[0] for c in calls] == ["prism"]
 
 
@@ -384,20 +382,18 @@ def test_failures_are_reported_and_retried_with_skip_existing(tmp_path, monkeypa
     out = str(tmp_path / "out")
     store = f"{out}/bolt-creek.zarr"
     with pytest.raises(SystemExit, match=r"1 of 2 dataset\(s\) failed; 1 written") as e:
-        stagefile.stage(config=config, output_path=out)
+        runner.stage(config=config, output_path=out)
     assert "prism: RuntimeError: prism is down" in str(e.value)
     assert set(xr.open_datatree(store, engine="zarr")["rasters"].children) == {"hrrr"}
 
     with pytest.raises(SystemExit, match="already exists"):
-        stagefile.stage(config=config, output_path=out)
+        runner.stage(config=config, output_path=out)
     with pytest.raises(SystemExit, match="can't be combined"):
-        stagefile.stage(
-            config=config, output_path=out, overwrite=True, skip_existing=True
-        )
+        runner.stage(config=config, output_path=out, overwrite=True, skip_existing=True)
 
     calls.clear()
     monkeypatch.setattr(prism, "load", fake_load("prism", calls))
-    stagefile.stage(config=config, output_path=out, skip_existing=True)
+    runner.stage(config=config, output_path=out, skip_existing=True)
     assert [c[0] for c in calls] == ["prism"]  # hrrr was already there
     tree = xr.open_datatree(store, engine="zarr")
     assert set(tree["rasters"].children) == {"hrrr", "prism"}
@@ -409,7 +405,7 @@ def test_failures_are_reported_and_retried_with_skip_existing(tmp_path, monkeypa
 
 def test_conus_precip_preset_takes_aoi_and_window_from_flags(tmp_path, capsys):
     aoi = tmp_path / "aoi.geojson"
-    stagefile.load_aoi({"bbox": [-121.6, 47.6, -121.0, 47.9]}).to_file(aoi)
+    load_aoi({"bbox": [-121.6, 47.6, -121.0, 47.9]}).to_file(aoi)
     stage_app(
         [
             "--config",
@@ -448,7 +444,7 @@ def test_flags_run_through_the_same_runner(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(prism, "load", fake_load("prism", calls))
     aoi = tmp_path / "aoi.geojson"
-    stagefile.load_aoi({"bbox": [-121.6, 47.6, -121.0, 47.9]}).to_file(aoi)
+    load_aoi({"bbox": [-121.6, 47.6, -121.0, 47.9]}).to_file(aoi)
     out = tmp_path / "skagit"
     stage_app(
         [
@@ -481,10 +477,10 @@ def test_output_folder_holds_store_item_and_a_repeatable_stage_file(
     calls = []
     monkeypatch.setattr(prism, "load", fake_load("prism", calls))
     aoi = tmp_path / "aoi.geojson"
-    stagefile.load_aoi({"bbox": [-121.6, 47.6, -121.0, 47.9]}).to_file(aoi)
+    load_aoi({"bbox": [-121.6, 47.6, -121.0, 47.9]}).to_file(aoi)
     text = CONUS.replace("{bbox: [-121.6, 47.6, -121.0, 47.9]}", "aoi.geojson")
     out = tmp_path / "event"
-    stagefile.stage(
+    runner.stage(
         config=write(tmp_path, text + "  prism: {variables: [tmax]}\n"),
         output_path=str(out),
     )
@@ -508,7 +504,7 @@ def test_output_folder_holds_store_item_and_a_repeatable_stage_file(
 
     # Rerunning the resolved file resolves to the same configuration
     aoi.unlink()
-    stagefile.stage(config=str(out / "stage.yaml"), dry_run=True)
+    runner.stage(config=str(out / "stage.yaml"), dry_run=True)
     rerun = stagefile.yaml.safe_load(capsys.readouterr().out)["datasets"]["prism"]
     assert {k: rerun[k] for k in entry} == entry
 
@@ -517,7 +513,7 @@ def test_stage_file_keeps_url_aois():
     url = "https://example.com/basin.geojson"
     req = stagefile.Request("nlcd", url, [], {"year": 2021})
     cfg = stagefile.StageConfig("x", None, None, None, {}, [req])
-    doc = stagefile.stage_file(cfg, "out", {})
+    doc = stagefile.resolved(cfg, "out", {})
     assert doc["datasets"]["nlcd"] == {"aoi": url, "year": 2021}
 
 
@@ -527,8 +523,8 @@ def test_skip_existing_keeps_earlier_datasets_in_the_stage_file(tmp_path, monkey
     monkeypatch.setattr(hrrr, "load", fake_load("hrrr", calls))
     config = write(tmp_path, CONUS + "  prism: {}\n  hrrr: {}\n")
     out = str(tmp_path / "out")
-    stagefile.stage(config=config, only="prism", output_path=out)
-    stagefile.stage(config=config, only="hrrr", output_path=out, skip_existing=True)
+    runner.stage(config=config, only="prism", output_path=out)
+    runner.stage(config=config, only="hrrr", output_path=out, skip_existing=True)
     doc = stagefile.read_config(f"{out}/stage.yaml")
     assert list(doc["datasets"]) == ["prism", "hrrr"]
 
@@ -543,4 +539,4 @@ def test_skip_existing_keeps_earlier_datasets_in_the_stage_file(tmp_path, monkey
 def test_output_and_name_must_make_a_folder_layout(tmp_path, name, output, message):
     config = write(tmp_path, CONUS.replace("bolt-creek", name) + "  prism: {}\n")
     with pytest.raises(SystemExit, match=message):
-        stagefile.stage(config=config, output_path=output, dry_run=True)
+        runner.stage(config=config, output_path=output, dry_run=True)

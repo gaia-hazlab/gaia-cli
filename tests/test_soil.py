@@ -6,6 +6,7 @@ import xarray as xr
 from shapely.geometry import box
 
 from gaia_cli import io, soil, stagefile
+from gaia_cli.aoi import load_aoi
 from gaia_cli.soil import Product
 
 # Near Bolt Creek, WA, in the SOLUS grid's CRS (CONUS Albers)
@@ -128,7 +129,7 @@ def test_unknown_product(tmp_path):
 def test_extent_is_conus_only():
     def outside(bbox):
         req = stagefile.Request("soil/solus100", {"bbox": bbox}, [], {})
-        return stagefile.outside_extent(req, stagefile.load_aoi({"bbox": bbox}))
+        return stagefile.outside_extent(req, load_aoi({"bbox": bbox}))
 
     assert outside([-121.6, 47.6, -121.0, 47.9]) is None  # Bolt Creek
     assert "outside the dataset's extent" in outside([-152.2, 62.75, -150.2, 63.55])

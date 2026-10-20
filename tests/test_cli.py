@@ -1,6 +1,7 @@
 import yaml
 
 from gaia_cli import stagefile
+from gaia_cli.aoi import load_aoi
 from gaia_cli.cli import app, stage_app
 
 
@@ -14,7 +15,7 @@ def test_align_command_registered():
 
 def test_dataset_commands_take_load_options_as_flags(tmp_path, capsys):
     aoi = tmp_path / "aoi.geojson"
-    stagefile.load_aoi({"bbox": [-121.6, 47.6, -121.0, 47.9]}).to_file(aoi)
+    load_aoi({"bbox": [-121.6, 47.6, -121.0, 47.9]}).to_file(aoi)
     common = ["-i", str(aoi), "-o", str(tmp_path / "out"), "--dry-run"]
     window = ["-s", "2025-12-01", "-e", "2025-12-02"]
 

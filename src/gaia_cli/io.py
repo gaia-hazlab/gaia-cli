@@ -23,27 +23,6 @@ from . import provenance
 log = logging.getLogger(__name__)
 
 
-def load_aoi(vector_path: str) -> gpd.GeoDataFrame:
-    """Read a vector file holding one Polygon into a GeoDataFrame.
-
-    Parameters
-    ----------
-    vector_path : str
-        Path or URL to a vector file (GeoJSON, Shapefile, etc.).
-
-    Returns
-    -------
-    geopandas.GeoDataFrame
-    """
-    aoi = gpd.read_file(vector_path)
-    # MultiPolygons and several features aren't supported yet
-    if (types := aoi.geom_type.tolist()) != ["Polygon"]:
-        raise ValueError(
-            f"AOI {vector_path} must be a single Polygon, not {', '.join(types) or 'empty'}"
-        )
-    return aoi
-
-
 def clip_to_aoi(
     da: xr.DataArray,
     aoi: gpd.GeoDataFrame,
