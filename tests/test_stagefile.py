@@ -272,11 +272,12 @@ def test_run_writes_one_group_per_dataset(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("name", list(stagefile.DATASETS))
-def test_registered_modules_declare_kind_timed_and_extent(name):
+def test_registered_modules_declare_kind_and_extent(name):
     module = stagefile.DATASETS[name]
     assert module.KIND in stagefile.GROUPS
+    # load() takes both window arguments (timed) or neither (static)
     params = inspect.signature(module.load).parameters
-    assert module.TIMED == all(a in params for a in stagefile.WINDOW_ARGS)
+    assert stagefile.timed(module) == any(a in params for a in stagefile.WINDOW_ARGS)
     if hasattr(module, "REGRID_METHOD"):
         assert module.REGRID_METHOD in typing.get_args(regrid.Method)
     if hasattr(module, "VARIANT"):  # an option with a default, its values the keys

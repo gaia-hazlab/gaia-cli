@@ -1,3 +1,16 @@
+"""PRISM daily 800 m grids, clipped to an AOI.
+
+Data come from the gaia PRISM cache (s3://gaia/public/prism). Grids not yet
+cached are fetched from PRISM, which requires AWS_PROFILE with write access to
+the cache (see dev/prism.md).
+
+Examples
+--------
+    $ AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
+    $ gaia stage prism -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit-prism
+    $ gaia stage prism -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit-prism -v ppt tmin tmax
+"""
+
 from __future__ import annotations
 
 import logging
@@ -24,7 +37,6 @@ EXTENT = {
     "temporal": {"interval": [["1981-01-01T00:00:00Z", None]]},
 }
 KIND = "raster"
-TIMED = True
 # `gaia align` default: area-weighted, so totals and means are preserved
 REGRID_METHOD = "conservative"
 
@@ -111,80 +123,11 @@ def open_prism(
     return ds.rename({v: RENAMES[v] for v in variables if v in RENAMES})
 
 
-def stage(
-    vectorPath: Annotated[str, Parameter(name=["--input", "-i"])],
-    start_date: Annotated[str, Parameter(name=["--start", "-s"])],
-    end_date: Annotated[str, Parameter(name=["--end", "-e"])],
-    output_path: Annotated[str, Parameter(name=["--output", "-o"])],
-    variables: Annotated[
-        tuple[Variable, ...],
-        Parameter(name=["--variables", "-v"], consume_multiple=True),
-    ] = ("ppt",),
-    dry_run: Annotated[bool, Parameter(name=["--dry-run"], negative="")] = False,
-    overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
-    skip_existing: Annotated[
-        bool, Parameter(name=["--skip-existing"], negative="")
-    ] = False,
-):
-    """Stage PRISM daily 800m grids clipped to an AOI.
-
-    Data come from the gaia PRISM cache (s3://gaia/public/prism). Grids not
-    yet cached are fetched from PRISM, which requires AWS_PROFILE with write
-    access to the cache. AWS_PROFILE is also required if writing to S3.
-
-    Parameters
-    ----------
-    vectorPath : str
-        Path to a vector file (e.g. GeoJSON, Shapefile) defining the AOI.
-    start_date : str
-        Start date (inclusive), e.g. '2025-12-01'.
-    end_date : str
-        End date (inclusive), e.g. '2025-12-20'.
-    output_path : str
-        Output folder for the Zarr store (named after the folder), its STAC
-        Item and the resolved stage.yaml.
-    variables : list of str
-        PRISM variables (ppt, tmin, tmax, tmean).
-        Default ppt, written as ``precipitation``; the others keep their
-        names.
-    dry_run : bool
-        Validate the flags, read the AOI and print the resolved configuration
-        without fetching any data.
-    overwrite : bool
-        Write into an output folder that isn't empty, replacing its store.
-        Default False.
-    skip_existing : bool
-        Add to an existing store, unless it already has this dataset's group.
-
-    Examples
-    --------
-    Stage PRISM for Skagit Basin December 2025:
-        $ AOI=https://raw.githubusercontent.com/DSHydro/skagit-met/refs/heads/main/data/GIS/SkagitBoundary.json
-        $ gaia stage prism -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit-prism
-
-    With daily minimum and maximum temperature:
-        $ gaia stage prism -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit-prism -v ppt tmin tmax
-    """
-    from .stagefile import stage_dataset  # stagefile imports this module
-
-    stage_dataset(
-        "prism",
-        vectorPath,
-        start_date,
-        end_date,
-        output_path,
-        dry_run=dry_run,
-        overwrite=overwrite,
-        skip_existing=skip_existing,
-        variables=variables,
-    )
-
-
 def load(
     aoi: gpd.GeoDataFrame,
     start_date: str,
     end_date: str,
-    variables: list[Variable] | tuple[Variable, ...] = ("ppt",),
+    variables: tuple[Variable, ...] = ("ppt",),
 ) -> xr.Dataset:
     """Load PRISM daily grids clipped to *aoi* on their native grid.
 
@@ -200,8 +143,8 @@ def load(
     end_date : str
         End date (inclusive).
     variables : list of str
-        PRISM variables (ppt, tmin, tmax, tmean).
-        Default ``("ppt",)``, returned as ``precipitation``.
+        PRISM variables (ppt, tmin, tmax, tmean). ``ppt`` is returned as
+        ``precipitation``; the others keep their names.
 
     Returns
     -------

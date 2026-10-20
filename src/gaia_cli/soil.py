@@ -1,15 +1,18 @@
+"""Soil property maps, clipped to an AOI.
+
+See dev/soil.md.
+"""
+
 from __future__ import annotations
 
 import logging
 from enum import Enum
-from typing import Annotated
 
 import geopandas as gpd
 import numpy as np
 import rasterio
 import rioxarray
 import xarray as xr
-from cyclopts import Parameter
 
 from . import io, provenance, regrid
 
@@ -23,7 +26,6 @@ EXTENT = {
     "temporal": {"interval": [["2023-12-15T00:00:00Z", "2023-12-15T00:00:00Z"]]},
 }
 KIND = "raster"
-TIMED = False
 # `gaia align` default, as in the landlab workflow contract. statsgo's kffact
 # sets its own (nearest)
 REGRID_METHOD = "bilinear"
@@ -260,6 +262,13 @@ def _load_statsgo(aoi: gpd.GeoDataFrame) -> xr.DataArray:
 def load(aoi: gpd.GeoDataFrame, product: Product = Product.solus100) -> xr.Dataset:
     """*product* soil properties clipped to *aoi* on their native grid, with
     provenance attributes.
+
+    Parameters
+    ----------
+    product : Product
+        ``solus100`` (USDA SOLUS100, CONUS, 100 m): the seven layers landlab
+        reads. ``statsgo`` (USGS, CONUS, 30 m, from 1:250,000 polygons): the
+        K-factor, ``kffact``.
     """
     if Product(product) == Product.statsgo:
         ds = _load_statsgo(aoi).to_dataset()
@@ -275,50 +284,3 @@ def load(aoi: gpd.GeoDataFrame, product: Product = Product.solus100) -> xr.Datas
     ds = xr.Dataset({da.name: da for da in layers})
     ds.attrs = source_attrs(product)
     return ds
-
-
-def stage(
-    vectorPath: Annotated[str, Parameter(name=["--input", "-i"])],
-    output_path: Annotated[str, Parameter(name=["--output", "-o"])],
-    product: Annotated[Product, Parameter(name=["--product", "-p"])] = Product.solus100,
-    dry_run: Annotated[bool, Parameter(name=["--dry-run"], negative="")] = False,
-    overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
-    skip_existing: Annotated[
-        bool, Parameter(name=["--skip-existing"], negative="")
-    ] = False,
-):
-    """Stage soil property maps clipped to an AOI.
-
-    Parameters
-    ----------
-    vectorPath : str
-        Path to a vector file (e.g. GeoJSON, Shapefile) defining the AOI.
-    output_path : str
-        Output folder for the Zarr store (named after the folder), its STAC
-        Item and the resolved stage.yaml.
-    product : Product
-        ``solus100`` (USDA SOLUS100, CONUS, 100 m): the seven layers landlab
-        reads. ``statsgo`` (USGS, CONUS, 30 m, from 1:250,000 polygons): the
-        K-factor, ``kffact``. Default solus100.
-    dry_run : bool
-        Validate the flags, read the AOI and print the resolved configuration
-        without fetching any data.
-    overwrite : bool
-        Write into an output folder that isn't empty, replacing its store.
-        Default False.
-    skip_existing : bool
-        Add to an existing store, unless it already has this dataset's group.
-    """
-    from .stagefile import stage_dataset  # stagefile imports this module
-
-    stage_dataset(
-        "soil",
-        vectorPath,
-        None,
-        None,
-        output_path,
-        dry_run=dry_run,
-        overwrite=overwrite,
-        skip_existing=skip_existing,
-        product=product,
-    )
