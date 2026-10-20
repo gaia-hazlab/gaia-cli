@@ -132,7 +132,7 @@ erosivity R. A is in short tons per acre (t/ac), and R is in hundreds of foot-to
 per acre-hour, the rainfall energy (foot-tons-force) times the peak 30-minute
 intensity (inches per hour). Dividing gives (t/ac) / (100·ft·tonf·in/(ac·h)) =
 t·ac·h/(100·ac·ft·tonf·in): t short tons, ac acres, h hours, ft·tonf foot-tons-force,
-in inches. The acres don't cancel, by convention. A TODO in `soil.py` marks the attribute to check with
+in inches. The acres cancel, but by convention the unit keeps both, to show where it A TODO in `soil.py` marks the attribute to check with
 the authors.
 
 ### Datum
