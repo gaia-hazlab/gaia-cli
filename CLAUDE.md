@@ -13,6 +13,8 @@ pixi run test-online # network smoke tests, marked @pytest.mark.online (skipped 
 
 pixi run typecheck   # ty check src/
 
+pixi run docs        # preview the MyST user docs (docs/); docs-build builds them
+
 # Lint code & format
 pixi run lint        # ruff check --fix + format, src and tests
 pixi run lint-check  # the same, check only (CI)
@@ -46,6 +48,8 @@ src/gaia_cli/
   all.py        # "stage all" – loads every product into an xr.DataTree
 
 tests/          # pytest suite; test_online.py needs network
+docs/           # user docs (MyST, GitHub Pages): keep concise; reference.md is generated
+dev/            # developer notes: design, roadmap, per-dataset details
 ```
 
 

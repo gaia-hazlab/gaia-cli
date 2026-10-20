@@ -63,7 +63,7 @@ def open_prism(
     """Open PRISM daily 800m grids from the gaia S3 cache.
 
     Grids missing from the cache are fetched from PRISM first, which needs
-    ``AWS_PROFILE`` with write access to the cache (see docs/prism.md).
+    ``AWS_PROFILE`` with write access to the cache (see dev/prism.md).
 
     Parameters
     ----------
@@ -189,7 +189,7 @@ def load(
     """Load PRISM daily grids clipped to *aoi* on their native grid.
 
     A PRISM day is 1200–1200 UTC with a day-ending label, so the value for
-    date D covers ``(D-1 12:00, D 12:00]`` UTC (see docs/prism.md).
+    date D covers ``(D-1 12:00, D 12:00]`` UTC (see dev/prism.md).
 
     Parameters
     ----------

@@ -2,7 +2,7 @@
 
 Every run goes through :func:`execute`: a stage file, a built-in preset filled
 in with ``-i``/``-s``/``-e``, or a single dataset's flags (``gaia stage prism``),
-which build the same configuration. See docs/stage-file.md for the file format.
+which build the same configuration. See dev/stage-file.md for the file format.
 """
 
 from __future__ import annotations
@@ -197,7 +197,7 @@ def parse_duration(value):
 def parse_window(
     spec, time: pd.Timestamp | None, name: str | None = None
 ) -> list[Window]:
-    """Resolve a window spec (see docs/stage-file.md) into one or more windows."""
+    """Resolve a window spec (see dev/stage-file.md) into one or more windows."""
     if isinstance(spec, str):
         parts = spec.split("/")
         if len(parts) != 2:
@@ -858,7 +858,7 @@ def stage(
     """Stage every dataset in a stage file, or a built-in preset, into one store.
 
     The file gives the AOIs, time windows and options for each dataset (see
-    docs/stage-file.md). It replaces ``-i``, ``-s``, ``-e`` and dataset
+    dev/stage-file.md). It replaces ``-i``, ``-s``, ``-e`` and dataset
     options, which can't be combined with it. A preset (``conus-precip``) is
     a built-in file without an AOI or window: give those with ``-i``, ``-s``
     and ``-e``.

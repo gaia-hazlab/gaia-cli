@@ -331,7 +331,7 @@ def stage(
     ] = False,
 ):
     """Stage weather station reports from the Synoptic API.
-    Every report is kept, as a CF ragged array (see docs/stations.md).
+    Every report is kept, as a CF ragged array (see dev/stations.md).
     Requires SYNOPTIC_TOKEN environment variable (https://docs.synopticdata.com).
     Requires AWS_PROFILE environment variable if writing to S3.
 

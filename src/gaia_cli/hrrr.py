@@ -196,7 +196,7 @@ def load(
     Precipitation rate (kg m⁻² s⁻¹) is converted to hourly accumulation (mm).
     Averaged variables (``step_type="avg"``) cover the hour ending at ``time``,
     i.e. ``(time - 1h, time]``; instantaneous ones are valid at ``time``
-    (see docs/hrrr.md).
+    (see dev/hrrr.md).
 
     Parameters
     ----------

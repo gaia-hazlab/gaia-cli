@@ -22,7 +22,7 @@ from .soil import stage as stage_soil
 from .stagefile import stage as stage_config
 from .synoptic import stage as stage_synoptic
 
-app = cyclopts.App()
+app = cyclopts.App(name="gaia")
 
 # gaia stage --config {stage.yaml,PRESET} | gaia stage {synoptic,prism,hrrr,nlcd,dem,soil,burn_severity} ...
 stage_app = cyclopts.App(

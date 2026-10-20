@@ -1,0 +1,17 @@
+# User documentation, published to GitHub Pages by .github/workflows/docs.yml.
+# Preview locally with `pixi run docs`. Developer notes live in ../dev/.
+version: 1
+project:
+  title: gaia-cli
+  description: Stage geospatial datasets for an event (an area and a time window) into one Zarr store.
+  github: https://github.com/gaia-hazlab/gaia-cli
+  license: MIT
+  toc:
+    - file: index.md
+    - file: datasets.md
+    - file: cli.md
+    - file: reference.md
+site:
+  template: book-theme
+  options:
+    logo_text: gaia-cli

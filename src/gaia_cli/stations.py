@@ -4,7 +4,7 @@ A ``stations/*`` group holds every report, not a dense grid. Station
 variables (``station``, ``elevation``, ``row_size``, …) lie along the
 ``geometry`` dimension, and each report's ``time`` and values along ``obs``:
 the first ``row_size[0]`` reports belong to the first station, and so on
-(CF ``featureType: timeSeries``). See docs/stations.md.
+(CF ``featureType: timeSeries``). See dev/stations.md.
 
 :func:`to_dataframe` gives the long table and :func:`to_grid` a dense
 ``(geometry, time)`` view. Both accept a group as read from the store
@@ -75,7 +75,7 @@ def to_grid(
     NaN. With ``how="last"`` the values are those reports' values and
     ``<variable>_report_time`` records when each was reported, so a station
     reporting at :28 lags the clock hour by 28 minutes (see
-    docs/precip-timing.md). ``how="sum"`` is for running
+    dev/precip-timing.md). ``how="sum"`` is for running
     totals such as ``precipitation``: the amount in each interval
     ``(t - freq, t]``, the difference of the running total at both ends.
 

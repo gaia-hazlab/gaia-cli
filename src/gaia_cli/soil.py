@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 
 # Written by hand (no STAC Collection): the bounds of the SOLUS100 COGs in
 # EPSG:4326, which hold the STATSGO COG's, and the release date of SOLUS's layer
-# table. Static: the product is an option, not a window. See docs/soil.md.
+# table. Static: the product is an option, not a window. See dev/soil.md.
 EXTENT = {
     "spatial": {"bbox": [[-130.5738, 21.1114, -62.664, 52.3929]]},
     "temporal": {"interval": [["2023-12-15T00:00:00Z", "2023-12-15T00:00:00Z"]]},
@@ -40,7 +40,7 @@ class Product(str, Enum):
 
 SOLUS_URL = "https://storage.googleapis.com/solus100pub"
 
-# The layers landlab reads (docs/soil.md). The COGs hold integers times
+# The layers landlab reads (dev/soil.md). The COGs hold integers times
 # `scalar`, which only Final_Layer_Table_20231215.csv records: the files' own
 # scale is 1.
 SOLUS_LAYERS: dict[str, dict] = {
@@ -243,7 +243,7 @@ def _load_statsgo(aoi: gpd.GeoDataFrame) -> xr.DataArray:
         # TODO: check. USGS's 2025 metadata defines KFFACT as the saturated
         # hydraulic conductivity of the fine soil in inches per hour, but the 1995
         # source calls it the USLE K factor, in (t ac h)/(100 ac ft tonf in).
-        # See docs/soil.md
+        # See dev/soil.md
         "units": "inches per hour",
         "depth": "all",
         "comment": "Thickness-weighted over a map unit's layers, then "
