@@ -75,6 +75,13 @@ def check_burn_severity(ds):
     assert ds.attrs["fire_name"] == "bolt_creek_sbs"
 
 
+def check_statsgo(ds):
+    # STATSGO K factors are 0.02 to 0.62; -0.1 (no K factor) is masked
+    kf = ds.kffact.values[~np.isnan(ds.kffact.values)]
+    assert kf.size and 0 < kf.min() and kf.max() < 0.7
+    assert ds.kffact.attrs["gaia:regrid-method"] == "nearest"
+
+
 @pytest.mark.parametrize(
     "dataset, check, options",
     [
@@ -99,6 +106,7 @@ def check_burn_severity(ds):
         ("dem/usgs10m", check_dem, {}),
         ("soil/solus100", check_soil, {}),
         ("burn_severity", check_burn_severity, {"fire": "bolt creek"}),
+        ("soil/statsgo", check_statsgo, {}),
     ],
 )
 def test_stage(tmp_path, dataset, check, options):

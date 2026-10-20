@@ -123,8 +123,9 @@ frozen dataclass), `core.py` and `cli_run.py`:
 ## Resolved questions
 
 1. **PRISM variables for landlab:** include tmin and tmax (`prism --variables`, PR 1.2).
-2. **Unused `fire-debrisflow-ml` inputs** (STATSGO K-factor, slope/aspect, dNBR): stay
-   deferred.
+2. **Unused `fire-debrisflow-ml` inputs** (slope/aspect, dNBR): stay deferred. The
+   STATSGO K-factor became a required landlab field (`kffact`) and is step 1.5,
+   `soil --product statsgo`.
 3. **Role of the other repos:** gaia-cli is developed independently. gaia-peters-dome
    and landlab_data_prep inform which workflows to support; this plan makes no changes
    to them. After an MVP, their authors can decide whether to adopt gaia-cli.

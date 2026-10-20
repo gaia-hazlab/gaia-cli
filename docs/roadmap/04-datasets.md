@@ -34,9 +34,9 @@ from these layers.
 
 | status | datasets |
 |---|---|
-| Used (Landlab fields or derived soil properties) | DEM (`USGS10m` via bmi-topography; 10 m analysis grid), burn severity SBS, SOLUS100 (all 7 layers are required), NLCD (cohesion, plant functional type, water mask) |
+| Used (Landlab fields or derived soil properties) | DEM (`USGS10m` via bmi-topography; 10 m analysis grid), burn severity SBS, SOLUS100 (all 7 layers are required), NLCD (cohesion, plant functional type, water mask), STATSGO K-factor (`kffact`, a field in the [contract](https://github.com/gaia-hazlab/landlab_data_prep/blob/master/docs/landlab_workflow_contract.md)) |
 | Used outside this repo | PRISM ppt/tmin/tmax, said to be read by `landlab_debrisflow` (not verified; repo not available locally) |
-| Never read | HLS, NISAR, SMAP, Synoptic, STATSGO K-factor (written as `kffact.asc`, but not a field), dNBR |
+| Never read | HLS, NISAR, SMAP, Synoptic, dNBR |
 
 The landlab DEM path has no hard dependency on 3DEP. `dem_type` is a free string passed
 to bmi-topography, with no resolution checks or CONUS logic. The CONUS lock-in comes
@@ -52,11 +52,12 @@ precipitation comparison.
 | **1** | `dem` (Cop30, 3DEP 10 m) | OpenTopography, USGS (VRTs) | landlab (core input); peters (cube only) | The only new dataset both workflows need. See [DEM resolution](#dem-resolution). |
 | 2 | `prism --variables` (tmin, tmax) | existing | landlab (via `landlab_debrisflow`) | Small change to an existing command |
 | 2 | `soil --product solus100` (7 layers) | SOLUS100 COGs on GCS | landlab | CONUS only |
+| 2 | `soil --product statsgo` (K-factor) | USGS COG on S3 | landlab | CONUS only; see [../soil.md](../soil.md#statsgo-k-factor) |
 | 2 | `burn_severity` (SBS) | USFS BAER image service | landlab | Fire-specific; found by AOI (revised in step 1.4, see [burn_severity.md](../burn_severity.md)) |
 | 2 | `seismic`, `infrasound` | EarthScope FDSN | peters | Core of the landslide analysis. See [obspy-dependency.md](obspy-dependency.md). |
 | 2 | `era5` + atmosphere profiles | Open-Meteo | peters | One provider, no key |
 | 2 | `sentinel1-rtc`, `sentinel2` | Planetary Computer | peters | Anonymous. Peters uses PC for S1 and Earth Search for S2; PC also serves S2 L2A, so one provider covers both. |
-| defer | HLS, OPERA RTC-S1, NISAR, SMAP, Landsat, ERA5-Land, ArcticDEM, WorldCover, SoilGrids, STATSGO K-factor, dNBR, geology, glacier datasets, `seismic_lp` | — | none | Staged but never read. Add when a workflow reads them. |
+| defer | HLS, OPERA RTC-S1, NISAR, SMAP, Landsat, ERA5-Land, ArcticDEM, WorldCover, SoilGrids, dNBR, geology, glacier datasets, `seismic_lp` | — | none | Staged but never read. Add when a workflow reads them. |
 
 Priority 1 comes first because both workflows need it. Within priority 2, the landlab
 datasets come first, then Peters Dome ([05](05-pr-sequence.md#ordering)).
@@ -101,7 +102,7 @@ No priority 1–2 dataset needs a new credential.
 | `hls`, `opera-rtc`, `nisar`, `smap` | NASA Earthdata (`EARTHDATA_TOKEN` or `~/.netrc`) | landlab has working code in `earthdata.py`, but nothing reads the outputs. Adds a credential for every user and CI. |
 | `dem` vertical datum conversion | — | EGM2008 ↔ NAVD88 in `gaia align` (TODO in `align.py`) |
 | `arcticdem` (mosaic, strips) | PGC STAC | > 60°N; multitemporal elevation change |
-| `soil --product soilgrids`, STATSGO K-factor | ISRIC / ScienceBase | SoilGrids is global but mostly NaN over ice and rock |
+| `soil --product soilgrids` | ISRIC | SoilGrids is global but mostly NaN over ice and rock |
 | `worldcover` | Planetary Computer | Global land cover, if a non-CONUS workflow needs NLCD's role |
 | `daymet` | ORNL DAAC (Earthdata) / Planetary Computer (to 2020) | Includes Alaska |
 | `itslive`, glacier outlines, geology | ITS_LIVE S3, GLIMS, USGS | Context maps only |
@@ -151,7 +152,7 @@ network call ([02](02-stage-file.md#validation)).
 | `sentinel1-rtc`, `sentinel2` | Planetary Computer collection (`sentinel-1-rtc`, `sentinel-2-l2a`) |
 | `hrrr` | dynamical.org collection, which `hrrr.py` already reads for provenance |
 | `prism` | the gaia PRISM cache's own collection (`prism_cache/stac.py`) |
-| `dem`, `nlcd`, `soil` (SOLUS100), `burn_severity`, `synoptic`, `era5`, `seismic`, `infrasound` | written by hand in the same schema (the provider has no STAC Collection, or none was found yet) |
+| `dem`, `nlcd`, `soil` (SOLUS100, STATSGO), `burn_severity`, `synoptic`, `era5`, `seismic`, `infrasound` | written by hand in the same schema (the provider has no STAC Collection, or none was found yet) |
 
 How the extent is used:
 

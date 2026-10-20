@@ -91,6 +91,11 @@ Example soil staging: the seven SOLUS100 layers (CONUS, 100 m) the landlab workf
 gaia stage soil -i $AOI -o /tmp/skagit-soil
 ```
 
+and the STATSGO K-factor (CONUS, 30 m), also a landlab input:
+```bash
+gaia stage soil -i $AOI -o /tmp/skagit-soil --product statsgo --skip-existing
+```
+
 Example burn severity staging: a USFS BAER soil burn severity map (2017 on), chosen by the AOI and, where several fires intersect it, `--fire` and `--year`, see [docs/burn_severity.md](docs/burn_severity.md)
 ```bash
 gaia stage burn_severity -i pioneer-aoi.geojson -o /tmp/pioneer-sbs --fire pioneer

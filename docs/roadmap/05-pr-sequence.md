@@ -32,6 +32,7 @@ Ordered by the priorities in [04](04-datasets.md#prioritized-new-datasets).
 | 1.2 | `prism --variables` | — | Adds tmin and tmax alongside ppt, at 800 m as today |
 | 1.3 | `soil --product solus100` | 0.2 | The 7 layers landlab requires. CONUS only. |
 | 1.4 | `burn_severity` (SBS) | 0.1 | USFS BAER image service, found by AOI, with `fire`/`year` to choose among overlapping fires (revised from USGS zip downloads and filename templating; see [burn_severity.md](../burn_severity.md)). Skip dNBR, which nothing reads. |
+| 1.5 | `soil --product statsgo` | 1.3 | The STATSGO K-factor (`kffact`), required by the [landlab contract](https://github.com/gaia-hazlab/landlab_data_prep/blob/master/docs/landlab_workflow_contract.md) ([#18 comment](https://github.com/gaia-hazlab/gaia-cli/pull/18#issuecomment-6262020297)). USGS 30 m COG, CONUS only. |
 
 ## Phase 2: Alaska landslide (Peters Dome reference)
 
@@ -57,7 +58,7 @@ to depend on gaia-cli.
 
 NASA Earthdata (`hls`, `opera-rtc`, `nisar`, `smap`), higher-resolution elevation
 (3DEP 1 m, issue #4), vertical datum conversion in `align`, `arcticdem`, `soilgrids`,
-STATSGO K-factor, dNBR, `worldcover`, `daymet`, glacier/ITS_LIVE, `hrrr --domain alaska`,
+a surface K-factor from SSURGO ([../soil.md](../soil.md#alternatives)), dNBR, `worldcover`, `daymet`, glacier/ITS_LIVE, `hrrr --domain alaska`,
 ComCat events as a vector table, `comcat_id` lookup, clearest-scene selection, a JSON
 Schema for `stage.yaml`, GeoParquet tables and Iceberg/Icechunk
 ([03](03-storage.md#recommendation)). None of these is read by a current workflow; see
