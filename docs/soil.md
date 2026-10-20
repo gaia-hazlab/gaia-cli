@@ -125,7 +125,14 @@ as "the saturated hydraulic conductivity of the fine soil (< 2mm) fraction". Tha
 contradicts the source, which defines it as the "actual k factor used in water erosion
 component of universal soil loss equation", and the NRCS definition of `kffact`, in
 t·ac·h/(100·ac·ft·tonf·in) (× 0.1317 for t·ha·h/(ha·MJ·mm)). The values (0.02 to
-0.62) are typical K factors. A TODO in `soil.py` marks the attribute to check with
+0.62) are typical K factors.
+
+That unit follows from USLE, A = R·K·LS·C·P: K is soil loss A per unit of rainfall
+erosivity R. A is in short tons per acre (t/ac), and R is in hundreds of foot-tonf-inch
+per acre-hour, the rainfall energy (foot-tons-force) times the peak 30-minute
+intensity (inches per hour). Dividing gives (t/ac) / (100·ft·tonf·in/(ac·h)) =
+t·ac·h/(100·ac·ft·tonf·in): t short tons, ac acres, h hours, ft·tonf foot-tons-force,
+in inches. The acres don't cancel, by convention. A TODO in `soil.py` marks the attribute to check with
 the authors.
 
 ### Datum
