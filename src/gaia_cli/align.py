@@ -360,6 +360,10 @@ def align(
         "gaia_align": f"grid={target_desc}; time={time_like}; "
         f"method={method or 'per variable'}",
     }
+    # A title that tells it from its input in a catalog
+    title = dt.attrs.get("title")
+    if title and not title.endswith(" (aligned)"):
+        aligned.attrs["title"] = f"{title} (aligned)"
     return aligned
 
 
