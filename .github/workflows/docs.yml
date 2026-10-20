@@ -24,7 +24,7 @@ jobs:
           # Tags, for the package version (hatch-vcs)
           fetch-depth: 0
 
-      - uses: prefix-dev/setup-pixi@v0.10.2
+      - uses: prefix-dev/setup-pixi@v0.11.2
         with:
           environments: docs
           cache: true
