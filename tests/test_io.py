@@ -3,6 +3,7 @@ import json
 import geopandas as gpd
 import numpy as np
 import pytest
+import rasterio
 import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
 from shapely.geometry import box
@@ -140,3 +141,32 @@ def test_save_datatree_keeps_packing_encoding(tmp_path):
     assert raw.dtype == "uint16"
     assert raw.values.tolist() == [[650, 65535]]
     assert xr.open_zarr(path, group="a").ph.values.tolist()[0][0] == 6.5
+
+
+@pytest.mark.parametrize("single_chunk", [True, False])
+def test_save_datatree_is_readable_by_gdal(tmp_path, monkeypatch, single_chunk):
+    # GDAL ignores CF grid_mapping and _FillValue: it needs _CRS and fill_value
+    if not single_chunk:
+        monkeypatch.setattr(io, "_CHUNK_TARGET_BYTES", 0)
+    coords = {"y": [5_000_015.0, 5_000_005.0], "x": [500_005.0, 500_015.0]}
+    sbs = xr.DataArray([[1.0, np.nan], [3.0, 4.0]], coords, ("y", "x"), name="sbs")
+    sbs.encoding = {"dtype": "uint8", "_FillValue": 15}
+    dem = xr.DataArray([[1.5, np.nan], [3.0, 4.0]], coords, ("y", "x"), name="dem")
+    ds = xr.Dataset({"sbs": sbs, "dem": dem}).rio.write_crs("EPSG:32610")
+    path = tmp_path / "t.zarr"
+
+    io.save_datatree(xr.DataTree.from_dict({"rasters/a": ds}), str(path))
+
+    for name, nodata in [("sbs", 15), ("dem", None)]:
+        with rasterio.open(f'ZARR:"{path}":/rasters/a/{name}') as src:
+            assert src.crs.to_epsg() == 32610
+            assert src.transform == rasterio.Affine(10, 0, 500_000, 0, -10, 5_000_020)
+            values = src.read(1, masked=True)
+            assert np.isnan(src.nodata) if nodata is None else src.nodata == nodata
+        np.testing.assert_array_equal(
+            np.ma.filled(values.astype(float), np.nan), ds[name].values
+        )
+    # and xarray reads it as before
+    back = io.open_datatree(str(path))["rasters/a"].to_dataset()
+    np.testing.assert_array_equal(back.sbs.values, sbs.values)
+    assert back.sbs.rio.crs.to_epsg() == 32610

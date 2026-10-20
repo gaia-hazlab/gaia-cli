@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
+from rasterio.features import geometry_mask
 from shapely.geometry import box
 
 from gaia_cli import align, io, regrid
@@ -189,3 +190,82 @@ def test_clip_to_aoi_keeps_native_crs_and_touched_cells():
     assert clipped.rio.crs.to_epsg() == 32610
     # edges at .5 km offsets only touch cells: all_touched keeps 4 x 4 instead of 3 x 3
     assert clipped.notnull().sum().item() >= 16
+
+
+def _geographic(values):
+    # 0.001° cells near 48°N, 120.5°W (UTM zone 10)
+    ny, nx = values.shape
+    da = xr.DataArray(
+        values,
+        coords={
+            "y": 48.1 - 0.001 * (np.arange(ny) + 0.5),
+            "x": -120.6 + 0.001 * (np.arange(nx) + 0.5),
+        },
+        dims=("y", "x"),
+        name="elevation",
+    )
+    return da.rio.write_crs("EPSG:4326").to_dataset()
+
+
+def test_utm_grid_covers_the_aoi_snapped_outward():
+    dt = xr.DataTree.from_dict({"dem/x": _geographic(np.ones((60, 60)))})
+    aoi = gpd.GeoDataFrame(
+        geometry=[box(-120.59, 48.05, -120.555, 48.09)], crs="EPSG:4326"
+    )
+
+    out = align.align(dt, crs="utm", res=10.0, aoi=aoi)["dem/x"].elevation
+
+    assert out.rio.crs.to_epsg() == 32610
+    left, bottom, right, top = out.rio.bounds()
+    for edge in (left, bottom, right, top):
+        assert edge % 10 == pytest.approx(0, abs=1e-6)
+    minx, miny, maxx, maxy = aoi.to_crs(32610).total_bounds
+    assert left <= minx < left + 10 and right - 10 < maxx <= right
+    assert bottom <= miny < bottom + 10 and top - 10 < maxy <= top
+    # The grid keeps its extent; cells whose center is outside the AOI are NaN
+    inside = geometry_mask(
+        aoi.to_crs(32610).geometry,
+        out_shape=out.shape,
+        transform=out.rio.transform(),
+        invert=True,
+    )
+    np.testing.assert_array_equal(out.notnull().values, inside)
+
+
+def test_utm_keeps_an_aois_own_utm_crs():
+    dt = xr.DataTree.from_dict({"dem/x": _geographic(np.ones((10, 10)))})
+    aoi = gpd.GeoDataFrame(
+        geometry=[box(-120.598, 48.092, -120.592, 48.098)], crs="EPSG:4326"
+    ).to_crs("EPSG:26910")  # NAD83 / UTM 10N, not WGS 84's 32610
+    assert align.utm_crs({"dem/x": dt["dem/x"].to_dataset()}, aoi) == "EPSG:26910"
+    assert align.utm_crs({"dem/x": dt["dem/x"].to_dataset()}) == "EPSG:32610"
+
+
+def test_methods_per_group_override_defaults_and_categories():
+    dem = _elevation(1_000, 6)
+    dem.elevation.attrs[regrid.METHOD_ATTR] = "bilinear"
+    classes = _elevation(1_000, 6).rename(elevation="landcover")
+    classes.landcover.attrs["flag_values"] = [1, 2]
+    dt = xr.DataTree.from_dict(
+        {"dem/x": dem, "rasters/nlcd": classes, "rasters/other": _elevation(1_000, 6)}
+    )
+    methods = {"dem/x": "cubic", "rasters/nlcd/landcover": "nearest", "*": "average"}
+
+    out = align.align(dt, crs="EPSG:32610", res=2_000.0, method=methods)
+
+    assert out["dem/x"].elevation.attrs["regrid_method"] == "cubic"
+    assert out["rasters/nlcd"].landcover.attrs["regrid_method"] == "nearest"
+    assert out["rasters/other"].elevation.attrs["regrid_method"] == "average"
+    # "*" leaves categories on mode
+    out = align.align(dt, crs="EPSG:32610", res=2_000.0, method={"*": "average"})
+    assert out["rasters/nlcd"].landcover.attrs["regrid_method"] == "mode"
+
+
+def test_parse_methods():
+    assert align._parse_methods(["bilinear", "dem/usgs10m=cubic"]) == {
+        "*": "bilinear",
+        "dem/usgs10m": "cubic",
+    }
+    assert align._parse_methods([]) is None
+    with pytest.raises(ValueError, match="not one of"):
+        align._parse_methods(["dem/usgs10m=bicubic"])

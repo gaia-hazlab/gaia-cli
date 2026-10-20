@@ -13,12 +13,15 @@ from __future__ import annotations
 import functools
 import logging
 import sys
-from typing import Annotated
+from collections.abc import Mapping
+from typing import Annotated, cast, get_args
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 import xarray as xr
 from cyclopts import Parameter
+from shapely.geometry import box
 
 from . import io, provenance, regrid
 from .aoi import load_aoi
@@ -170,21 +173,57 @@ def _template(ds: xr.Dataset) -> xr.DataArray:
     return da.isel({d: 0 for d in da.dims if d not in ("y", "x")}, drop=True)
 
 
-def _grid_from_crs_res(
-    rasters: dict[str, xr.Dataset], crs: str, res: float
-) -> xr.DataArray:
-    """A grid with *res* spacing in *crs* covering every raster's extent."""
+def _extent(rasters: dict[str, xr.Dataset], crs) -> np.ndarray:
+    """(minx, miny, maxx, maxy) in *crs* covering every raster."""
     bounds = np.array(
         [_template(ds).rio.transform_bounds(crs) for ds in rasters.values()]
     )
-    minx, miny = bounds[:, :2].min(axis=0)
-    maxx, maxy = bounds[:, 2:].max(axis=0)
-    x = np.arange(minx + res / 2, maxx, res)
-    y = np.arange(maxy - res / 2, miny, -res)
+    return np.concatenate([bounds[:, :2].min(axis=0), bounds[:, 2:].max(axis=0)])
+
+
+def utm_crs(rasters: dict[str, xr.Dataset], aoi=None) -> str:
+    """The AOI's own CRS when it is UTM, else the UTM zone of its center (of the
+    rasters' extent without an AOI)."""
+    if aoi is None:
+        aoi = gpd.GeoDataFrame(geometry=[box(*_extent(rasters, 4326))], crs=4326)
+    crs = aoi.crs if aoi.crs.utm_zone else aoi.estimate_utm_crs()
+    return crs.to_string()
+
+
+def _grid_from_crs_res(
+    rasters: dict[str, xr.Dataset], crs: str, res: float, aoi=None
+) -> xr.DataArray:
+    """A grid with *res* spacing in *crs* covering *aoi* (else every raster),
+    its edges snapped outward to multiples of *res*."""
+    if aoi is not None:
+        minx, miny, maxx, maxy = aoi.to_crs(crs).total_bounds
+    else:
+        minx, miny, maxx, maxy = _extent(rasters, crs)
+    # 1e-6 of a cell absorbs float noise in bounds already on a multiple of res
+    minx, miny = (np.floor(v / res + 1e-6) * res for v in (minx, miny))
+    maxx, maxy = (np.ceil(v / res - 1e-6) * res for v in (maxx, maxy))
+    x = minx + res * (np.arange(round((maxx - minx) / res)) + 0.5)
+    y = maxy - res * (np.arange(round((maxy - miny) / res)) + 0.5)
     da = xr.DataArray(
         np.zeros((len(y), len(x))), coords={"y": y, "x": x}, dims=("y", "x")
     )
     return da.rio.write_crs(crs)
+
+
+def _method(
+    method: regrid.Method | Mapping[str, regrid.Method] | None,
+    path: str,
+    da: xr.DataArray,
+) -> regrid.Method:
+    """*da*'s resampling: named for its group or variable, else categorical
+    ``mode``, else the default for every variable, else its dataset's own."""
+    methods = method if isinstance(method, Mapping) else {"*": method}
+    named = methods.get(f"{path}/{da.name}") or methods.get(path)
+    if named:
+        return named
+    if "flag_values" in da.attrs:
+        return "mode"
+    return methods.get("*") or da.attrs.get(regrid.METHOD_ATTR, "nearest")
 
 
 def _cell_area(da: xr.DataArray) -> float:
@@ -211,7 +250,7 @@ def align(
     time_like: str | None = None,
     crs: str | None = None,
     res: float | None = None,
-    method: regrid.Method | None = None,
+    method: regrid.Method | Mapping[str, regrid.Method] | None = None,
     aoi=None,
 ) -> xr.DataTree:
     """Aggregate in time, then regrid once, every raster group in *dt*.
@@ -227,17 +266,23 @@ def align(
     time_like : str, optional
         Group whose time intervals are the target. Default: the coarsest.
     crs, res : optional
-        Explicit target grid instead of ``like``.
-    method : {"conservative", "average", "bilinear", "cubic", "nearest"}, optional
+        Explicit target grid instead of ``like``: *res* spacing in *crs*, over
+        *aoi*'s bounds (else every raster's), snapped outward to multiples of
+        *res*. ``crs="utm"`` picks the AOI's own CRS if it is UTM, else the UTM
+        zone of its center.
+    method : {"conservative", "average", "bilinear", "cubic", "nearest", "mode"} or dict, optional
         Spatial resampling for every continuous variable. Default: each
         variable's ``gaia:regrid-method`` attribute (its dataset's default,
         e.g. ``conservative`` for PRISM and HRRR, ``bilinear`` for DEMs), else
         ``nearest``, as in GDAL and rasterio. ``conservative`` becomes
         ``nearest`` onto a finer grid than the source's, where the two differ
         only along source cell edges. Categorical variables (with
-        ``flag_values``) always use ``mode``.
+        ``flag_values``) use ``mode``. A dict maps groups or group/variable
+        paths to methods, categorical or not, with ``"*"`` for all others,
+        e.g. ``{"dem/usgs10m": "cubic", "*": "bilinear"}``.
     aoi : geopandas.GeoDataFrame, optional
-        If given, clip the output to it (cell centers) in the target CRS.
+        If given, cells whose center is outside it in the target CRS are NaN.
+        The grid keeps its extent.
     """
     nodes = {path: node.to_dataset() for path, node in dt.subtree_with_keys}
     rasters = {p: ds for p, ds in nodes.items() if _is_raster(ds)}
@@ -259,7 +304,9 @@ def align(
 
     # ---- space ---------------------------------------------------------------
     if crs is not None and res is not None:
-        template = _grid_from_crs_res(rasters, crs, res)
+        if crs.lower() == "utm":
+            crs = utm_crs(rasters, aoi)
+        template = _grid_from_crs_res(rasters, crs, res, aoi)
         target_desc = f"{crs} at {res}"
     else:
         like = like or max(
@@ -288,10 +335,7 @@ def align(
             if _same_grid(_template(ds), template):
                 out[name] = da
                 continue
-            if "flag_values" in da.attrs:
-                m = "mode"
-            else:
-                m = method or da.attrs.get(regrid.METHOD_ATTR, "nearest")
+            m = _method(method, p, da)
             if m == "conservative" and target_area < _cell_area(_template(ds)):
                 # Refining: each target cell inside one source cell gets that cell's
                 # value either way, so only cells on source edges differ, and
@@ -303,7 +347,9 @@ def align(
         if aoi is not None:
             # rio.clip on a Dataset fails on non-spatial vars such as time_bounds
             spatial = _raster_vars(out)
-            clipped = out[spatial].rio.clip(aoi.to_crs(template.rio.crs).geometry)
+            clipped = out[spatial].rio.clip(
+                aoi.to_crs(template.rio.crs).geometry, drop=False
+            )
             out = clipped.assign(out.drop_dims(["x", "y"]).data_vars)
         rasters[p] = out
 
@@ -317,6 +363,19 @@ def align(
     return aligned
 
 
+def _parse_methods(specs: list[str]) -> dict[str, regrid.Method] | None:
+    """``["bilinear", "dem/usgs10m=cubic"]`` → ``{"*": "bilinear", "dem/usgs10m": "cubic"}``."""
+    methods = {}
+    for spec in specs:
+        target, _, m = spec.rpartition("=")
+        if m not in get_args(regrid.Method):
+            raise ValueError(
+                f"--method {spec}: {m!r} is not one of {', '.join(get_args(regrid.Method))}"
+            )
+        methods[target or "*"] = cast(regrid.Method, m)
+    return methods or None
+
+
 def run(
     input_path: Annotated[str, Parameter(name=["--input", "-i"])],
     output_path: Annotated[str, Parameter(name=["--output", "-o"])],
@@ -324,7 +383,7 @@ def run(
     time_like: Annotated[str | None, Parameter(name=["--time-like"])] = None,
     crs: Annotated[str | None, Parameter(name=["--crs"])] = None,
     res: Annotated[float | None, Parameter(name=["--res"])] = None,
-    method: Annotated[regrid.Method | None, Parameter(name=["--method", "-m"])] = None,
+    method: Annotated[list[str] | None, Parameter(name=["--method", "-m"])] = None,
     aoi_path: Annotated[str | None, Parameter(name=["--aoi"])] = None,
     overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
 ):
@@ -346,17 +405,21 @@ def run(
     time_like : str
         Group whose time intervals are the target, e.g. ``rasters/prism``. Default: coarsest.
     crs : str
-        Target CRS for an explicit grid (use with ``--res``).
+        Target CRS for an explicit grid (use with ``--res``), or ``utm`` for
+        the UTM zone of the AOI. The grid covers ``--aoi`` (else every raster),
+        its edges snapped outward to multiples of ``--res``.
     res : float
         Target resolution in ``--crs`` units.
-    method : str
-        Spatial resampling for all continuous data: ``conservative``,
-        ``average``, ``bilinear``, ``cubic`` or ``nearest``. Default: each
-        dataset's own (``conservative`` for PRISM and HRRR, ``bilinear`` for
-        DEMs), else ``nearest``. ``conservative`` becomes ``nearest`` onto a
-        finer grid.
+    method : list[str]
+        Spatial resampling: ``conservative``, ``average``, ``bilinear``,
+        ``cubic``, ``nearest`` or ``mode``, for all continuous data, or
+        ``GROUP=METHOD`` (or ``GROUP/VARIABLE=METHOD``) for one dataset,
+        categorical or not. Repeatable. Default: each dataset's own
+        (``conservative`` for PRISM and HRRR, ``bilinear`` for DEMs, ``mode``
+        for categories), else ``nearest``. ``conservative`` becomes
+        ``nearest`` onto a finer grid.
     aoi_path : str
-        Optional vector file; clip the output to it in the target CRS.
+        Optional vector file; cells whose center is outside it are NaN.
     overwrite : bool
         Write into an output folder that isn't empty, replacing its store.
         Default False.
@@ -366,9 +429,13 @@ def run(
     Daily totals on the HRRR 3 km grid:
         $ gaia stage --config conus-precip -i $AOI -s 2025-12-01 -e 2025-12-20 -o skagit-native
         $ gaia align -i skagit-native/skagit-native.zarr -o skagit-daily-3km --aoi $AOI
+
+    A 10 m UTM grid over the AOI, with a cubic DEM:
+        $ gaia align -i pioneer/pioneer.zarr -o pioneer-10m --aoi $AOI --crs utm --res 10 -m dem/usgs10m=cubic
     """
     if (crs is None) != (res is None):
         raise ValueError("--crs and --res must be given together.")
+    methods = _parse_methods(method or [])
     if output_path.rstrip("/").endswith(".zarr"):
         sys.exit(
             "Error: -o is a folder for <name>.zarr and its STAC Item; "
@@ -379,7 +446,7 @@ def run(
     dt = io.open_datatree(input_path)
     aoi = load_aoi(aoi_path) if aoi_path else None
     aligned = align(
-        dt, like=like, time_like=time_like, crs=crs, res=res, method=method, aoi=aoi
+        dt, like=like, time_like=time_like, crs=crs, res=res, method=methods, aoi=aoi
     )
     aligned.attrs = provenance.derived_from(aligned.attrs, input_path)
     io.save_datatree(aligned, store, overwrite=overwrite)

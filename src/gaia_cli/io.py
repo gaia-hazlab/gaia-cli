@@ -203,7 +203,7 @@ def check_s3_env(output_path: str):
 
 
 _CHUNK_TARGET_BYTES = 10 * 1024 * 1024  # 10 MB
-_PACKING = ("dtype", "scale_factor", "add_offset", "_FillValue")
+_PACKING = ("dtype", "scale_factor", "add_offset", "_FillValue", "fill_value")
 
 
 def _packing(var: xr.DataArray) -> dict:
@@ -247,11 +247,21 @@ def _prepare_for_zarr(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
     # Store the CF grid_mapping link in attrs, not encoding: xarray never writes
     # an encoding grid_mapping, yet uses it to drop spatial_ref from the
     # "coordinates" attr, so spatial_ref would reopen as a data variable.
+    # GDAL's Zarr driver reads neither: it takes the CRS from a `_CRS` attribute
+    # and nodata from the array's fill_value, which xarray leaves at 0 for
+    # integers, writing _FillValue only as an attribute (docs/gdal.md)
     if "spatial_ref" in ds.coords:
+        wkt = ds.spatial_ref.attrs.get("crs_wkt")
         for var in ds.data_vars.values():
             if {"x", "y"} <= set(var.dims):
                 var.encoding.pop("grid_mapping", None)
                 var.attrs["grid_mapping"] = "spatial_ref"
+                if wkt:
+                    var.attrs["_CRS"] = {"wkt": wkt}
+    for var in ds.data_vars.values():
+        dtype = np.dtype(var.encoding.get("dtype", var.dtype))
+        if dtype.kind in "iu" and "_FillValue" in var.encoding:
+            var.encoding["fill_value"] = var.encoding["_FillValue"]
     if ds.nbytes <= _CHUNK_TARGET_BYTES:
         ds = ds.load()
         # Tell to_zarr to write each variable as a single chunk

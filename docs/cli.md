@@ -79,8 +79,20 @@ Writes a new store with every raster on one grid and time step. By default it us
 the coarsest of each: for PRISM and HRRR, HRRR's 3 km grid and PRISM's days. Values are
 combined in time according to their `cell_methods` (precipitation is summed). In space
 each dataset uses its own default resampling (conservative for PRISM and HRRR,
-bilinear for DEMs, mode for categories), which `--method` overrides. The input store is
-not changed.
+bilinear for DEMs, mode for categories), which `--method` overrides, for every dataset
+or for one (`-m dem/usgs10m=cubic`). The input store is not changed.
+
+`--crs utm --res 10 --aoi $AOI` builds a grid from the AOI alone: its UTM zone, its
+bounds snapped outward to multiples of 10 m, and NaN in cells whose center is outside
+it. This is the analysis grid of the
+[landlab workflow](https://github.com/gaia-hazlab/landlab_data_prep/blob/master/docs/landlab_workflow_contract.md):
+
+```bash
+gaia align -i pioneer/pioneer.zarr -o pioneer-10m --aoi $AOI --crs utm --res 10 \
+  -m dem/usgs10m=cubic -m rasters/burn-severity=nearest -m rasters/nlcd=nearest
+```
+
+To write GeoTIFF or ESRI ASCII files from the result, use GDAL ([](gdal.md)).
 
 (catalog)=
 ## `gaia catalog rebuild`
