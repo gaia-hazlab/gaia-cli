@@ -8,7 +8,7 @@ Always use `pixi run python ...` when running Python commands. Do NOT create vir
 ```bash
 # Run tests
 pixi run test
-pixi run coverage    # tests + line coverage of src/gaia_cli (pytest-cov), fails below 86% (CI)
+pixi run coverage    # tests + line coverage of src/gaia_cli (pytest-cov), fails below 90% (CI)
 pixi run test-online # network smoke tests, marked @pytest.mark.online (skipped by default)
 
 pixi run typecheck   # ty check src/

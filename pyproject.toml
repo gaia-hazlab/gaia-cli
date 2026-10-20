@@ -3,23 +3,35 @@ authors = [{name = "Scott Henderson", email = "3924836+scottyhq@users.noreply.gi
 name = "gaia-cli"
 requires-python = ">= 3.11"
 version = "0.1.0"
+# Everything src/gaia_cli imports. Pixi installs most of these from
+# conda-forge ([tool.pixi.dependencies]).
 dependencies = [
+  "boto3",
   "cyclopts>=5.2.0,<6",
+  "exactextract",
   "geopandas>=1.2.0,<2",
+  "icechunk>=2.3",
+  "numpy",
+  "obstore>=0.11",
+  "odc-stac>=0.5.3",
+  "pandas",
+  "pyproj",
+  "pystac",
   "pyyaml>=6",
+  "rasterio",
   "requests",
+  "rioxarray>=0.23",
+  "shapely>=2",
   "xarray",
   "xvec>=0.5.2,<0.6",
   "zarr",
-  "pytest>=9.1.1,<10",
-  "ty>=0.0.87,<0.0.88",
-  "ruff>=0.17.0,<0.18"]
+]
 
 [project.optional-dependencies]
 dev = [
-  "pytest",
-  "ty",
-  "ruff"
+  "pytest>=9.1.1,<10",
+  "ty>=0.0.87,<0.0.88",
+  "ruff>=0.17.0,<0.18",
 ]
 
 [project.scripts]
@@ -75,7 +87,7 @@ docs-build = { cmd = "myst build --html", cwd = "docs", depends-on = ["docs-refe
 [tool.pixi.feature.dev.tasks]
 test = { cmd = "pytest", description = "Run the test suite" }
 test-online = { cmd = "pytest -m online", description = "Run the network smoke tests (SYNOPTIC_TOKEN enables synoptic)" }
-coverage = { cmd = "pytest --cov --cov-report=term-missing", description = "Run the tests and report line coverage of src/gaia_cli; fails below 86%" }
+coverage = { cmd = "pytest --cov --cov-report=term-missing", description = "Run the tests and report line coverage of src/gaia_cli; fails below 90%" }
 typecheck = { cmd = "ty check src/", description = "Type-check src/ with ty" }
 lint = { cmd = "ruff check src tests --fix ; ruff format src tests", description = "Fix lint issues and format src/ and tests/" }
 lint-check = { cmd = "ruff check src tests && ruff format --check src tests", description = "Check lint and formatting without changing files (CI)" }
@@ -84,11 +96,12 @@ lint-check = { cmd = "ruff check src tests && ruff format --check src tests", de
 pytest-cov = ">=7.1.0,<8"
 
 [tool.pixi.dependencies]
+# Notebooks only: ipykernel, matplotlib, folium, mapclassify, xyzservices,
+# rustac, pystac-client, python-dotenv
 ipykernel = ">=7.4.0,<8"
 rioxarray = ">=0.23.0,<0.24"
 obstore = ">=0.11.1,<0.12"
 boto3 = ">=1.43.111,<2"
-matplotlib-base = ">=3.11.2,<4"
 folium = ">=0.20.0,<0.21"
 matplotlib = ">=3.11.2,<4"
 mapclassify = ">=2.11.0,<3"
