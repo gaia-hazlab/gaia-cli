@@ -15,7 +15,7 @@ from . import io, provenance
 log = logging.getLogger(__name__)
 
 # Written by hand: Cop30 is global, and covers every usgs10m AOI. Static: the
-# product is an option, not a window. See docs/dem.md.
+# product is an option, not a window. See dev/dem.md.
 EXTENT = {
     "spatial": {"bbox": [[-180.0, -90.0, 180.0, 90.0]]},
     "temporal": {"interval": [["1923-01-01T00:00:00Z", None]]},

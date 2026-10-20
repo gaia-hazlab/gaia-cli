@@ -3,7 +3,7 @@
 Each product's ``load()`` sets *source* attributes (``license``, ``providers``,
 ``links``, ...) on the Dataset it returns. ``io.save_datatree`` adds
 *run* attributes (``created``, ``gaia:cli-version``, ``gaia:command``) to the
-store's root group. See docs/provenance-metadata.md.
+store's root group. See dev/provenance-metadata.md.
 """
 
 from __future__ import annotations

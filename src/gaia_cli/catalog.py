@@ -5,7 +5,7 @@ Every ``gaia stage``/``gaia align`` run writes a STAC Item next to its store
 Items and writes a ``catalog.json`` linking them. Every href is relative, so
 the catalog works wherever the prefix is served (e.g. in stac-browser), and
 rebuilding from a listing drops Items whose store has since been deleted.
-See docs/stac-catalog.md.
+See dev/stac-catalog.md.
 """
 
 from __future__ import annotations

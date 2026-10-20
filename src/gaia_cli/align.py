@@ -2,7 +2,7 @@
 
 Reads a store written by ``gaia stage`` (native grids), aggregates every
 raster in time to the coarsest product's intervals, then regrids once onto
-the coarsest product's grid, and writes a *new* store. See docs/reprojecting.md.
+the coarsest product's grid, and writes a *new* store. See dev/reprojecting.md.
 
 :func:`common_window` and :func:`select_window` pick the time steps that a
 comparison over a requested interval can use.
@@ -277,7 +277,7 @@ def align(
 
     # TODO: convert heights to a common vertical datum. DEMs keep their geoid
     # (``vertical_datum``: cop30 EGM2008, usgs10m NAVD88), so differences
-    # between them include the geoid separation (~1 m). See docs/dem.md.
+    # between them include the geoid separation (~1 m). See dev/dem.md.
     target_area = _cell_area(template)
     for p, ds in rasters.items():
         out = ds.drop_vars(_raster_vars(ds))

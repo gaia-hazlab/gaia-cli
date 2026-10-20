@@ -11,7 +11,7 @@ year, all children of a root Collection::
 For loading, the per-variable items for a day are merged into one item with
 an asset per variable, which ``odc.stac`` expects.
 
-Items are stamped at 00:00 UTC on the PRISM day label (see docs/prism.md);
+Items are stamped at 00:00 UTC on the PRISM day label (see dev/prism.md);
 ``start_datetime``/``end_datetime`` give the actual 1200–1200 UTC period.
 """
 

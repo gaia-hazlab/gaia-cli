@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 # Written by hand (no STAC Collection): the image service's extent in EPSG:4326
 # and its years. Static: the fire is chosen by the AOI and options, not a window.
-# See docs/burn_severity.md.
+# See dev/burn_severity.md.
 EXTENT = {
     "spatial": {"bbox": [[-124.47, 31.44, -76.91, 50.03]]},
     "temporal": {"interval": [["2017-01-01T00:00:00Z", None]]},
