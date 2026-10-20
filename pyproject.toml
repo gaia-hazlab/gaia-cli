@@ -10,8 +10,10 @@ dependencies = [
   "requests",
   "xarray",
   "xvec>=0.5.2,<0.6",
-  "zarr"
-, "pytest>=9.1.1,<10", "ty>=0.0.87,<0.0.88", "ruff>=0.17.0,<0.18"]
+  "zarr",
+  "pytest>=9.1.1,<10",
+  "ty>=0.0.87,<0.0.88",
+  "ruff>=0.17.0,<0.18"]
 
 [project.optional-dependencies]
 dev = [
@@ -42,7 +44,7 @@ source = ["gaia_cli"]
 omit = ["*/gaia_cli/__main__.py"]
 
 [tool.coverage.report]
-fail_under = 86
+fail_under = 90
 skip_covered = true
 
 [build-system]
