@@ -10,6 +10,7 @@ project:
     - file: index.md
     - file: datasets.md
     - file: cli.md
+    - file: gdal.md
     - file: reference.md
 site:
   template: book-theme

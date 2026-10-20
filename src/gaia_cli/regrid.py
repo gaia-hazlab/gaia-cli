@@ -4,7 +4,9 @@
 coverage-weighted mean of the source cells it overlaps, via
 ``xvec.zonal_stats(method="exactextract")``. NaN source cells are skipped
 (xESMF's "conservative_normed"). Other methods delegate to
-``rioxarray.reproject_match`` with the rasterio ``Resampling`` of that name.
+``rioxarray.reproject_match`` with the rasterio ``Resampling`` of that name, and
+the exact transformer (``gdal raster reproject --et 0``): GDAL's default
+approximation moves 10 m DEM values by up to metres, depending on block layout.
 """
 
 from __future__ import annotations
@@ -97,6 +99,6 @@ def regrid(da: xr.DataArray, template: xr.DataArray, method: Method) -> xr.DataA
     if method == "conservative":
         return regrid_conservative(da, template)
     da = da.rio.write_nodata(np.nan, encoded=False) if da.dtype.kind == "f" else da
-    out = da.rio.reproject_match(template, resampling=Resampling[method])
+    out = da.rio.reproject_match(template, resampling=Resampling[method], tolerance=0)
     # reproject_match's x/y can differ from the template's by float noise
     return out.assign_coords(_spatial_coords(template))
