@@ -101,7 +101,7 @@ def rebuild(prefix: Annotated[str, Parameter(name=["--prefix", "-p"])]):
 
     Finds the Items that ``gaia stage``/``gaia align`` write next to their
     stores, skips any whose store was deleted, and writes
-    ``PREFIX/catalog.json``. Requires AWS_PROFILE for an ``s3://`` PREFIX.
+    ``PREFIX/catalog.json``. Requires AWS credentials for an ``s3://`` PREFIX.
 
     Parameters
     ----------

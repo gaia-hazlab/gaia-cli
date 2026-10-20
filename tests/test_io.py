@@ -20,10 +20,15 @@ def test_load_aoi_requires_a_single_polygon(tmp_path):
         load_aoi(str(path))
 
 
-def test_check_s3_env_raises_without_aws_profile(monkeypatch):
-    monkeypatch.delenv("AWS_PROFILE", raising=False)
-    with pytest.raises(ValueError):
+def test_check_s3_env_exits_without_credentials(no_aws_credentials):
+    with pytest.raises(SystemExit, match="no AWS credentials"):
         io.check_s3_env("s3://some-bucket/output.zarr")
+
+
+def test_check_s3_env_accepts_access_keys(no_aws_credentials, monkeypatch):
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+    io.check_s3_env("s3://some-bucket/output.zarr")
 
 
 def test_check_s3_env_local_path_ok():

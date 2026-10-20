@@ -85,7 +85,6 @@ def test_find_json_skips_zarr_stores(tmp_path):
     assert catalog.find_json(io.object_store(str(tmp_path))) == ["a.json"]
 
 
-def test_rebuild_requires_aws_profile_for_s3(monkeypatch):
-    monkeypatch.delenv("AWS_PROFILE", raising=False)
-    with pytest.raises(ValueError):
+def test_rebuild_requires_aws_credentials_for_s3(no_aws_credentials):
+    with pytest.raises(SystemExit, match="no AWS credentials"):
         catalog.rebuild("s3://bucket/scratch")
