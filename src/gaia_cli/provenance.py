@@ -277,9 +277,15 @@ def stac_item(
     if providers:
         props["providers"] = _unique(providers, lambda p: p["name"])
 
+    # The description's first words tell stores from `gaia align` apart in a catalog
+    kind = "gaia aligned store" if "gaia_align" in props else "gaia store"
     groups_desc = ", ".join(n.path.lstrip("/") for n in tree.leaves if n is not tree)
-    if "description" not in props and groups_desc:
-        props["description"] = f"gaia-cli store with groups: {groups_desc}"
+    if "description" in props:
+        props["description"] = f"{kind}: {props['description']}"
+    elif groups_desc:
+        props["description"] = f"{kind} with groups: {groups_desc}"
+    else:
+        props["description"] = kind
 
     box = bbox(tree)
     item = {

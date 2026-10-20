@@ -1,3 +1,5 @@
+import json
+
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -144,6 +146,7 @@ def test_conservative_becomes_nearest_onto_a_finer_grid():
 
 def test_run_writes_a_folder_named_store(tmp_path):
     dt = xr.DataTree.from_dict({"rasters/prism": _daily(), "rasters/hrrr": _hourly()})
+    dt.attrs["title"] = "Skagit"
     native = str(tmp_path / "native.zarr")
     io.save_datatree(dt, native)
     out = tmp_path / "daily"
@@ -151,6 +154,12 @@ def test_run_writes_a_folder_named_store(tmp_path):
     align.run(native, str(out))
 
     assert sorted(p.name for p in out.iterdir()) == ["daily.json", "daily.zarr"]
+    # The Item tells an aligned store from its input
+    props = json.loads((out / "daily.json").read_text())["properties"]
+    assert props["title"] == "Skagit (aligned)"
+    assert props["description"].startswith("gaia aligned store with groups: ")
+    native_props = json.loads((tmp_path / "native.json").read_text())["properties"]
+    assert native_props["description"].startswith("gaia store with groups: ")
     with pytest.raises(SystemExit, match="drop the .zarr"):
         align.run(native, str(tmp_path / "daily.zarr"))
 

@@ -58,7 +58,12 @@ def test_tree_item_merges_groups(tmp_path):
     props = item["properties"]
     assert "license" not in props
     assert props["gaia:license-note"] == provenance.MULTIPLE_LICENSES_NOTE
-    assert props["description"].endswith("rasters/a, rasters/b")
+    assert props["description"] == "gaia store with groups: rasters/a, rasters/b"
+    # a description from the stage file's attrs keeps its text
+    tree.attrs["description"] = "Two rasters"
+    assert provenance.stac_item(tree, "t.zarr")["properties"]["description"] == (
+        "gaia store: Two rasters"
+    )
     assert {lk["href"] for lk in item["links"]} == {
         "https://example.com/CC-BY-4.0",
         "https://example.com/other",
