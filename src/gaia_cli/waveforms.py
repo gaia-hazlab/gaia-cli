@@ -544,4 +544,6 @@ def decoded(ds: xr.Dataset) -> xr.Dataset:
     crs = pyproj.CRS.from_cf(ds[mapping].attrs)
     # xvec doesn't restore the index of a geometry along a non-geometry dim
     out = ds.xvec.decode_cf().set_coords("geometry")
-    return out.set_xindex("geometry", xvec.GeometryIndex, crs=crs)
+    out = out.set_xindex("geometry", xvec.GeometryIndex, crs=crs)
+    out.attrs = dict(ds.attrs)  # decode_cf drops them
+    return out
