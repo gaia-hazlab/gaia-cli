@@ -4,9 +4,10 @@ import numpy as np
 import pandas as pd
 import pytest
 import requests
+import xarray as xr
 from conftest import STATION_HEADER, mseed
 
-from gaia_cli import waveforms
+from gaia_cli import io, waveforms
 from gaia_cli.aoi import load_aoi
 
 T0 = pd.Timestamp("2023-09-14T02:06:00")
@@ -222,3 +223,120 @@ def test_to_groups_splits_rates_and_keeps_the_last_second(fdsn, caplog):
     assert g50.counts.encoding["_FillValue"] == waveforms.FILL
     assert g50.counts.encoding["chunks"] == (1, 500)
     assert "1 channel(s) returned no data" in caplog.text
+
+
+# ---- derived views ---------------------------------------------------------------
+
+
+def groups(fdsn, channels, seconds=10):
+    """Groups of *channels*: ``{seed id: (rate, samples, kwargs for channel())}``,
+    each starting at T0, over ``[T0, T0 + seconds)``."""
+    segments = {}
+    for sid, (rate, data, kw) in channels.items():
+        fdsn.channel(sid, rate=rate, **kw)
+        segments[sid] = [waveforms.Segment(rate, T0.value, np.asarray(data))]
+    end = T0 + seconds * S - pd.Timedelta(microseconds=1)
+    return waveforms.to_groups(table(fdsn), segments, T0, end, (-151.0, 63.0))
+
+
+def test_to_physical_divides_by_sensitivity_and_masks_gaps(fdsn):
+    data = np.full(500, 1000)
+    data[10:20] = waveforms.FILL
+    g = groups(fdsn, {"AK.A..BHZ": (50.0, data, {"scale": 500.0})})["50hz"]
+    v = waveforms.to_physical(g)
+    assert v.name == "velocity" and v.attrs["units"] == "m/s"
+    assert np.isnan(v.values[0, 10:20]).all()
+    assert v.values[0, 0] == 2.0
+    # Also as stored: CF-encoded and read back
+    assert waveforms.to_physical(waveforms.to_dataset(g)).values[0, 0] == 2.0
+
+    g = g.assign_coords(sensitivity_units=("channel", ["m/s**2"]))
+    assert waveforms.to_physical(g).name == "acceleration"
+    both = groups(
+        fdsn,
+        {"AK.B..BHZ": (50.0, data, {}), "AK.B..BDF": (50.0, data, {"units": "Pa"})},
+    )["50hz"]
+    mixed = waveforms.to_physical(both)
+    assert mixed.name == "physical" and "units" not in mixed.attrs
+
+
+def test_to_grid_filters_only_when_downsampling(fdsn, tmp_path):
+    t50, t10 = np.arange(500) / 50, np.arange(100) / 10
+    data = {
+        # 15 Hz is above the 8 Hz corner for a 20 Hz grid
+        "AK.FAST..HHZ": (50.0, 1e6 * np.sin(2 * np.pi * 15 * t50), {}),
+        # 1 Hz passes; at 10 Hz no filter is applied, so a ramp stays exact
+        "AK.FAST..HHN": (50.0, 1e6 * np.sin(2 * np.pi * 1 * t50), {}),
+        "AK.SLOW..LHZ": (10.0, 1000 * t10, {}),
+    }
+    gs = groups(fdsn, data)
+    assert set(gs) == {"10hz", "50hz"}
+    # Store and read back the whole tree, as a user would
+    tree = xr.DataTree.from_dict(
+        {f"waveforms/x/{k}": waveforms.to_dataset(g) for k, g in gs.items()}
+    )
+    io.save_datatree(tree, str(tmp_path / "w.zarr"))
+    stored = io.open_datatree(str(tmp_path / "w.zarr"))["waveforms/x"]
+
+    grid = waveforms.to_grid(stored, rate=20.0, physical=False)
+    # 0 to 9.95 s at 20 Hz, to the last 50 Hz sample
+    assert grid.sizes == {"channel": 3, "time": 200}
+    assert grid.channel.values.tolist() == [
+        "AK.SLOW..LHZ",
+        "AK.FAST..HHN",
+        "AK.FAST..HHZ",
+    ]
+    assert grid.sample_rate.values.tolist() == [10.0, 50.0, 50.0]
+    assert grid.xindexes["geometry"].crs.to_epsg() == 4326
+    assert "20 Hz" in grid.attrs["gaia:to_grid"]
+    middle = slice(40, 160)  # away from the filter's edge effects
+    fast = grid.counts.sel(channel="AK.FAST..HHZ").values[middle]
+    passed = grid.counts.sel(channel="AK.FAST..HHN").values[middle]
+    assert np.abs(fast).max() < 0.02 * 1e6
+    assert np.abs(passed).max() == pytest.approx(1e6, rel=0.05)
+    ramp = grid.counts.sel(channel="AK.SLOW..LHZ").values
+    np.testing.assert_allclose(ramp[:199], 1000 * np.arange(199) / 20, atol=1e-6)
+    assert np.isnan(ramp[199])  # after its last sample, at 9.9 s
+
+
+def test_to_grid_uses_time_offset_and_leaves_gaps_nan(fdsn):
+    data = 100 * np.arange(100.0)  # one count per ms
+    data[40:50] = waveforms.FILL
+    (g,) = groups(fdsn, {"AK.S..LHZ": (10.0, data.astype(int), {})}).values()
+    g = g.assign_coords(time_offset=("channel", np.array([25], "timedelta64[ms]")))
+    grid = waveforms.to_grid(g, rate=20.0, physical=False)
+    v = grid.counts.values[0]
+    # Sample i was recorded at 0.1 i + 0.025 s, so grid time 0.5 s holds 475
+    assert v[10] == pytest.approx(475.0)
+    assert np.isnan(v[0])  # before the first sample
+    assert np.isnan(v[79:100]).all() and not np.isnan(v[[78, 101]]).any()
+
+
+def test_by_component_maps_horizontals_by_azimuth(fdsn, caplog):
+    data = np.ones(500)
+    gs = groups(
+        fdsn,
+        {
+            "AK.A..BHZ": (50.0, data, {}),
+            "AK.A..BH1": (50.0, data, {"azimuth": 2.0}),
+            "AK.A..BH2": (50.0, data, {"azimuth": 92.0}),
+            "AK.B.00.HHZ": (50.0, 2 * data, {"lat": 63.5}),
+            "AK.B.00.HH1": (50.0, 2 * data, {"lat": 63.5, "azimuth": 30.0}),
+        },
+    )
+    grid = waveforms.to_grid(gs["50hz"], rate=50.0)
+    out = waveforms.by_component(grid)
+    assert out.velocity.dims == ("station", "component", "time")
+    assert out.station.values.tolist() == ["AK.A", "AK.B.00"]
+    assert out.component.values.tolist() == ["Z", "N", "E", "1"]
+    assert out.channel.values.tolist() == [
+        ["AK.A..BHZ", "AK.A..BH1", "AK.A..BH2", ""],
+        ["AK.B.00.HHZ", "", "", "AK.B.00.HH1"],
+    ]
+    assert np.isnan(out.velocity.sel(station="AK.B.00", component="N")).all()
+    assert out.distance_km.dims == ("station",)
+    assert out.xindexes["geometry"].crs.to_epsg() == 4326
+    assert waveforms.component("BHN", np.nan) == "N"
+    assert waveforms.component("BH1", np.nan) == "1"
+    with pytest.raises(ValueError, match="no waveform groups"):
+        waveforms.to_grid(xr.DataTree())

@@ -28,6 +28,7 @@ import requests
 import shapely
 import xarray as xr
 import xvec
+from scipy import signal
 from shapely.geometry import Point
 
 log = logging.getLogger(__name__)
@@ -547,3 +548,203 @@ def decoded(ds: xr.Dataset) -> xr.Dataset:
     out = out.set_xindex("geometry", xvec.GeometryIndex, crs=crs)
     out.attrs = dict(ds.attrs)  # decode_cf drops them
     return out
+
+
+# ---- derived views ---------------------------------------------------------------
+
+# Physical quantity of each sensitivity unit
+QUANTITIES = {
+    "m/s": "velocity",
+    "m/s**2": "acceleration",
+    "m": "displacement",
+    "Pa": "pressure",
+}
+COMPONENTS = ("Z", "N", "E", "1", "2")
+
+
+def _counts(ds: xr.Dataset) -> xr.DataArray:
+    """``counts`` as floats, gaps NaN, as read from the store or not."""
+    da = ds.counts
+    if da.dtype.kind in "iu":
+        da = da.where(da != da.encoding.get("_FillValue", FILL))
+    return da.astype("float64")
+
+
+def to_physical(ds: xr.Dataset) -> xr.DataArray:
+    """A waveform group's counts / sensitivity, in each channel's
+    ``sensitivity_units``.
+
+    Named for the quantity (``velocity`` in m/s for seismometers,
+    ``acceleration``, ``pressure`` in Pa) when every channel has the same
+    units, else ``physical``. Dividing by the sensitivity alone assumes a
+    flat response, true of broadband sensors well inside their passband
+    (see dev/seismic.md).
+    """
+    ds = decoded(ds)
+    units = sorted(set(ds.sensitivity_units.values.tolist()))
+    da = _counts(ds) / ds.sensitivity
+    da.attrs = {"long_name": "counts / sensitivity"}
+    if len(units) == 1:
+        da.name = QUANTITIES.get(units[0], "physical")
+        da.attrs["units"] = units[0]
+    else:
+        da.name = "physical"
+        da.attrs["comment"] = "units differ by channel: see sensitivity_units"
+    return da
+
+
+def _resample(
+    t: np.ndarray, x: np.ndarray, grid: np.ndarray, sos: np.ndarray | None
+) -> np.ndarray:
+    """*x* at times *t* (s), low-passed with *sos* per contiguous run of
+    samples and linearly interpolated at *grid*; NaN outside every run."""
+    out = np.full(len(grid), np.nan)
+    good = ~np.isnan(x)
+    edges = np.flatnonzero(np.diff(np.concatenate([[0], good.astype(int), [0]])))
+    for a, b in zip(edges[::2].tolist(), edges[1::2].tolist(), strict=True):
+        run = x[a:b]
+        if sos is not None and b - a > 1:
+            run = signal.sosfiltfilt(
+                sos, run, padlen=min(3 * (2 * len(sos) + 1), b - a - 1)
+            )
+        inside = (grid >= t[a]) & (grid <= t[b - 1])
+        out[inside] = np.interp(grid[inside], t[a:b], run)
+    return out
+
+
+def _groups(obj: xr.DataTree | xr.Dataset) -> list[xr.Dataset]:
+    if isinstance(obj, xr.Dataset):
+        return [decoded(obj)]
+    return [decoded(n.to_dataset()) for n in obj.subtree if "counts" in n.dataset]
+
+
+def to_grid(
+    obj: xr.DataTree | xr.Dataset, rate: float = 20.0, physical: bool = True
+) -> xr.Dataset:
+    """Every channel of a ``waveforms/*`` group on one common time grid.
+
+    Channels sampled faster than *rate* are first low-passed at 0.4 × *rate*
+    (4th-order Butterworth, zero phase, per contiguous run of samples), then
+    every channel is linearly interpolated from its true sample times
+    (``time + time_offset``) onto a grid at *rate* spanning every group.
+    Gaps, and times outside a channel's data, are NaN.
+
+    Parameters
+    ----------
+    obj : xarray.DataTree or xarray.Dataset
+        A dataset's node (e.g. ``tree["waveforms/seismic"]``) with one child
+        per rate, or one rate's group; as read from the store or as returned
+        by ``load()``.
+    rate : float
+        Target sample rate in Hz. Default 20.
+    physical : bool
+        Grid counts / sensitivity (:func:`to_physical`) rather than counts.
+
+    Returns
+    -------
+    xarray.Dataset
+        One variable on ``(channel, time)``, the channel coordinates of every
+        group (``sample_rate`` the native one), with the geometry's xvec index.
+    """
+    groups = _groups(obj)
+    if not groups:
+        raise ValueError("no waveform groups (with counts) found")
+    start = min(g.time.values[0] for g in groups)
+    end = max(g.time.values[-1] for g in groups)
+    span = (end - start) / np.timedelta64(1, "ns") / 1e9
+    n = int(np.floor(span * rate + 1e-9)) + 1
+    grid = np.arange(n) / rate
+    parts = []
+    for g in groups:
+        values = to_physical(g) if physical else _counts(g)
+        native = float(g.sample_rate.values[0])
+        sos = (
+            signal.butter(4, 0.4 * rate, fs=native, output="sos")
+            if native > rate
+            else None
+        )
+        out = np.empty((g.sizes["channel"], n))
+        for i in range(g.sizes["channel"]):
+            t = g.time.values + g.time_offset.values[i]
+            seconds = (t - start) / np.timedelta64(1, "ns") / 1e9
+            out[i] = _resample(seconds, values.values[i], grid, sos)
+        coords = g.drop_indexes("geometry").drop_vars(["time", "time_offset"]).coords
+        name = values.name or "counts"
+        parts.append(
+            xr.Dataset({name: (("channel", "time"), out, values.attrs)}, coords=coords)
+        )
+    ds = xr.concat(parts, dim="channel", combine_attrs="drop_conflicts")
+    ds = ds.assign_coords(
+        time=start + np.round(grid * 1e9).astype("int64").astype("timedelta64[ns]")
+    )
+    ds = ds.set_xindex("geometry", xvec.GeometryIndex, crs=pyproj.CRS(4326))
+    ds.attrs = {
+        **groups[0].attrs,
+        "gaia:to_grid": f"{rate:g} Hz: anti-alias low-pass at {0.4 * rate:g} Hz "
+        "(4th-order Butterworth, zero phase) where faster, then linear "
+        "interpolation from time + time_offset",
+    }
+    return ds
+
+
+def component(code: str, azimuth: float) -> str:
+    """A channel's component: its last letter, with ``1``/``2`` read as ``N``/``E``
+    when its azimuth is within 5° of 0°/90° (as peters-dome's ``_component``)."""
+    c = code[-1]
+    if c in "ZNE" or np.isnan(azimuth):
+        return c
+    az = azimuth % 180
+    if min(az, 180 - az) <= 5:
+        return "N"
+    if abs(az - 90) <= 5:
+        return "E"
+    return c
+
+
+def by_component(ds: xr.Dataset) -> xr.Dataset:
+    """A :func:`to_grid` result on ``(station, component, time)``.
+
+    ``station`` is ``NET.STA.LOC`` (``NET.STA`` for an empty location) and
+    ``component`` the present ones of Z, N, E, 1, 2 (see :func:`component`).
+    Station coordinates come from each station's first channel, and
+    ``channel`` holds the SEED id of each (station, component), ``""`` where
+    there is none.
+    """
+    (name,) = ds.data_vars
+    ids = [
+        ".".join(p for p in (net, sta, loc) if p)
+        for net, sta, loc in zip(
+            ds.network.values, ds.station.values, ds.location.values, strict=True
+        )
+    ]
+    comps = [
+        component(c, a) for c, a in zip(ds.code.values, ds.azimuth.values, strict=True)
+    ]
+    stations = list(dict.fromkeys(ids))
+    order = [c for c in COMPONENTS if c in comps]
+    order += sorted(set(comps) - set(COMPONENTS))
+    values = np.full((len(stations), len(order), ds.sizes["time"]), np.nan)
+    channel = np.full((len(stations), len(order)), "", dtype=object)
+    first: dict[str, int] = {}
+    for i, (sid, comp) in enumerate(zip(ids, comps, strict=True)):
+        s, c = stations.index(sid), order.index(comp)
+        if channel[s, c]:
+            log.info("%s: %s already has a %s channel", ds.channel.values[i], sid, comp)
+            continue
+        values[s, c] = ds[name].values[i]
+        channel[s, c] = ds.channel.values[i]
+        first.setdefault(sid, i)
+    rows = ds.drop_indexes("geometry").isel(channel=[first[s] for s in stations])
+    per_station = ("network", "elevation", "geometry", "distance_km", "back_azimuth")
+    out = xr.Dataset(
+        {name: (("station", "component", "time"), values, ds[name].attrs)},
+        coords={
+            "station": stations,
+            "component": order,
+            "time": ds.time.values,
+            "channel": (("station", "component"), channel),
+            **{k: ("station", rows[k].values, rows[k].attrs) for k in per_station},
+        },
+        attrs=ds.attrs,
+    )
+    return out.set_xindex("geometry", xvec.GeometryIndex, crs=pyproj.CRS(4326))
