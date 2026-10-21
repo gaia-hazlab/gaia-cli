@@ -70,3 +70,17 @@ gh workflow run stage.yml \
   --field copy_to_s3=true
 ```
 
+
+`stage-event.yml` stages a whole stage file: a path in the repository or an http(s)
+URL (whose AOIs are then URLs or inline). It can then align the store and write
+Landlab inputs from it. The stores go to `s3://gaia/scratch/github-workflows/<name>`
+and `<name>-aligned`; every output folder is also kept as an artifact for 7 days.
+
+```bash
+gh workflow run stage-event.yml \
+  --field config=examples/pioneer.yaml \
+  --field name=pioneer \
+  --field align="--crs utm --res 10 --aoi examples/pioneer-aoi.geojson -m dem/usgs10m=cubic -m soil/solus100=bilinear -m rasters/nlcd=nearest -m rasters/burn-severity=nearest" \
+  --field landlab_inputs=true \
+  --field copy_to_s3=true
+```
