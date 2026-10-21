@@ -303,11 +303,71 @@ def test_run_writes_one_group_per_dataset(tmp_path, monkeypatch):
 
     # Read a day beyond each end; the exclusive end becomes load()'s inclusive end
     assert calls == [
-        ("prism", "2023-05-31T00:00:00", "2023-09-22T23:59:59", ("ppt", "tmax"))
+        ("prism", "2023-05-31T00:00:00", "2023-09-22T23:59:59.999999", ("ppt", "tmax"))
     ]
     tree = xr.open_datatree(out / "bolt-creek.zarr", engine="zarr")
     assert tree.attrs["title"] == "Bolt Creek"
     assert tree["rasters/prism"].attrs["title"] == "prism"
+
+
+def test_module_pad_and_origin_reach_load(tmp_path, monkeypatch, capsys):
+    calls = []
+
+    def load(aoi, start_date, end_date, origin: dict | None = None):
+        calls.append((start_date, end_date, origin))
+        return xr.Dataset({"v": ("time", [1.0])})
+
+    monkeypatch.setattr(prism, "load", load)
+    monkeypatch.setattr(prism, "PAD", pd.Timedelta(0), raising=False)
+    text = CONUS.replace(
+        "window: 2023-06-01/2023-09-21",
+        "time: 2023-09-14T02:06:49Z\n"
+        "origin: {latitude: 47.7, longitude: -121.3}\n"
+        "window: {before: 1009s, after: 1391s}",
+    )
+    config = write(tmp_path, text + "  prism: {}\n")
+    runner.stage(config=config, dry_run=True)
+    entry = stagefile.yaml.safe_load(capsys.readouterr().out)["datasets"]["prism"]
+    # origin is not an option, and the window is read unpadded
+    assert set(entry) == {"group", "aoi", "aoi_bbox", "window", "read"}
+    assert entry["read"] == entry["window"] == "2023-09-14T01:50:00/2023-09-14T02:30:00"
+
+    runner.stage(config=config, output_path=str(tmp_path / "out"))
+    # The last microsecond before the window's end, not the last second
+    assert calls == [
+        (
+            "2023-09-14T01:50:00",
+            "2023-09-14T02:29:59.999999",
+            {"latitude": 47.7, "longitude": -121.3},
+        )
+    ]
+
+
+def test_a_datatree_from_load_is_mounted_under_the_group(tmp_path, monkeypatch):
+    def load(aoi, start_date, end_date):
+        child = xr.Dataset({"v": ("time", [1.0])}, attrs={"title": "child"})
+        tree = xr.DataTree.from_dict({"50hz": child, "100hz": child})
+        tree.attrs = {"note": "parent"}
+        return tree
+
+    monkeypatch.setattr(prism, "load", load)
+    monkeypatch.setattr(
+        prism, "to_dataset", lambda ds: ds.assign(w=ds.v), raising=False
+    )
+    out = tmp_path / "out"
+    runner.stage(config=write(tmp_path, CONUS + "  prism: {}\n"), output_path=str(out))
+    tree = xr.open_datatree(out / "bolt-creek.zarr", engine="zarr")
+    assert set(tree["rasters/prism"].children) == {"50hz", "100hz"}
+    assert tree["rasters/prism"].attrs["note"] == "parent"
+    # Each child goes through the module's to_dataset
+    assert set(tree["rasters/prism/50hz"].data_vars) == {"v", "w"}
+    assert tree["rasters/prism/100hz"].attrs["title"] == "child"
+    # --skip-existing sees the group as written
+    runner.stage(
+        config=write(tmp_path, CONUS + "  prism: {}\n"),
+        output_path=str(out),
+        skip_existing=True,
+    )
 
 
 # ---- registry and extent -----------------------------------------------------
@@ -506,7 +566,9 @@ def test_flags_run_through_the_same_runner(tmp_path, monkeypatch):
         ],
         result_action="return_value",
     )
-    assert calls == [("prism", "2025-11-30T00:00:00", "2025-12-21T23:59:59", ("tmax",))]
+    assert calls == [
+        ("prism", "2025-11-30T00:00:00", "2025-12-21T23:59:59.999999", ("tmax",))
+    ]
     # Named after the output folder
     tree = xr.open_datatree(out / "skagit.zarr", engine="zarr")
     assert tree["rasters/prism"].attrs["title"] == "prism"

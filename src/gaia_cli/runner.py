@@ -37,11 +37,13 @@ from .stagefile import (
     load_config,
     options,
     outside_extent,
+    pad,
     parse_config,
     plain,
     presets,
     read_config,
     resolved,
+    takes_origin,
     timed,
     write_stage_file,
 )
@@ -70,27 +72,31 @@ def run(
         module = DATASETS[req.dataset]
         kwargs = dict(req.options)
         if req.windows:
-            w = req.windows[0].padded()
+            w = req.windows[0].padded(pad(module))
             assert w.start is not None and w.end is not None  # checked in load_config
-            # load() takes inclusive bounds; the window's end is exclusive
+            # load() takes inclusive bounds; the window's end is exclusive. One
+            # microsecond before it keeps a waveform's last second, and gives
+            # daily and hourly datasets the same steps as one second would
             kwargs["start_date"] = w.start.isoformat()
-            kwargs["end_date"] = (w.end - pd.Timedelta(seconds=1)).isoformat()
+            kwargs["end_date"] = (w.end - pd.Timedelta(microseconds=1)).isoformat()
+        if takes_origin(module):
+            kwargs["origin"] = cfg.origin
         log.info(
             "%s: loading (%s)",
             req.name,
-            f"{req.windows[0]}, read as {req.windows[0].padded()}"
+            f"{req.windows[0]}, read as {req.windows[0].padded(pad(module))}"
             if req.windows
             else "static",
         )
         try:
             obj = module.load(aois[aoi_key(req.aoi)], **kwargs)
-            # Station data is xvec CF-encoded for the store
-            node = module.to_dataset(obj) if module.KIND == "stations" else obj
+            nodes = _nodes(module, group(req), obj)
             if method := getattr(module, "REGRID_METHOD", None):
-                for var in node.data_vars.values():
-                    if {"x", "y"} <= set(var.dims):
-                        var.attrs.setdefault(regrid.METHOD_ATTR, method)
-            tree = xr.DataTree.from_dict({group(req): node})
+                for node in nodes.values():
+                    for var in node.data_vars.values():
+                        if {"x", "y"} <= set(var.dims):
+                            var.attrs.setdefault(regrid.METHOD_ATTR, method)
+            tree = xr.DataTree.from_dict(nodes)
             tree.attrs = dict(cfg.attrs)
             io.save_datatree(
                 tree, store, overwrite=overwrite, append=append, assets=assets
@@ -104,6 +110,26 @@ def run(
     # cleanup can crash sys.excepthook on Python 3.14
     FILE_CACHE.clear()
     return failures
+
+
+def _nodes(module, path: str, obj: xr.Dataset | xr.DataTree) -> dict[str, xr.Dataset]:
+    """The store groups for what *module*'s ``load()`` returned: a Dataset at
+    the dataset's group *path*, or each child of a DataTree under it (e.g.
+    ``waveforms/seismic/50hz``), with the tree's own attrs on *path*.
+
+    Station and waveform data is CF-encoded for the store with the module's
+    ``to_dataset``.
+    """
+    encode = getattr(module, "to_dataset", lambda ds: ds)
+    if not isinstance(obj, xr.DataTree):
+        return {path: encode(obj)}
+    nodes = {
+        f"{path}/{name}": encode(child.to_dataset())
+        for name, child in obj.children.items()
+    }
+    if obj.attrs:
+        nodes[path] = xr.Dataset(attrs=obj.attrs)
+    return nodes
 
 
 def execute(
