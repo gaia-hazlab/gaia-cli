@@ -1,0 +1,19 @@
+# Pioneer Fire, WA (2024): the landlab workflow's reference event. Its required inputs
+# (DEM, burn severity, SOLUS soil, STATSGO K-factor, land cover), plus station and PRISM
+# precipitation for the December 2025 atmospheric river. Check with --dry-run, then stage:
+#   gaia stage --config examples/pioneer.yaml --dry-run
+#   gaia stage --config examples/pioneer.yaml -o /tmp/pioneer
+# pioneer-landlab.ipynb aligns the result onto the landlab grid over the same AOI.
+name: pioneer
+attrs:
+  title: Pioneer Fire landlab inputs, with the December 2025 atmospheric river
+aoi: pioneer-aoi.geojson            # relative to this file; also gaia align --aoi
+window: 2025-12-01/2025-12-16       # whole days, end included; static layers ignore it
+datasets:
+  dem/usgs10m: {}
+  burn-severity: {fire: pioneer, year: 2024}   # the AOI meets five BAER fires
+  soil/solus100: {}
+  soil/statsgo: {}
+  nlcd: {year: 2021}
+  prism: {variables: [ppt, tmin, tmax]}
+  synoptic: {}

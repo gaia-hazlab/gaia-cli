@@ -55,7 +55,7 @@ For a station reporting at :28:
 
 Neither label equals the clock hour. The new one never includes rain that had not
 fallen by the timestamp, which is what code like
-`precip.sel(time=t1) - precip.sel(time=t0)` assumes (see `precip-example.ipynb`). The
+`precip.sel(time=t1) - precip.sel(time=t0)` assumes (see `examples/skagit-precip.ipynb`). The
 offset is now visible in `report_time` rather than hidden.
 
 For gaps, consider a station that reports at 01:00 and then next at 04:00:
