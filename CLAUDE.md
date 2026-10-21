@@ -48,12 +48,14 @@ src/gaia_cli/
   regrid.py       # per-array spatial regridding methods
   presets/        # built-in stage files (conus-precip)
   stations.py     # ragged-array helpers for station data: to_dataframe, to_grid
+  waveforms.py    # FDSN station/dataselect, miniSEED decoding, native-rate groups; to_physical, to_grid
   prism_cache/    # rolling S3 cache of PRISM COGs (no other gaia_cli imports)
   datasets/       # one module per data source (load(), EXTENT, KIND; see dev/adding-a-dataset.md)
     __init__.py   # DATASETS registry: name -> module
     synoptic.py   # Synoptic API station reports (CF ragged array)
     prism.py      # PRISM daily grids (from prism_cache); also `gaia prism fill`
     hrrr.py       # HRRR analysis (Icechunk)
+    seismic.py    # EarthScope FDSN waveforms, raw counts per sample rate (uses waveforms.py)
     nlcd.py, dem.py, soil.py, burn_severity.py   # static layers
 
 tests/          # pytest suite; test_online.py needs network

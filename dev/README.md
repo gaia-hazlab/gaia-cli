@@ -10,7 +10,7 @@ published at <https://gaia-hazlab.github.io/gaia-cli/>.
 | [stage-file.md](stage-file.md) | full stage file grammar: AOIs, windows, coverage, output folder |
 | [provenance-metadata.md](provenance-metadata.md) | provenance attributes in each store |
 | [stac-catalog.md](stac-catalog.md) | STAC Items and `gaia catalog rebuild` |
-| [prism.md](prism.md), [hrrr.md](hrrr.md), [stations.md](stations.md), [precip-timing.md](precip-timing.md), [dem.md](dem.md), [soil.md](soil.md), [burn-severity.md](burn-severity.md) | per-dataset details: sources, grids, time conventions, caveats |
+| [prism.md](prism.md), [hrrr.md](hrrr.md), [stations.md](stations.md), [precip-timing.md](precip-timing.md), [dem.md](dem.md), [soil.md](soil.md), [burn-severity.md](burn-severity.md), [seismic.md](seismic.md) | per-dataset details: sources, grids, time conventions, caveats |
 | [backblaze.md](backblaze.md) | Backblaze B2 setup |
 | [releasing.md](releasing.md) | versions from git tags; cutting a release |
 

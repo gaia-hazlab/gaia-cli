@@ -211,6 +211,12 @@ several assets:
 
    The move is mechanical: write each ragged group with `to_dataframe().to_parquet()`
    and add it as an asset.
+
+   **Zarr vs Parquet watch.** Phase 2 waveform and channel data start in the single
+   Zarr store on purpose, as a test of its ergonomics. Friction there is a reason to
+   propose option B: string and geometry coordinates, xvec CF encoding and decoding,
+   multi-rate groups, and channel tables that are awkward to query. Record what comes
+   up in [Ergonomics notes](#ergonomics-notes).
 4. **Revisit C when either trigger occurs:**
    - (a) we stage many events and want one queryable catalog across them (FlowAlert
      batches, an Alaska landslide inventory), or
@@ -220,6 +226,39 @@ several assets:
    NSLC codes, sample rate and start time on each channel, which is everything needed to
    build an `obspy.Stream`. gaia-cli has no obspy dependency, so that conversion stays
    in users' own code ([obspy-dependency.md](obspy-dependency.md)).
+
+### Ergonomics notes
+
+What came up while storing data in the single Zarr store, for the watch in
+[Recommendation](#recommendation) item 3.
+
+**`seismic` (PR 2.1).** Each sample rate is a group (`waveforms/seismic/50hz`, …) with
+`counts` on `(channel, time)` and 16 channel coordinates. It works, and a Peters Dome
+event (157 channels, 40 min) stages in about 12 s into 21 MB. The friction:
+
+- **xvec on a non-geometry dimension.** Channels of one station share a point, so
+  `geometry` is a coordinate along `channel`, not a dimension as in `stations/*`.
+  `xvec.set_geom_indexes` refuses it (it expects an existing index), so the code uses
+  `set_xindex(..., xvec.GeometryIndex)`. `encode_cf` handles it, but `decode_cf`
+  returns `geometry` as an unindexed data variable and drops the group's attrs.
+  gaia-cli needed `waveforms.decoded()` to restore both, and `provenance._bbox` a
+  fallback for the CRS.
+- **Encoding clutter.** The CF geometry encoding adds `geometry_container`,
+  `spatial_ref`, `x`/`y` on a `node` dimension and `lon`/`lat` per channel: five
+  variables and a dimension that readers have to skip past, for 3 to 150 points.
+- **Integer fill values.** `io._prepare_for_zarr` dropped an int32 `_FillValue` when it
+  wrote a small group as one chunk (fixed in this PR). Masked counts read back as
+  float64, twice the memory, unless `mask_and_scale=False`.
+- **Channel table across rates.** "Which channels does station X have?" means walking
+  every rate group and concatenating coordinates; `to_grid` does this for the data. A
+  `seismic_channels` table (option B) would answer it in one read, and would hold the
+  channels that returned no data, which the arrays can't.
+- **Strings were fine.** `io` stores `<U` coordinates as variable-length strings; empty
+  location codes and SEED ids round-trip and read back as numpy `StringDType`.
+
+None of this is blocking: the helpers hide it. The channel-table point is the one that
+would grow with infrasound arrays (2.2) and with stations that come and go across
+windows.
 
 ## Resolved questions
 

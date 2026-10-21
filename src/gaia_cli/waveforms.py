@@ -207,7 +207,7 @@ def select_epochs(
     for sid, epochs in active.groupby(seed_ids(active), sort=False):
         if epochs.sensitivity.nunique() > 1:
             log.warning(
-                "%s: sensitivity changes in the window (%s); using the first epoch's",
+                "%s: sensitivity changes in the window (%s); using the window start's",
                 sid,
                 ", ".join(f"{s:g}" for s in epochs.sensitivity),
             )
