@@ -4,6 +4,7 @@ import typing
 import numpy as np
 import pandas as pd
 import pytest
+import requests
 import xarray as xr
 
 from gaia_cli import regrid, runner, stagefile
@@ -136,6 +137,48 @@ def test_relative_aoi_paths_resolve_against_the_file(tmp_path):
         write(tmp_path, "name: x\naoi: a.geojson\ndatasets: {nlcd: {}}\n")
     )
     assert cfg.requests[0].aoi == str(tmp_path / "a.geojson")
+
+
+# ---- stage files read from a URL -------------------------------------------
+
+URL = "https://example.com/events/stage.yaml"
+
+
+def serve(monkeypatch, text, status=200):
+    """Answer the download of URL with *text*."""
+
+    def get(url, timeout):
+        assert url == URL
+        r = requests.Response()
+        r.status_code, r._content, r.url = status, text.encode(), url
+        return r
+
+    monkeypatch.setattr(stagefile.requests, "get", get)
+
+
+def test_stage_file_from_a_url(monkeypatch, capsys):
+    serve(monkeypatch, PETERS)
+    runner.stage(config=URL, dry_run=True)
+    assert "aoi_bbox: [-152.2, 62.75, -150.2, 63.55]" in capsys.readouterr().out
+
+
+def test_stage_file_from_a_url_gives_aois_as_urls_or_inline(monkeypatch):
+    serve(
+        monkeypatch,
+        "name: x\naoi: a.geojson\n"
+        "aois: {b: /data/b.geojson, c: 'https://example.com/c.geojson'}\n"
+        "datasets: {nlcd: {}}\n",
+    )
+    with pytest.raises(stagefile.StageFileError) as e:
+        stagefile.load_config(URL)
+    local = [p.split(":")[0] for p in e.value.problems if "local path" in p]
+    assert local == ["aois.b", "aoi"]
+
+
+def test_stage_file_url_that_fails(monkeypatch):
+    serve(monkeypatch, "Not Found", status=404)
+    with pytest.raises(stagefile.StageFileError, match="404"):
+        stagefile.load_config(URL)
 
 
 # ---- whole files -----------------------------------------------------------

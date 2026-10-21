@@ -125,6 +125,10 @@ or the run is interrupted, the groups already written are complete and readable.
 | GeoJSON geometry | `{intersects: {type: Polygon, coordinates: [...]}}` |
 | circle, radius in km | `{latitude: 63.1455, longitude: -151.1904, radius_km: 400}` |
 
+A stage file read from a URL (`gaia stage --config https://…/stage.yaml`) can't use
+paths, relative or absolute: they would name files on the machine running it, not
+next to the stage file. Its AOIs are URLs or inline.
+
 Every AOI must be a single Polygon: a file with one Polygon feature, or an
 `intersects` Polygon. MultiPolygons and files with several features aren't
 supported yet. The same rule applies to `-i` and `gaia align --aoi`.

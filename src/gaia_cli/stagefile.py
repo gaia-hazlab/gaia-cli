@@ -19,6 +19,7 @@ from typing import Any
 
 import geopandas as gpd
 import pandas as pd
+import requests
 import shapely
 import yaml
 
@@ -142,11 +143,23 @@ def presets() -> list[str]:
     return sorted(p.stem for p in PRESETS.glob("*.yaml"))
 
 
+def is_url(path: str) -> bool:
+    """Whether *path* is a stage file to download rather than a local file."""
+    return path.startswith(("http://", "https://"))
+
+
 def read_config(path: str) -> dict:
-    """The YAML document in *path*; raise :class:`StageFileError` if unreadable."""
+    """The YAML document at *path* (a local file or an http(s) URL); raise
+    :class:`StageFileError` if unreadable."""
     try:
-        doc = yaml.safe_load(Path(path).read_text())
-    except (OSError, yaml.YAMLError) as e:
+        if is_url(path):
+            r = requests.get(path, timeout=60)
+            r.raise_for_status()
+            text = r.text
+        else:
+            text = Path(path).read_text()
+        doc = yaml.safe_load(text)
+    except (OSError, requests.RequestException, yaml.YAMLError) as e:
         raise StageFileError(path, [str(e)]) from None
     if not isinstance(doc, dict):
         raise StageFileError(path, ["the file must be a mapping of keys to values"])
@@ -155,13 +168,16 @@ def read_config(path: str) -> dict:
 
 def load_config(path: str) -> StageConfig:
     """Read and validate a stage file; raise :class:`StageFileError` listing
-    every problem found. No network calls are made."""
-    return parse_config(read_config(path), path, Path(path).resolve().parent)
+    every problem found. No network calls are made, except to download a
+    stage file given as a URL, whose AOIs must then be URLs or inline."""
+    base_dir = None if is_url(path) else Path(path).resolve().parent
+    return parse_config(read_config(path), path, base_dir)
 
 
-def parse_config(doc: dict, path: str, base_dir: Path) -> StageConfig:
+def parse_config(doc: dict, path: str, base_dir: Path | None) -> StageConfig:
     """Validate a stage file's contents; relative AOI paths resolve against
-    *base_dir*, and *path* names the source in errors."""
+    *base_dir* (``None`` allows no AOI paths), and *path* names the source in
+    errors."""
     problems = unknown(doc, TOP_KEYS, "key")
 
     def check(where: str, fn, *args):

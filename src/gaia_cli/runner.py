@@ -32,6 +32,7 @@ from .stagefile import (
     StageConfig,
     StageFileError,
     group,
+    is_url,
     load_aois,
     load_config,
     options,
@@ -240,7 +241,8 @@ def stage(
     Parameters
     ----------
     config : str
-        Path to a ``stage.yaml`` file, or the name of a preset.
+        Path or http(s) URL of a ``stage.yaml`` file, or the name of a
+        preset. A file read from a URL gives its AOIs as URLs or inline.
     aoi_path : str
         With a preset only: path to a vector file defining the AOI.
     start_date : str
@@ -299,6 +301,8 @@ def stage(
             if any(window.values()):
                 doc["window"] = {k: v for k, v in window.items() if v is not None}
             cfg = parse_config(doc, config, Path.cwd())
+        elif is_url(config):
+            cfg = load_config(config)
         elif not Path(config).exists():
             raise StageFileError(
                 config,
