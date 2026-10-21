@@ -14,7 +14,8 @@ pixi run gaia stage --config conus-precip \
   -s 2025-12-01 -e 2025-12-20 -o skagit
 ```
 
-See [precip-example.ipynb](precip-example.ipynb) for an analysis of the result.
+See [examples/skagit-precip.ipynb](examples/skagit-precip.ipynb) for an analysis of the result, and
+[examples/pioneer-landlab.ipynb](examples/pioneer-landlab.ipynb) for staging Landlab inputs.
 
 ## Development
 

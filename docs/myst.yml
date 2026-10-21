@@ -11,6 +11,10 @@ project:
     - file: datasets.md
     - file: cli.md
     - file: gdal.md
+    - title: Examples
+      children:
+        - file: ../examples/skagit-precip.ipynb
+        - file: ../examples/pioneer-landlab.ipynb
     - file: reference.md
 site:
   template: book-theme

@@ -36,7 +36,9 @@ gdal raster convert cec7.tif cec7.asc
 
 `unscale` applies the `scale_factor` of packed integers (soil properties), or only
 casts otherwise, but keeps the old nodata value (65535 here); `calc` writes every
-nodata cell as -9999.
+nodata cell as -9999. [`scripts/landlab-inputs.sh`](https://github.com/gaia-hazlab/gaia-cli/blob/main/scripts/landlab-inputs.sh)
+does this for every layer the landlab workflow reads; the
+[Pioneer Fire example](../examples/pioneer-landlab.ipynb) runs it.
 
 Some things to know:
 
