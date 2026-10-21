@@ -59,6 +59,8 @@ gaia stage --config skagit.yaml -o skagit --only prism,hrrr
   `{latitude: 48.5, longitude: -121.5, radius_km: 20}`.
 - A dataset that fails doesn't stop the others. Rerun with `--skip-existing` to retry
   only the failed ones.
+- `--config` can be an http(s) URL, e.g. a stage file in another repository. Its AOIs
+  must then be URLs or inline, not paths.
 
 A **preset** is a built-in stage file without an AOI or window. `conus-precip` stages
 Synoptic, PRISM and HRRR precipitation:

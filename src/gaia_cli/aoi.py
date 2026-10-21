@@ -14,10 +14,19 @@ import yaml
 AOI_FORMS = ({"bbox"}, {"intersects"}, {"latitude", "longitude", "radius_km"})
 
 
-def parse_aoi(spec, base_dir: Path) -> str | dict:
-    """Check an AOI path, URL or inline geometry; resolve relative paths."""
+def parse_aoi(spec, base_dir: Path | None) -> str | dict:
+    """Check an AOI path, URL or inline geometry; resolve relative paths against
+    *base_dir*. With no *base_dir* (a stage file read from a URL), paths aren't
+    allowed."""
     if isinstance(spec, str):
-        if "://" in spec or Path(spec).is_absolute():
+        if "://" in spec:
+            return spec
+        if base_dir is None:
+            raise ValueError(
+                f"{spec} is a local path; a stage file read from a URL gives "
+                "its AOIs as URLs or inline"
+            )
+        if Path(spec).is_absolute():
             return spec
         path = base_dir / spec
         if not path.exists():
