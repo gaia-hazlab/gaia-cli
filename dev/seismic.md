@@ -58,38 +58,77 @@ fails is logged and skipped, so the other stations are kept (as in peters-dome).
 ## Store layout
 
 ```
-waveforms/seismic/
-  50hz/     counts (channel, time) int32, ...
+waveforms/seismic/            provenance attributes
+  sites/      one row per position (NET.STA.LOC), along an xvec geometry dimension
+  channels/   one row per channel requested (NET.STA.LOC.CHA), with or without data
+  40hz/       counts (channel, time) int32, site and time_offset along channel
+  50hz/
   100hz/
-  40hz/
 ```
 
-Each sample rate is its own group, named `<rate>hz` (`%g`: `50hz`, `0.1hz`,
-`12.5hz`). Rates come from the **data**, not the metadata, with float jitter rounded
-(within 1e-4 of a whole number of Hz, else to 1e-6 Hz). A channel whose data mixes
-rates keeps the rate with most samples, with a warning.
+The metadata is normalized into two small tables, so each fact is stored once, and the
+counts refer to them by id:
 
-| name | dims | notes |
-|---|---|---|
-| `counts` | `(channel, time)` | int32 raw counts; gaps hold the fill value −2³¹, which xarray masks to NaN (as float64) on read. `xr.open_datatree(..., mask_and_scale=False)` keeps int32. Chunks: one channel by up to an hour of samples. |
-| `channel` | `(channel)` | SEED id `NET.STA.LOC.CHA`, e.g. `AK.BPAW..BHZ` |
-| `network`, `station`, `location`, `code` | `(channel)` | the SEED codes; `location` is often `""` |
-| `geometry` | `(channel)` | shapely Point (lon, lat), EPSG:4326, xvec-encoded in the store |
-| `elevation`, `depth` | `(channel)` | m |
-| `azimuth`, `dip` | `(channel)` | degrees |
-| `sensitivity`, `sensitivity_frequency`, `sensitivity_units` | `(channel)` | overall sensitivity in counts per `sensitivity_units` (lowercased, `m/s` for seismometers, `m/s**2` for accelerometers) at a frequency in Hz |
-| `sample_rate` | `(channel)` | Hz, of the data |
-| `distance_km`, `back_azimuth` | `(channel)` | from the origin, on WGS84 (pyproj `Geod`); back azimuth is from the station to the origin, clockwise from north |
-| `time_offset` | `(channel)` | timedelta, see below |
+- **`sites`** has one row per position, `NET.STA.LOC` (`NET.STA` for an empty
+  location, e.g. `AK.BPAW`). It is laid out like a `stations/*` group, along an xvec
+  `geometry` dimension, so xvec CF-encodes and decodes it with its index, and the STAC
+  Item's bbox comes from it. A station's three components share one site; an
+  infrasound array's elements (2.2) are separate sites, by location code.
+- **`channels`** has one row per channel requested, including channels that returned
+  no data (their `group` is `""`), so the request is recorded in full.
+- **One group per sample rate**, named `<rate>hz` (`%g`: `50hz`, `0.1hz`, `12.5hz`),
+  holds only the counts and what is needed to place them in time. Rates come from the
+  **data**, not the metadata, with float jitter rounded (within 1e-4 of a whole number
+  of Hz, else to 1e-6 Hz). A channel whose data mixes rates keeps the rate with most
+  samples, with a warning.
 
-Group attributes: the provenance fields (`title`, `license`, `providers`, `links` to
-both services, `start_datetime`/`end_datetime`), `processing`, `networks`,
-`gaia:origin` (`latitude`, `longitude` and `source`: the stage file's origin or the AOI
-centroid) and `gaia:query` (the service URL and FDSN codes).
+`sites` (dimension `geometry`):
 
-Read a group with `gaia_cli.waveforms.decoded(ds)`, which restores the shapely
-geometries and their xvec index (xvec's own `decode_cf` doesn't for a geometry along a
-non-geometry dimension).
+| name | notes |
+|---|---|
+| `geometry` | shapely Point (lon, lat), EPSG:4326, xvec-encoded in the store; a site's first channel (by SEED id) gives its position, logged if its channels differ |
+| `site` | `NET.STA.LOC` |
+| `network`, `station`, `location` | the SEED codes; `location` is often `""` |
+| `elevation` | m |
+| `distance_km`, `back_azimuth` | from the origin, on WGS84 (pyproj `Geod`); back azimuth is from the site to the origin, clockwise from north |
+
+`channels` (dimension `channel`):
+
+| name | notes |
+|---|---|
+| `channel` | SEED id `NET.STA.LOC.CHA`, e.g. `AK.BPAW..BHZ` |
+| `site` | the channel's row in `sites` |
+| `code` | channel code, e.g. `BHZ` |
+| `depth` | m below the site |
+| `azimuth`, `dip` | degrees |
+| `sensitivity`, `sensitivity_frequency`, `sensitivity_units` | overall sensitivity in counts per `sensitivity_units` (lowercased, `m/s` for seismometers, `m/s**2` for accelerometers) at a frequency in Hz |
+| `sample_rate` | Hz, of the data (of the metadata for a channel without data) |
+| `group` | the rate group holding its counts, `""` if it returned no data |
+
+Each rate group (dimensions `channel`, `time`):
+
+| name | notes |
+|---|---|
+| `counts` | `(channel, time)` int32 raw counts; gaps hold the fill value −2³¹, which xarray masks to NaN (as float64) on read. `xr.open_datatree(..., mask_and_scale=False)` keeps int32. Chunks: one channel by up to an hour of samples. |
+| `site` | `(channel)`, the channel's row in `sites` |
+| `time_offset` | `(channel)` timedelta, see below |
+
+Attributes on `waveforms/seismic` itself: the provenance fields (`title`, `license`,
+`providers`, `links` to both services, `start_datetime`/`end_datetime`), `processing`,
+`networks` (those with data, to cite), `gaia:origin` (`latitude`, `longitude` and
+`source`: the stage file's origin or the AOI centroid) and `gaia:query` (the service
+URL and FDSN codes).
+
+To look up a channel's metadata, select the tables by id:
+
+```python
+node = tree["waveforms/seismic"]
+counts = node["50hz"].counts
+meta = node["channels"].to_dataset().sel(channel=counts.channel)
+sites = node["sites"].to_dataset().xvec.decode_cf()
+```
+
+The helpers below do these joins.
 
 ## Time
 
@@ -108,7 +147,7 @@ later one wins (logged).
 
 ## Units
 
-Physical units are `counts / sensitivity` (`waveforms.to_physical`), velocity in m/s for
+Physical units are `counts / sensitivity` (`waveforms.to_physical(node, "50hz")`), velocity in m/s for
 the HH and BH broadband channels. This assumes a flat response at the sensitivity's
 frequency, which is not a full deconvolution (see
 [roadmap/obspy-dependency.md](roadmap/obspy-dependency.md)). Compared with obspy
@@ -125,16 +164,20 @@ staged counts in your own environment.
 `(channel, time)` grid: a zero-phase 4th-order Butterworth low-pass at 0.4 × rate
 (`scipy.signal.sosfiltfilt`, per contiguous run of samples, only for channels sampled
 faster than `rate`), then linear interpolation from each sample's true time. Gaps stay
-NaN. `waveforms.by_component(grid)` reshapes it to `(station, component, time)` with
-Z/N/E (and 1/2, read as N/E within 5° of 0°/90°), the layout peters-dome's report
-plots:
+NaN. Channels without data are left out, and the columns of `channels` and `sites`
+(but not `geometry`) become coordinates along `channel`. `waveforms.by_component(grid,
+node["sites"])` reshapes it to `(geometry, component, time)` with Z/N/E (and 1/2, read
+as N/E within 5° of 0°/90°), the layout peters-dome's report plots, with the sites'
+variables along `geometry` as `stations.to_grid` gives for station reports:
 
 ```python
 from gaia_cli import io, waveforms
 
 tree = io.open_datatree("peters-dome-seismic/peters-dome-seismic.zarr")
-grid = waveforms.to_grid(tree["waveforms/seismic"], rate=20)  # velocity, m/s
-z = waveforms.by_component(grid).velocity.sel(component="Z").sortby("distance_km")
+node = tree["waveforms/seismic"]
+grid = waveforms.to_grid(node, rate=20)  # velocity, m/s
+z = waveforms.by_component(grid, node["sites"]).velocity.sel(component="Z")
+z = z.sortby("distance_km")
 ```
 
 ## Why not seisfetch or obspy

@@ -10,9 +10,9 @@ module has:
   clip it to the AOI, with no I/O. Timed datasets take `start_date` and `end_date`
   (inclusive); static layers take neither. The runner passes the window's end less one
   microsecond as `end_date`. `load()` may instead return an `xr.DataTree`, whose
-  children are written under the dataset's group (`seismic`: one per sample rate,
-  `waveforms/seismic/50hz`), each through the module's `to_dataset` if it has one,
-  and the tree's own attrs on the group.
+  children are written under the dataset's group (`seismic`: `sites`, `channels`
+  and one per sample rate, `waveforms/seismic/50hz`), each through the module's
+  `to_dataset` if it has one, and the tree's own attrs on the group.
 - **`EXTENT`**: a STAC Collection `extent` (`{"spatial": {"bbox": [[w, s, e, n]]},
   "temporal": {"interval": [[start, end]]}}`, `None` for an open end). Copy it from
   the provider's STAC Collection when there is one, otherwise write it by hand,
@@ -20,8 +20,8 @@ module has:
   extent the AOI or window misses ([stage-file.md](stage-file.md#coverage)).
 - **`KIND`**: `"raster"` (group `rasters/<name>`), `"stations"` (group
   `stations/<name>`, xvec CF-encoded with the module's `to_dataset`) or
-  `"waveforms"` (group `waveforms/<name>`, one child per sample rate; see
-  [seismic.md](seismic.md)).
+  `"waveforms"` (group `waveforms/<name>`, with `sites` and `channels` tables and one
+  child per sample rate; see [seismic.md](seismic.md)).
 
 and optionally:
 

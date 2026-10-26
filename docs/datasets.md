@@ -105,13 +105,15 @@ distance).
   A station with HH and BH channels gives HHZ, HHN and HHE only. `--network`,
   `--station` and `--location` take FDSN codes with `?` and `*` wildcards.
 - Stored as **raw counts at each channel's native rate**, one group per rate
-  (`waveforms/seismic/50hz`, `.../100hz`), with each channel's coordinates,
-  orientation, sensitivity, `distance_km` and `back_azimuth` from the stage file's
-  `origin` (else the AOI's centroid). Gaps are NaN on read.
+  (`waveforms/seismic/50hz`, `.../100hz`), next to two tables: `sites` (one row per
+  station position, with `distance_km` and `back_azimuth` from the stage file's
+  `origin`, else the AOI's centroid) and `channels` (one row per channel requested,
+  with its orientation, sensitivity and the group holding its data). Gaps are NaN on
+  read.
 - Samples snap to a grid starting at the window's start; `time_offset` gives each
   channel's true sample times, `time + time_offset`.
-- `gaia_cli.waveforms.to_physical(ds)` gives velocity (m/s) as counts / sensitivity,
-  and `gaia_cli.waveforms.to_grid(tree["waveforms/seismic"], rate=20)` puts every
-  channel on one common grid.
+- With `node = tree["waveforms/seismic"]`, `gaia_cli.waveforms.to_physical(node,
+  "50hz")` gives velocity (m/s) as counts / sensitivity, and
+  `gaia_cli.waveforms.to_grid(node, rate=20)` puts every channel on one common grid.
 - The window is read exactly, without the one-day padding of other datasets.
-- License: set by each seismic network; each group lists its `networks`.
+- License: set by each seismic network; `waveforms/seismic` lists its `networks`.

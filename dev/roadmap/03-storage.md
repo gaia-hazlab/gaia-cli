@@ -232,33 +232,39 @@ several assets:
 What came up while storing data in the single Zarr store, for the watch in
 [Recommendation](#recommendation) item 3.
 
-**`seismic` (PR 2.1).** Each sample rate is a group (`waveforms/seismic/50hz`, …) with
-`counts` on `(channel, time)` and 16 channel coordinates. It works, and a Peters Dome
-event (157 channels, 40 min) stages in about 12 s into 21 MB. The friction:
+**`seismic` (PR 2.1).** The first version put all channel metadata, including an xvec
+`geometry`, as 16 coordinates along `channel` in each rate group. That hit two problems:
 
 - **xvec on a non-geometry dimension.** Channels of one station share a point, so
-  `geometry` is a coordinate along `channel`, not a dimension as in `stations/*`.
-  `xvec.set_geom_indexes` refuses it (it expects an existing index), so the code uses
-  `set_xindex(..., xvec.GeometryIndex)`. `encode_cf` handles it, but `decode_cf`
-  returns `geometry` as an unindexed data variable and drops the group's attrs.
-  gaia-cli needed `waveforms.decoded()` to restore both, and `provenance._bbox` a
-  fallback for the CRS.
-- **Encoding clutter.** The CF geometry encoding adds `geometry_container`,
-  `spatial_ref`, `x`/`y` on a `node` dimension and `lon`/`lat` per channel: five
-  variables and a dimension that readers have to skip past, for 3 to 150 points.
+  `geometry` could not be the dimension, as it is in `stations/*`. `encode_cf` handled
+  it, but `decode_cf` returned `geometry` as an unindexed data variable and dropped the
+  group's attrs, so the code needed a `decoded()` helper and a CRS fallback in
+  `provenance._bbox`.
+- **Channel table across rates.** "Which channels does station X have?" meant walking
+  every rate group, and channels that returned no data had nowhere to go.
+
+Both went away by normalizing, still in Zarr: a `sites` group (one row per
+`NET.STA.LOC` along an xvec `geometry` dimension, the `stations/*` layout xvec handles
+fully), a `channels` group (every channel requested, with the group holding its
+counts), and rate groups holding only `counts`, `site` and `time_offset`
+([../seismic.md](../seismic.md#store-layout)). Remaining friction:
+
+- **Joins by id.** Reading a channel's sensitivity or distance means selecting the
+  tables by `channel` or `site`; `waveforms.to_physical`, `to_grid` and `by_component`
+  do it, and `xarray` `.sel` makes it one line otherwise.
+- **Encoding clutter in `sites`.** The CF geometry encoding adds `geometry_container`,
+  `spatial_ref`, `x`/`y` on a `node` dimension and `lon`/`lat`, as for `stations/*`;
+  `xvec.decode_cf()` removes them.
 - **Integer fill values.** `io._prepare_for_zarr` dropped an int32 `_FillValue` when it
   wrote a small group as one chunk (fixed in this PR). Masked counts read back as
   float64, twice the memory, unless `mask_and_scale=False`.
-- **Channel table across rates.** "Which channels does station X have?" means walking
-  every rate group and concatenating coordinates; `to_grid` does this for the data. A
-  `seismic_channels` table (option B) would answer it in one read, and would hold the
-  channels that returned no data, which the arrays can't.
-- **Strings were fine.** `io` stores `<U` coordinates as variable-length strings; empty
+- **Strings were fine.** `io` stores `<U` variables as variable-length strings; empty
   location codes and SEED ids round-trip and read back as numpy `StringDType`.
 
-None of this is blocking: the helpers hide it. The channel-table point is the one that
-would grow with infrasound arrays (2.2) and with stations that come and go across
-windows.
+Nothing is blocking. The `sites` convention (positions along a `geometry` dimension,
+data referring to them by id) is shared with `stations/*`, so one helper can sample
+rasters at any station's position. If the tables are wanted outside xarray (QGIS,
+DuckDB), `sites` and `channels` are the first candidates for option B.
 
 ## Resolved questions
 
