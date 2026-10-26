@@ -2,8 +2,8 @@
 
 Channels at stations inside the AOI, one band per station (the first of
 --channel it has, e.g. HH before BH). Each sample rate is its own group
-(waveforms/seismic/50hz, ...); velocity is counts / sensitivity. See
-dev/seismic.md.
+(waveforms/seismic/50hz, ...), next to the sites and channels tables;
+velocity is counts / sensitivity. See dev/seismic.md.
 
 Examples
 --------
@@ -18,6 +18,7 @@ import datetime as dt
 import logging
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import xarray as xr
 
@@ -117,8 +118,9 @@ def load(
     Returns
     -------
     xarray.DataTree
-        Children named by sample rate (``50hz``, ``100hz``, …), each with
-        ``counts`` on ``(channel, time)``; see :mod:`gaia_cli.waveforms`.
+        Children ``sites`` and ``channels`` (tables), and one per sample rate
+        (``50hz``, ``100hz``, …) with ``counts`` on ``(channel, time)``; see
+        :mod:`gaia_cli.waveforms`. Provenance attributes are on the tree.
     """
     start, end = _time(start_date), _time(end_date)
     url = waveforms.FDSN_URL
@@ -141,7 +143,7 @@ def load(
     if not segments:
         raise RuntimeError("no waveform data returned")
     used = _origin(aoi, origin)
-    groups = waveforms.to_groups(
+    groups = waveforms.to_tree(
         table, segments, start, end, (used["longitude"], used["latitude"])
     )
     query = {
@@ -155,17 +157,24 @@ def load(
         provenance.link("via", f"{url}/station/1/", title="FDSN station service"),
         provenance.link("via", f"{url}/dataselect/1/", title="FDSN dataselect service"),
     ]
-    for name, ds in groups.items():
-        ds.attrs = {
-            **PROVENANCE,
-            "links": links,
-            **provenance.time_extent(ds),
-            "networks": sorted(set(ds.network.values.tolist())),
-            "gaia:origin": used,
-            "gaia:query": query,
-        }
+    rates = {k: g for k, g in groups.items() if k not in waveforms.TABLES}
+    if not rates:
+        raise RuntimeError("no waveform data returned for the channels requested")
+    for name, ds in rates.items():
         log.info("%s: %d channel(s), %d samples each", name, *ds.counts.shape)
-    return xr.DataTree.from_dict(groups)
+    times = np.concatenate([g.time.values[[0, -1]] for g in rates.values()])
+    # The networks to cite: those with data
+    networks = {s.split(".")[0] for g in rates.values() for s in g.site.values}
+    tree = xr.DataTree.from_dict(groups)
+    tree.attrs = {
+        **PROVENANCE,
+        "links": links,
+        **provenance.time_extent(xr.Dataset(coords={"time": times})),
+        "networks": sorted(networks),
+        "gaia:origin": used,
+        "gaia:query": query,
+    }
+    return tree
 
 
 def to_dataset(ds: xr.Dataset) -> xr.Dataset:

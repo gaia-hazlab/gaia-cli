@@ -2,9 +2,16 @@
 
 The FDSN station service gives the channels in the AOI with their metadata
 (``format=text``), and dataselect their miniSEED, which pymseed decodes. A
-``waveforms/*`` group has one child per sample rate (``50hz``, ``100hz``, …),
-each a ``counts`` array on ``(channel, time)`` with channel metadata as 1-D
-coordinates along ``channel``. See dev/seismic.md.
+``waveforms/*`` group has these children (see dev/seismic.md):
+
+- ``sites``: one row per position (``NET.STA.LOC``) along an xvec
+  ``geometry`` dimension, like a ``stations/*`` group, with ``site`` ids,
+  ``elevation``, ``distance_km`` and ``back_azimuth``;
+- ``channels``: one row per channel requested (``NET.STA.LOC.CHA``), with its
+  ``site``, orientation, ``sensitivity`` and the ``group`` holding its counts
+  (empty for a channel that returned no data);
+- one group per sample rate (``50hz``, ``100hz``, …): ``counts`` on
+  ``(channel, time)``, with ``site`` and ``time_offset`` along ``channel``.
 
 Each rate's time axis starts at the window's start, one step per sample. A
 channel's samples go at the nearest step, and ``time_offset`` records the
@@ -27,7 +34,6 @@ import pyproj
 import requests
 import shapely
 import xarray as xr
-import xvec
 from scipy import signal
 from shapely.geometry import Point
 
@@ -42,6 +48,8 @@ STATIONS_PER_REQUEST = 50  # stations per dataselect POST
 RETRIES = 3  # attempts per request, on 5xx errors and timeouts
 TIMEOUT = 300  # seconds
 CHUNK_SECONDS = 3600  # Zarr chunks: one channel by up to an hour of samples
+SEED_ID = "SEED id NET.STA.LOC.CHA"
+SITE_ID = "site id NET.STA.LOC (NET.STA for an empty location)"
 # Text station columns (level=channel) -> channel table columns
 COLUMNS = {
     "Network": "network",
@@ -73,13 +81,16 @@ NUMERIC = (
     "sensitivity_frequency",
     "sample_rate",
 )
-# Coordinates along `channel`, from the channel table
-CHANNEL_COORDS = {
+# Variables of the `sites` group, from the channel table
+SITE_VARS = {
     "network": {"long_name": "FDSN network code"},
     "station": {"long_name": "station code"},
     "location": {"long_name": "location code"},
-    "code": {"long_name": "channel code (band, instrument, orientation)"},
     "elevation": {"long_name": "station elevation", "units": "m"},
+}
+# Variables of the `channels` group, from the channel table
+CHANNEL_VARS = {
+    "code": {"long_name": "channel code (band, instrument, orientation)"},
     "depth": {"long_name": "sensor depth below the station", "units": "m"},
     "azimuth": {"long_name": "sensor azimuth, clockwise from north", "units": "degree"},
     "dip": {"long_name": "sensor dip, down from horizontal", "units": "degree"},
@@ -140,6 +151,13 @@ def parse_channel_text(text: str) -> pd.DataFrame:
 def seed_ids(table: pd.DataFrame) -> pd.Series:
     """``NET.STA.LOC.CHA`` for each row of a channel table."""
     return table.network + "." + table.station + "." + table.location + "." + table.code
+
+
+def site_ids(table: pd.DataFrame) -> pd.Series:
+    """``NET.STA.LOC`` for each row of a channel table, ``NET.STA`` for an
+    empty location."""
+    loc = ("." + table.location).where(table.location != "", "")
+    return table.network + "." + table.station + loc
 
 
 def query_channels(
@@ -417,22 +435,89 @@ def distances(
     return np.asarray(dist) / 1e3, np.asarray(back) % 360
 
 
-def to_groups(
+def _sites(table: pd.DataFrame, origin: tuple[float, float]) -> xr.Dataset:
+    """The ``sites`` group: one row per ``NET.STA.LOC`` of *table*, along an
+    xvec ``geometry`` dimension (a site's first channel gives its position)."""
+    table = table.assign(site=site_ids(table).to_numpy())
+    spread = table.groupby("site")[["latitude", "longitude"]].agg(
+        lambda s: s.max() - s.min()
+    )
+    for site in spread.index[(spread > 1e-4).any(axis=1)]:
+        log.info("%s: channels at different positions; kept the first", site)
+    rows = table.drop_duplicates("site").sort_values("site")
+    dist, back = distances(rows.longitude.to_numpy(), rows.latitude.to_numpy(), origin)
+    points = [Point(x, y) for x, y in zip(rows.longitude, rows.latitude, strict=True)]
+    ds = xr.Dataset(
+        {
+            **{
+                name: ("geometry", rows[name].to_numpy(), attrs)
+                for name, attrs in SITE_VARS.items()
+            },
+            "distance_km": (
+                "geometry",
+                dist,
+                {"long_name": "distance from the origin", "units": "km"},
+            ),
+            "back_azimuth": (
+                "geometry",
+                back,
+                {"long_name": "azimuth from the site to the origin", "units": "degree"},
+            ),
+        },
+        coords={
+            "geometry": np.array(points, dtype=object),
+            "site": ("geometry", rows.site.to_numpy(), {"long_name": SITE_ID}),
+        },
+    )
+    return ds.xvec.set_geom_indexes("geometry", crs="EPSG:4326")
+
+
+def _channels(table: pd.DataFrame, rate: pd.Series, group: pd.Series) -> xr.Dataset:
+    """The ``channels`` group: every channel of *table* (indexed by SEED id),
+    with the sample *rate* of its data and the *group* holding its counts."""
+    return xr.Dataset(
+        {
+            "site": ("channel", site_ids(table).to_numpy(), {"long_name": SITE_ID}),
+            **{
+                name: ("channel", table[name].to_numpy(), attrs)
+                for name, attrs in CHANNEL_VARS.items()
+            },
+            "sample_rate": (
+                "channel",
+                rate.to_numpy(),
+                {
+                    "long_name": "sample rate of the data, else of the metadata",
+                    "units": "Hz",
+                },
+            ),
+            "group": (
+                "channel",
+                group.to_numpy(),
+                {"long_name": "group of the counts; empty if no data was returned"},
+            ),
+        },
+        coords={"channel": ("channel", table.index.to_numpy(), {"long_name": SEED_ID})},
+    )
+
+
+def to_tree(
     table: pd.DataFrame,
     segments: dict[str, list[Segment]],
     start: pd.Timestamp,
     end: pd.Timestamp,
     origin: tuple[float, float],
 ) -> dict[str, xr.Dataset]:
-    """One Dataset per sample rate, keyed by :func:`group_name`.
+    """The groups of a waveform dataset: ``sites``, ``channels``, and one per
+    sample rate, keyed by :func:`group_name`.
 
-    Each covers ``[start, end]`` (inclusive) with ``counts`` on
-    ``(channel, time)``, and the channel metadata of *table* plus
-    ``geometry``, ``sample_rate`` (of the data), ``distance_km``,
-    ``back_azimuth`` and ``time_offset`` along ``channel``. Channels in
-    *table* without data are left out.
+    Each rate's group covers ``[start, end]`` (inclusive) with ``counts`` on
+    ``(channel, time)``, and ``site`` and ``time_offset`` along ``channel``.
+    ``sites`` and ``channels`` cover every channel in *table*, including
+    those without data; distances are from *origin* ``(lon, lat)``.
     """
-    table = table.set_index(seed_ids(table))
+    table = table.set_index(seed_ids(table)).sort_index()
+    rate = table.sample_rate.map(nominal_rate)
+    group = pd.Series("", index=table.index, dtype=object)
     by_rate: dict[float, dict[str, list[Segment]]] = defaultdict(dict)
     for sid, segs in sorted(segments.items()):
         if sid not in table.index:
@@ -442,74 +527,30 @@ def to_groups(
         rates: dict[float, int] = defaultdict(int)
         for s in segs:
             rates[nominal_rate(s.rate)] += len(s.data)
-        rate = max(rates, key=lambda r: rates[r])
+        main = max(rates, key=lambda r: rates[r])
         if len(rates) > 1:
-            log.warning("%s: rates %s; kept %g Hz", sid, sorted(rates), rate)
-        if rate != nominal_rate(table.sample_rate[sid]):
-            log.info(
-                "%s: data at %g Hz, metadata %g Hz", sid, rate, table.sample_rate[sid]
-            )
-        by_rate[rate][sid] = [s for s in segs if nominal_rate(s.rate) == rate]
-    if missing := len(table) - sum(len(v) for v in by_rate.values()):
+            log.warning("%s: rates %s; kept %g Hz", sid, sorted(rates), main)
+        if main != rate[sid]:
+            log.info("%s: data at %g Hz, metadata %g Hz", sid, main, rate[sid])
+        by_rate[main][sid] = [s for s in segs if nominal_rate(s.rate) == main]
+        rate[sid], group[sid] = main, group_name(main)
+    if missing := int((group == "").sum()):
         log.info("%d channel(s) returned no data", missing)
 
     t0 = start.value
-    groups = {}
-    for rate in sorted(by_rate):
-        chans = by_rate[rate]
+    groups = {
+        "sites": _sites(table, origin),
+        "channels": _channels(table, rate, group),
+    }
+    for r in sorted(by_rate):
+        chans = by_rate[r]
         # Every step from start up to and including end
-        n = int(np.floor((end.value - t0) * rate / 1e9 + 1e-9)) + 1
-        steps = np.round(np.arange(n) * (1e9 / rate)).astype("int64")
+        n = int(np.floor((end.value - t0) * r / 1e9 + 1e-9)) + 1
+        steps = np.round(np.arange(n) * (1e9 / r)).astype("int64")
         counts = np.empty((len(chans), n), dtype=np.int32)
         offsets = np.zeros(len(chans), dtype="int64")
         for i, (sid, segs) in enumerate(chans.items()):
-            counts[i], offsets[i] = place(segs, t0, n, rate, sid)
-        meta = table.loc[list(chans)]
-        dist, back = distances(
-            meta.longitude.to_numpy(), meta.latitude.to_numpy(), origin
-        )
-        coords = {
-            "channel": (
-                "channel",
-                list(chans),
-                {"long_name": "SEED id NET.STA.LOC.CHA"},
-            ),
-            "time": ("time", (start + pd.to_timedelta(steps)).to_numpy()),
-            **{
-                name: ("channel", meta[name].to_numpy(), attrs)
-                for name, attrs in CHANNEL_COORDS.items()
-            },
-            "geometry": (
-                "channel",
-                np.array(
-                    [Point(x, y) for x, y in zip(meta.longitude, meta.latitude)],
-                    dtype=object,
-                ),
-            ),
-            "sample_rate": (
-                "channel",
-                np.full(len(chans), rate),
-                {"long_name": "sample rate of the data", "units": "Hz"},
-            ),
-            "distance_km": (
-                "channel",
-                dist,
-                {"long_name": "distance from the origin", "units": "km"},
-            ),
-            "back_azimuth": (
-                "channel",
-                back,
-                {
-                    "long_name": "azimuth from the station to the origin",
-                    "units": "degree",
-                },
-            ),
-            "time_offset": (
-                "channel",
-                offsets.astype("timedelta64[ns]"),
-                {"long_name": "sample i was recorded at time[i] + time_offset"},
-            ),
-        }
+            counts[i], offsets[i] = place(segs, t0, n, r, sid)
         ds = xr.Dataset(
             {
                 "counts": (
@@ -518,36 +559,35 @@ def to_groups(
                     {"long_name": "raw digitizer counts", "units": "count"},
                 )
             },
-            coords=coords,
+            coords={
+                "channel": ("channel", list(chans), {"long_name": SEED_ID}),
+                "time": ("time", (start + pd.to_timedelta(steps)).to_numpy()),
+                "site": (
+                    "channel",
+                    site_ids(table.loc[list(chans)]).to_numpy(),
+                    {"long_name": SITE_ID},
+                ),
+                "time_offset": (
+                    "channel",
+                    offsets.astype("timedelta64[ns]"),
+                    {"long_name": "sample i was recorded at time[i] + time_offset"},
+                ),
+            },
         )
-        ds = ds.set_xindex("geometry", xvec.GeometryIndex, crs=pyproj.CRS(4326))
         ds.counts.encoding = {
             "_FillValue": FILL,
-            "chunks": (1, min(n, round(CHUNK_SECONDS * rate))),
+            "chunks": (1, min(n, round(CHUNK_SECONDS * r))),
         }
-        groups[group_name(rate)] = ds
+        groups[group_name(r)] = ds
     return groups
 
 
 def to_dataset(ds: xr.Dataset) -> xr.Dataset:
-    """A waveform group xvec CF-encoded for the store, keeping ``attrs``."""
+    """A group of a waveform dataset, xvec CF-encoded for the store (``sites``;
+    the others have no geometry), keeping ``attrs``."""
     encoded = ds.xvec.encode_cf()
     encoded.attrs = dict(ds.attrs)
     return encoded
-
-
-def decoded(ds: xr.Dataset) -> xr.Dataset:
-    """A waveform group with shapely ``geometry`` and its xvec index, whether
-    read from the store (CF-encoded) or returned by ``load()``."""
-    if "geometry_container" not in ds:
-        return ds
-    mapping = ds.geometry_container.attrs.get("grid_mapping", "spatial_ref")
-    crs = pyproj.CRS.from_cf(ds[mapping].attrs)
-    # xvec doesn't restore the index of a geometry along a non-geometry dim
-    out = ds.xvec.decode_cf().set_coords("geometry")
-    out = out.set_xindex("geometry", xvec.GeometryIndex, crs=crs)
-    out.attrs = dict(ds.attrs)  # decode_cf drops them
-    return out
 
 
 # ---- derived views ---------------------------------------------------------------
@@ -560,6 +600,17 @@ QUANTITIES = {
     "Pa": "pressure",
 }
 COMPONENTS = ("Z", "N", "E", "1", "2")
+TABLES = ("sites", "channels")
+
+
+def _decoded(ds: xr.Dataset) -> xr.Dataset:
+    return ds.xvec.decode_cf() if "geometry_container" in ds else ds
+
+
+def rate_groups(node: xr.DataTree) -> list[str]:
+    """The names of *node*'s sample-rate groups (``40hz``, ``50hz``, …), by rate."""
+    names = [name for name in node.children if name not in TABLES]
+    return sorted(names, key=lambda name: float(name.removesuffix("hz")))
 
 
 def _counts(ds: xr.Dataset) -> xr.DataArray:
@@ -570,8 +621,8 @@ def _counts(ds: xr.Dataset) -> xr.DataArray:
     return da.astype("float64")
 
 
-def to_physical(ds: xr.Dataset) -> xr.DataArray:
-    """A waveform group's counts / sensitivity, in each channel's
+def to_physical(node: xr.DataTree, group: str) -> xr.DataArray:
+    """The counts of *node*'s *group* / sensitivity, in each channel's
     ``sensitivity_units``.
 
     Named for the quantity (``velocity`` in m/s for seismometers,
@@ -579,10 +630,19 @@ def to_physical(ds: xr.Dataset) -> xr.DataArray:
     units, else ``physical``. Dividing by the sensitivity alone assumes a
     flat response, true of broadband sensors well inside their passband
     (see dev/seismic.md).
+
+    Parameters
+    ----------
+    node : xarray.DataTree
+        A waveform dataset's node, e.g. ``tree["waveforms/seismic"]``, as read
+        from the store or as returned by ``load()``.
+    group : str
+        One of its sample-rate groups, e.g. ``"50hz"``.
     """
-    ds = decoded(ds)
-    units = sorted(set(ds.sensitivity_units.values.tolist()))
-    da = _counts(ds) / ds.sensitivity
+    ds = node[group].to_dataset()
+    meta = node["channels"].to_dataset().sel(channel=ds.channel)
+    units = sorted(set(meta.sensitivity_units.values.tolist()))
+    da = _counts(ds) / meta.sensitivity
     da.attrs = {"long_name": "counts / sensitivity"}
     if len(units) == 1:
         da.name = QUANTITIES.get(units[0], "physical")
@@ -612,16 +672,8 @@ def _resample(
     return out
 
 
-def _groups(obj: xr.DataTree | xr.Dataset) -> list[xr.Dataset]:
-    if isinstance(obj, xr.Dataset):
-        return [decoded(obj)]
-    return [decoded(n.to_dataset()) for n in obj.subtree if "counts" in n.dataset]
-
-
-def to_grid(
-    obj: xr.DataTree | xr.Dataset, rate: float = 20.0, physical: bool = True
-) -> xr.Dataset:
-    """Every channel of a ``waveforms/*`` group on one common time grid.
+def to_grid(node: xr.DataTree, rate: float = 20.0, physical: bool = True) -> xr.Dataset:
+    """Every channel with data of a waveform dataset on one common time grid.
 
     Channels sampled faster than *rate* are first low-passed at 0.4 × *rate*
     (4th-order Butterworth, zero phase, per contiguous run of samples), then
@@ -631,10 +683,9 @@ def to_grid(
 
     Parameters
     ----------
-    obj : xarray.DataTree or xarray.Dataset
-        A dataset's node (e.g. ``tree["waveforms/seismic"]``) with one child
-        per rate, or one rate's group; as read from the store or as returned
-        by ``load()``.
+    node : xarray.DataTree
+        A waveform dataset's node, e.g. ``tree["waveforms/seismic"]``, as read
+        from the store or as returned by ``load()``.
     rate : float
         Target sample rate in Hz. Default 20.
     physical : bool
@@ -643,21 +694,24 @@ def to_grid(
     Returns
     -------
     xarray.Dataset
-        One variable on ``(channel, time)``, the channel coordinates of every
-        group (``sample_rate`` the native one), with the geometry's xvec index.
+        One variable on ``(channel, time)``. The ``channels`` table's columns
+        (``sample_rate`` the native one) and the ``sites`` table's, but not
+        ``geometry``, are coordinates along ``channel``.
     """
-    groups = _groups(obj)
-    if not groups:
-        raise ValueError("no waveform groups (with counts) found")
+    names = rate_groups(node)
+    if not names:
+        raise ValueError("no sample-rate groups found")
+    meta = node["channels"].to_dataset()
+    groups = [node[name].to_dataset() for name in names]
     start = min(g.time.values[0] for g in groups)
     end = max(g.time.values[-1] for g in groups)
     span = (end - start) / np.timedelta64(1, "ns") / 1e9
     n = int(np.floor(span * rate + 1e-9)) + 1
     grid = np.arange(n) / rate
     parts = []
-    for g in groups:
-        values = to_physical(g) if physical else _counts(g)
-        native = float(g.sample_rate.values[0])
+    for name, g in zip(names, groups, strict=True):
+        values = to_physical(node, name) if physical else _counts(g)
+        native = float(meta.sample_rate.sel(channel=g.channel.values[0]))
         sos = (
             signal.butter(4, 0.4 * rate, fs=native, output="sos")
             if native > rate
@@ -668,18 +722,28 @@ def to_grid(
             t = g.time.values + g.time_offset.values[i]
             seconds = (t - start) / np.timedelta64(1, "ns") / 1e9
             out[i] = _resample(seconds, values.values[i], grid, sos)
-        coords = g.drop_indexes("geometry").drop_vars(["time", "time_offset"]).coords
-        name = values.name or "counts"
         parts.append(
-            xr.Dataset({name: (("channel", "time"), out, values.attrs)}, coords=coords)
+            xr.Dataset(
+                {values.name or "counts": (("channel", "time"), out, values.attrs)},
+                coords={"channel": g.channel.values},
+            )
         )
-    ds = xr.concat(parts, dim="channel", combine_attrs="drop_conflicts")
+    ds = xr.concat(parts, dim="channel")
+    # In the channels table's order (by SEED id), not by group
+    ds = ds.sel(channel=[c for c in meta.channel.values if c in ds.indexes["channel"]])
     ds = ds.assign_coords(
         time=start + np.round(grid * 1e9).astype("int64").astype("timedelta64[ns]")
     )
-    ds = ds.set_xindex("geometry", xvec.GeometryIndex, crs=pyproj.CRS(4326))
+    channels = meta.sel(channel=ds.channel)
+    sites = _decoded(node["sites"].to_dataset())
+    sites = sites.drop_vars("geometry").swap_dims(geometry="site")
+    sites = sites.sel(site=channels.site)
+    ds = ds.assign_coords(
+        {k: channels[k] for k in channels.data_vars}
+        | {k: sites[k] for k in sites.data_vars}
+    )
     ds.attrs = {
-        **groups[0].attrs,
+        **node.attrs,
         "gaia:to_grid": f"{rate:g} Hz: anti-alias low-pass at {0.4 * rate:g} Hz "
         "(4th-order Butterworth, zero phase) where faster, then linear "
         "interpolation from time + time_offset",
@@ -701,50 +765,43 @@ def component(code: str, azimuth: float) -> str:
     return c
 
 
-def by_component(ds: xr.Dataset) -> xr.Dataset:
-    """A :func:`to_grid` result on ``(station, component, time)``.
+def by_component(ds: xr.Dataset, sites: xr.Dataset | xr.DataTree) -> xr.Dataset:
+    """A :func:`to_grid` result on ``(geometry, component, time)``.
 
-    ``station`` is ``NET.STA.LOC`` (``NET.STA`` for an empty location) and
-    ``component`` the present ones of Z, N, E, 1, 2 (see :func:`component`).
-    Station coordinates come from each station's first channel, and
-    ``channel`` holds the SEED id of each (station, component), ``""`` where
-    there is none.
+    ``geometry`` holds the *sites* with data, in their order, with their variables (``site``,
+    ``distance_km``, …) as coordinates, as a ``stations/*`` group's
+    :func:`gaia_cli.stations.to_grid` does. ``component`` holds the present
+    ones of Z, N, E, 1, 2 (see :func:`component`), and ``channel`` the SEED
+    id of each (site, component), ``""`` where there is none.
     """
+    if isinstance(sites, xr.DataTree):
+        sites = sites.to_dataset()
+    sites = _decoded(sites)
     (name,) = ds.data_vars
-    ids = [
-        ".".join(p for p in (net, sta, loc) if p)
-        for net, sta, loc in zip(
-            ds.network.values, ds.station.values, ds.location.values, strict=True
-        )
-    ]
     comps = [
         component(c, a) for c, a in zip(ds.code.values, ds.azimuth.values, strict=True)
     ]
-    stations = list(dict.fromkeys(ids))
+    present = set(ds.site.values.tolist())
+    ids = [site for site in sites.site.values.tolist() if site in present]
     order = [c for c in COMPONENTS if c in comps]
     order += sorted(set(comps) - set(COMPONENTS))
-    values = np.full((len(stations), len(order), ds.sizes["time"]), np.nan)
-    channel = np.full((len(stations), len(order)), "", dtype=object)
-    first: dict[str, int] = {}
-    for i, (sid, comp) in enumerate(zip(ids, comps, strict=True)):
-        s, c = stations.index(sid), order.index(comp)
+    values = np.full((len(ids), len(order), ds.sizes["time"]), np.nan)
+    channel = np.full((len(ids), len(order)), "", dtype=object)
+    for i, (site, comp) in enumerate(zip(ds.site.values, comps, strict=True)):
+        s, c = ids.index(site), order.index(comp)
         if channel[s, c]:
-            log.info("%s: %s already has a %s channel", ds.channel.values[i], sid, comp)
+            log.info(
+                "%s: %s already has a %s channel", ds.channel.values[i], site, comp
+            )
             continue
         values[s, c] = ds[name].values[i]
         channel[s, c] = ds.channel.values[i]
-        first.setdefault(sid, i)
-    rows = ds.drop_indexes("geometry").isel(channel=[first[s] for s in stations])
-    per_station = ("network", "elevation", "geometry", "distance_km", "back_azimuth")
-    out = xr.Dataset(
-        {name: (("station", "component", "time"), values, ds[name].attrs)},
-        coords={
-            "station": stations,
-            "component": order,
-            "time": ds.time.values,
-            "channel": (("station", "component"), channel),
-            **{k: ("station", rows[k].values, rows[k].attrs) for k in per_station},
-        },
-        attrs=ds.attrs,
+    rows = sites.isel(geometry=[sites.site.values.tolist().index(s) for s in ids])
+    out = rows.set_coords(list(rows.data_vars)).assign_coords(
+        component=order,
+        time=ds.time.values,
+        channel=(("geometry", "component"), channel),
     )
-    return out.set_xindex("geometry", xvec.GeometryIndex, crs=pyproj.CRS(4326))
+    out[name] = (("geometry", "component", "time"), values, ds[name].attrs)
+    out.attrs = dict(ds.attrs)
+    return out

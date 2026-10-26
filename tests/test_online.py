@@ -10,7 +10,7 @@ import pytest
 import xarray as xr
 from shapely.geometry import box
 
-from gaia_cli import align, io, runner, stations, waveforms
+from gaia_cli import align, io, runner, stations
 
 pytestmark = pytest.mark.online
 
@@ -179,14 +179,18 @@ def test_seismic_bpaw(tmp_path):
 
     tree = io.open_datatree(str(out / "bpaw.zarr"))
     # BPAW has BH channels only, at 50 Hz
-    assert set(tree["waveforms/seismic"].children) == {"50hz"}
-    ds = waveforms.decoded(tree["waveforms/seismic/50hz"].to_dataset())
+    node = tree["waveforms/seismic"]
+    assert set(node.children) == {"sites", "channels", "50hz"}
+    ds = node["50hz"].to_dataset()
     assert ds.channel.values.tolist() == [f"AK.BPAW..BH{c}" for c in "ENZ"]
     assert ds.sizes["time"] == 120 * 50
     assert not ds.counts.isnull().any()
-    assert ds.sensitivity.values.tolist() == [4.8876e8] * 3
-    assert ds.sensitivity_units.values.tolist() == ["m/s"] * 3
     # BPAW samples 8.4 ms after each step
     assert (ds.time_offset.values == np.timedelta64(8_400_000, "ns")).all()
-    assert ds.distance_km.values == pytest.approx([106.8] * 3, abs=0.1)
-    assert ds.attrs["networks"] == ["AK"]
+    channels = node["channels"].to_dataset()
+    assert channels.sensitivity.values.tolist() == [4.8876e8] * 3
+    assert channels.sensitivity_units.values.tolist() == ["m/s"] * 3
+    sites = node["sites"].to_dataset().xvec.decode_cf()
+    assert sites.site.values.tolist() == ["AK.BPAW"]
+    assert sites.distance_km.values == pytest.approx([106.8], abs=0.1)
+    assert node.attrs["networks"] == ["AK"]

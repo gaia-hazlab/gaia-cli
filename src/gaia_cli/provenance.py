@@ -20,7 +20,6 @@ from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
-import pyproj
 import requests
 import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
@@ -209,13 +208,7 @@ def _bbox(ds: xr.Dataset) -> list[float] | None:
     """WGS84 bounds of *ds*'s raster grid or CF-encoded point geometries."""
     if "geometry_container" in ds:  # xvec.encode_cf output
         decoded = ds.xvec.decode_cf()
-        # xvec restores the index of a geometry dimension (stations), not of a
-        # geometry coordinate along another one (waveform channels)
-        if "geometry" in decoded.xindexes:
-            crs = decoded.xindexes["geometry"].crs
-        else:
-            mapping = ds.geometry_container.attrs.get("grid_mapping", "spatial_ref")
-            crs = pyproj.CRS.from_cf(ds[mapping].attrs)
+        crs = decoded.xindexes["geometry"].crs
         geoms = gpd.GeoSeries(decoded.geometry.values, crs=crs).to_crs(4326)
         return list(geoms.total_bounds)
     if {"x", "y"} <= set(ds.dims) and ds.rio.crs is not None:

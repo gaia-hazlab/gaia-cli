@@ -187,10 +187,10 @@ def test_place_keeps_gaps_and_lets_later_overlaps_win(caplog):
     assert "AK.A..BHZ: 2 overlapping segment(s)" in caplog.text
 
 
-def test_to_groups_splits_rates_and_keeps_the_last_second(fdsn, caplog):
+def test_to_tree_splits_rates_and_keeps_the_last_second(fdsn, caplog):
     for c in "ZNE":
         fdsn.channel(f"AK.A..BH{c}", lat=64.0, lon=-151.0)
-    fdsn.channel("AK.B..HHZ", lat=63.0, lon=-151.0, rate=100.0)
+    fdsn.channel("AK.B.00.HHZ", lat=63.0, lon=-151.0, rate=100.0)
     fdsn.channel("AK.C..BHZ", lat=63.0, lon=-150.0)  # no data
     end = T0 + 10 * S - pd.Timedelta(microseconds=1)  # the runner's inclusive end
     segments = {
@@ -198,12 +198,12 @@ def test_to_groups_splits_rates_and_keeps_the_last_second(fdsn, caplog):
         f"AK.A..BH{c}": [waveforms.Segment(49.99999, T0.value, np.arange(600))]
         for c in "ZNE"
     }
-    segments["AK.B..HHZ"] = [waveforms.Segment(100.0, T0.value, np.arange(1000))]
+    segments["AK.B.00.HHZ"] = [waveforms.Segment(100.0, T0.value, np.arange(1000))]
     segments["XX.NOT..REQ"] = [waveforms.Segment(1.0, T0.value, np.arange(3))]
     caplog.set_level(logging.INFO)
-    groups = waveforms.to_groups(table(fdsn), segments, T0, end, (-151.0, 63.0))
+    groups = waveforms.to_tree(table(fdsn), segments, T0, end, (-151.0, 63.0))
 
-    assert list(groups) == ["50hz", "100hz"]
+    assert list(groups) == ["sites", "channels", "50hz", "100hz"]
     g50, g100 = groups["50hz"], groups["100hz"]
     # Every step of [T0, T0 + 10 s): the last second is kept
     assert g50.sizes == {"channel": 3, "time": 500}
@@ -211,52 +211,95 @@ def test_to_groups_splits_rates_and_keeps_the_last_second(fdsn, caplog):
     assert g50.counts.values[0, -1] == 499
     assert g50.time.values[-1] == np.datetime64("2023-09-14T02:06:09.980")
     assert g50.channel.values.tolist() == ["AK.A..BHE", "AK.A..BHN", "AK.A..BHZ"]
-    assert g50.code.values.tolist() == ["BHE", "BHN", "BHZ"]
-    assert g50.location.values.tolist() == ["", "", ""]
-    assert g50.sample_rate.values.tolist() == [50.0] * 3
-    assert g50.azimuth.values.tolist() == [90.0, 0.0, 0.0]
-    assert g50.xindexes["geometry"].crs.to_epsg() == 4326
-    # One degree of latitude north of the origin; the origin is due south
-    assert g50.distance_km.values[0] == pytest.approx(111.4, abs=0.2)
-    assert g50.back_azimuth.values[0] == pytest.approx(180.0)
+    assert g50.site.values.tolist() == ["AK.A"] * 3
+    assert g100.site.values.tolist() == ["AK.B.00"]
     assert g50.counts.dtype == np.int32
     assert g50.counts.encoding["_FillValue"] == waveforms.FILL
     assert g50.counts.encoding["chunks"] == (1, 500)
+    assert set(g50.coords) == {"channel", "time", "site", "time_offset"}
+
+    # Every channel requested, with the group of its counts
+    ch = groups["channels"]
+    assert ch.channel.values.tolist() == [
+        "AK.A..BHE",
+        "AK.A..BHN",
+        "AK.A..BHZ",
+        "AK.B.00.HHZ",
+        "AK.C..BHZ",
+    ]
+    assert ch.group.values.tolist() == ["50hz"] * 3 + ["100hz", ""]
+    assert ch.site.values.tolist() == ["AK.A"] * 3 + ["AK.B.00", "AK.C"]
+    assert ch.code.values.tolist() == ["BHE", "BHN", "BHZ", "HHZ", "BHZ"]
+    assert ch.sample_rate.values.tolist() == [50.0] * 3 + [100.0, 50.0]
+    assert ch.azimuth.values.tolist()[:3] == [90.0, 0.0, 0.0]
+    assert ch.sensitivity_units.values.tolist() == ["m/s"] * 5
+
+    # One site per NET.STA.LOC, along an indexed geometry dimension
+    sites = groups["sites"]
+    assert sites.site.values.tolist() == ["AK.A", "AK.B.00", "AK.C"]
+    assert sites.location.values.tolist() == ["", "00", ""]
+    assert sites.xindexes["geometry"].crs.to_epsg() == 4326
+    # One degree of latitude north of the origin; the origin is due south
+    assert sites.distance_km.values[0] == pytest.approx(111.4, abs=0.2)
+    assert sites.back_azimuth.values[0] == pytest.approx(180.0)
     assert "1 channel(s) returned no data" in caplog.text
+
+
+def test_sites_keep_the_first_position_of_a_site(fdsn, caplog):
+    fdsn.channel("AK.A..BHZ", lat=64.0)
+    fdsn.channel("AK.A..BHN", lat=64.1)
+    caplog.set_level(logging.INFO)
+    segments = {"AK.A..BHZ": [waveforms.Segment(50.0, T0.value, np.arange(50))]}
+    groups = waveforms.to_tree(table(fdsn), segments, T0, T0 + S, (-151.0, 63.0))
+    (point,) = groups["sites"].geometry.values
+    # Channels are sorted by SEED id, so BHN comes first
+    assert point.y == 64.1
+    assert "AK.A: channels at different positions" in caplog.text
 
 
 # ---- derived views ---------------------------------------------------------------
 
 
 def groups(fdsn, channels, seconds=10):
-    """Groups of *channels*: ``{seed id: (rate, samples, kwargs for channel())}``,
-    each starting at T0, over ``[T0, T0 + seconds)``."""
+    """The groups of *channels*: ``{seed id: (rate, samples, kwargs for
+    channel())}``, each starting at T0, over ``[T0, T0 + seconds)``."""
     segments = {}
     for sid, (rate, data, kw) in channels.items():
         fdsn.channel(sid, rate=rate, **kw)
         segments[sid] = [waveforms.Segment(rate, T0.value, np.asarray(data))]
     end = T0 + seconds * S - pd.Timedelta(microseconds=1)
-    return waveforms.to_groups(table(fdsn), segments, T0, end, (-151.0, 63.0))
+    return waveforms.to_tree(table(fdsn), segments, T0, end, (-151.0, 63.0))
 
 
-def test_to_physical_divides_by_sensitivity_and_masks_gaps(fdsn):
+def tree(groups):
+    return xr.DataTree.from_dict(groups)
+
+
+def stored(groups, tmp_path):
+    """*groups* written as a store's waveforms/x node and read back."""
+    encoded = {f"waveforms/x/{k}": waveforms.to_dataset(g) for k, g in groups.items()}
+    io.save_datatree(xr.DataTree.from_dict(encoded), str(tmp_path / "w.zarr"))
+    return io.open_datatree(str(tmp_path / "w.zarr"))["waveforms/x"]
+
+
+def test_to_physical_divides_by_sensitivity_and_masks_gaps(fdsn, tmp_path):
     data = np.full(500, 1000)
     data[10:20] = waveforms.FILL
-    g = groups(fdsn, {"AK.A..BHZ": (50.0, data, {"scale": 500.0})})["50hz"]
-    v = waveforms.to_physical(g)
+    gs = groups(fdsn, {"AK.A..BHZ": (50.0, data, {"scale": 500.0})})
+    v = waveforms.to_physical(tree(gs), "50hz")
     assert v.name == "velocity" and v.attrs["units"] == "m/s"
     assert np.isnan(v.values[0, 10:20]).all()
     assert v.values[0, 0] == 2.0
-    # Also as stored: CF-encoded and read back
-    assert waveforms.to_physical(waveforms.to_dataset(g)).values[0, 0] == 2.0
+    # Also as stored and read back
+    assert waveforms.to_physical(stored(gs, tmp_path), "50hz").values[0, 0] == 2.0
 
-    g = g.assign_coords(sensitivity_units=("channel", ["m/s**2"]))
-    assert waveforms.to_physical(g).name == "acceleration"
+    gs["channels"] = gs["channels"].assign(sensitivity_units=("channel", ["m/s**2"]))
+    assert waveforms.to_physical(tree(gs), "50hz").name == "acceleration"
     both = groups(
         fdsn,
         {"AK.B..BHZ": (50.0, data, {}), "AK.B..BDF": (50.0, data, {"units": "Pa"})},
-    )["50hz"]
-    mixed = waveforms.to_physical(both)
+    )
+    mixed = waveforms.to_physical(tree(both), "50hz")
     assert mixed.name == "physical" and "units" not in mixed.attrs
 
 
@@ -270,24 +313,32 @@ def test_to_grid_filters_only_when_downsampling(fdsn, tmp_path):
         "AK.SLOW..LHZ": (10.0, 1000 * t10, {}),
     }
     gs = groups(fdsn, data)
-    assert set(gs) == {"10hz", "50hz"}
-    # Store and read back the whole tree, as a user would
-    tree = xr.DataTree.from_dict(
-        {f"waveforms/x/{k}": waveforms.to_dataset(g) for k, g in gs.items()}
-    )
-    io.save_datatree(tree, str(tmp_path / "w.zarr"))
-    stored = io.open_datatree(str(tmp_path / "w.zarr"))["waveforms/x"]
+    fdsn.channel("AK.NONE..HHZ")  # requested, no data: not on the grid
+    assert waveforms.rate_groups(tree(gs)) == ["10hz", "50hz"]
+    # By rate, not as strings
+    assert waveforms.rate_groups(
+        tree({"sites": gs["sites"], "100hz": gs["50hz"], "40hz": gs["50hz"]})
+    ) == ["40hz", "100hz"]
+    # Store and read back the whole node, as a user would
+    node = stored(gs, tmp_path)
+    node.attrs = {"title": "x"}
 
-    grid = waveforms.to_grid(stored, rate=20.0, physical=False)
+    grid = waveforms.to_grid(node, rate=20.0, physical=False)
     # 0 to 9.95 s at 20 Hz, to the last 50 Hz sample
     assert grid.sizes == {"channel": 3, "time": 200}
+    # By SEED id, across groups
     assert grid.channel.values.tolist() == [
-        "AK.SLOW..LHZ",
         "AK.FAST..HHN",
         "AK.FAST..HHZ",
+        "AK.SLOW..LHZ",
     ]
-    assert grid.sample_rate.values.tolist() == [10.0, 50.0, 50.0]
-    assert grid.xindexes["geometry"].crs.to_epsg() == 4326
+    # The channels' and sites' columns, along channel
+    assert grid.sample_rate.values.tolist() == [50.0, 50.0, 10.0]
+    assert grid.site.values.tolist() == ["AK.FAST", "AK.FAST", "AK.SLOW"]
+    assert grid.group.values.tolist() == ["50hz", "50hz", "10hz"]
+    assert grid.distance_km.dims == ("channel",)
+    assert "geometry" not in grid.coords
+    assert grid.attrs["title"] == "x"
     assert "20 Hz" in grid.attrs["gaia:to_grid"]
     middle = slice(40, 160)  # away from the filter's edge effects
     fast = grid.counts.sel(channel="AK.FAST..HHZ").values[middle]
@@ -302,9 +353,11 @@ def test_to_grid_filters_only_when_downsampling(fdsn, tmp_path):
 def test_to_grid_uses_time_offset_and_leaves_gaps_nan(fdsn):
     data = 100 * np.arange(100.0)  # one count per ms
     data[40:50] = waveforms.FILL
-    (g,) = groups(fdsn, {"AK.S..LHZ": (10.0, data.astype(int), {})}).values()
-    g = g.assign_coords(time_offset=("channel", np.array([25], "timedelta64[ms]")))
-    grid = waveforms.to_grid(g, rate=20.0, physical=False)
+    gs = groups(fdsn, {"AK.S..LHZ": (10.0, data.astype(int), {})})
+    gs["10hz"] = gs["10hz"].assign_coords(
+        time_offset=("channel", np.array([25], "timedelta64[ms]"))
+    )
+    grid = waveforms.to_grid(tree(gs), rate=20.0, physical=False)
     v = grid.counts.values[0]
     # Sample i was recorded at 0.1 i + 0.025 s, so grid time 0.5 s holds 475
     assert v[10] == pytest.approx(475.0)
@@ -312,7 +365,7 @@ def test_to_grid_uses_time_offset_and_leaves_gaps_nan(fdsn):
     assert np.isnan(v[79:100]).all() and not np.isnan(v[[78, 101]]).any()
 
 
-def test_by_component_maps_horizontals_by_azimuth(fdsn, caplog):
+def test_by_component_maps_horizontals_by_azimuth(fdsn, tmp_path):
     data = np.ones(500)
     gs = groups(
         fdsn,
@@ -324,19 +377,23 @@ def test_by_component_maps_horizontals_by_azimuth(fdsn, caplog):
             "AK.B.00.HH1": (50.0, 2 * data, {"lat": 63.5, "azimuth": 30.0}),
         },
     )
-    grid = waveforms.to_grid(gs["50hz"], rate=50.0)
-    out = waveforms.by_component(grid)
-    assert out.velocity.dims == ("station", "component", "time")
-    assert out.station.values.tolist() == ["AK.A", "AK.B.00"]
+    fdsn.channel("AK.C..BHZ")  # a site without data is left out
+    node = stored(gs, tmp_path)
+    grid = waveforms.to_grid(node, rate=50.0)
+    out = waveforms.by_component(grid, node["sites"])
+    assert out.velocity.dims == ("geometry", "component", "time")
+    assert out.site.values.tolist() == ["AK.A", "AK.B.00"]
     assert out.component.values.tolist() == ["Z", "N", "E", "1"]
     assert out.channel.values.tolist() == [
         ["AK.A..BHZ", "AK.A..BH1", "AK.A..BH2", ""],
         ["AK.B.00.HHZ", "", "", "AK.B.00.HH1"],
     ]
-    assert np.isnan(out.velocity.sel(station="AK.B.00", component="N")).all()
-    assert out.distance_km.dims == ("station",)
+    b = out.velocity.isel(geometry=1)
+    assert np.isnan(b.sel(component="N")).all()
+    assert float(b.sel(component="Z").isel(time=0)) == pytest.approx(2 / 4.8876e8)
+    assert out.distance_km.dims == ("geometry",)
     assert out.xindexes["geometry"].crs.to_epsg() == 4326
     assert waveforms.component("BHN", np.nan) == "N"
     assert waveforms.component("BH1", np.nan) == "1"
-    with pytest.raises(ValueError, match="no waveform groups"):
-        waveforms.to_grid(xr.DataTree())
+    with pytest.raises(ValueError, match="no sample-rate groups"):
+        waveforms.to_grid(xr.DataTree.from_dict({"sites": gs["sites"]}))

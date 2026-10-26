@@ -41,34 +41,39 @@ def add_stations(fdsn, seconds=60, gap=True):
         fdsn.trace("AK.BB..BHE", 50.0, T0 + pd.Timedelta("20s"), np.ones(50 * 40))
 
 
-def test_load_returns_one_child_per_rate(fdsn):
+def test_load_returns_tables_and_one_group_per_rate(fdsn):
     add_stations(fdsn)
     aoi = load_aoi({"latitude": 63.5, "longitude": -151.0, "radius_km": 100})
     end = T0 + pd.Timedelta("60s") - pd.Timedelta("1us")
     tree = seismic.load(aoi, T0.isoformat(), end.isoformat())
 
-    assert set(tree.children) == {"50hz", "100hz"}
+    assert set(tree.children) == {"sites", "channels", "50hz", "100hz"}
     g50, g100 = (tree[k].to_dataset() for k in ("50hz", "100hz"))
     # HH preferred at BPAW, so its BH channels are neither requested nor kept
     assert g100.channel.values.tolist() == [f"AK.BPAW..HH{c}" for c in "ENZ"]
     assert g50.channel.values.tolist() == [f"AK.BB..BH{c}" for c in "ENZ"]
     assert not any("BPAW -- BH" in p for p in fdsn.posts)
     assert g50.sizes["time"] == 3000 and g100.sizes["time"] == 6000
-    assert g50.sensitivity_units.values.tolist() == ["m/s"] * 3
     assert g50.time_offset.values[1] == np.timedelta64(8_400_000, "ns")
     assert (g50.counts.values[0, 500:1000] == waveforms.FILL).all()
-    # Without a stage file origin, distances are from the AOI centroid
-    assert g50.attrs["gaia:origin"]["source"] == "AOI centroid"
-    assert g50.attrs["gaia:origin"]["latitude"] == pytest.approx(63.5, abs=0.01)
-    assert g50.attrs["networks"] == ["AK"]
-    assert g50.attrs["start_datetime"] == "2023-09-14T02:06:00Z"
-    assert g50.attrs["gaia:query"]["channel"] == "HH?,BH?"
+    channels = tree["channels"].to_dataset()
+    assert channels.sizes["channel"] == 6
+    assert set(channels.sensitivity_units.values) == {"m/s"}
+    assert tree["sites"].site.values.tolist() == ["AK.BB", "AK.BPAW"]
+    # Provenance on the dataset's node; without a stage file origin, distances
+    # are from the AOI centroid
+    attrs = tree.attrs
+    assert attrs["gaia:origin"]["source"] == "AOI centroid"
+    assert attrs["gaia:origin"]["latitude"] == pytest.approx(63.5, abs=0.01)
+    assert attrs["networks"] == ["AK"]
+    assert attrs["start_datetime"] == "2023-09-14T02:06:00Z"
+    assert attrs["end_datetime"] == "2023-09-14T02:06:59Z"
+    assert attrs["gaia:query"]["channel"] == "HH?,BH?"
     # A second's margin around the window
     assert "2023-09-14T02:05:59.000000 2023-09-14T02:07:00.999999" in fdsn.posts[0]
 
     tree = seismic.load(aoi, T0.isoformat(), end.isoformat(), origin=ORIGIN)
-    attrs = tree["50hz"].attrs["gaia:origin"]
-    assert attrs == {**ORIGIN, "source": "stage file origin"}
+    assert tree.attrs["gaia:origin"] == {**ORIGIN, "source": "stage file origin"}
 
 
 def test_load_errors(fdsn):
@@ -100,21 +105,21 @@ def test_stage_writes_waveform_groups(fdsn, tmp_path, monkeypatch, capsys):
     runner.stage(config=str(config), output_path=str(out))
 
     tree = io.open_datatree(str(out / "pd.zarr"))
-    assert set(tree["waveforms/seismic"].children) == {"50hz", "100hz"}
-    stored = tree["waveforms/seismic/50hz"].to_dataset()
+    node = tree["waveforms/seismic"]
+    assert set(node.children) == {"sites", "channels", "50hz", "100hz"}
+    stored = node["50hz"].to_dataset()
     assert stored.counts.encoding["chunks"] == (1, 1000)
     assert stored.counts.encoding["_FillValue"] == waveforms.FILL
-    g = waveforms.decoded(stored)
-    assert g.xindexes["geometry"].crs.to_epsg() == 4326
     # The gap reads back as NaN, data as counts
-    assert g.counts.isel(channel=0, time=slice(500, 1000)).isnull().all()
-    assert float(g.counts.isel(channel=1, time=0)) == 1.0
-    assert g.location.values.tolist() == ["", "", ""]
-    assert g.time_offset.values[1] == np.timedelta64(8_400_000, "ns")
-    assert g.attrs["gaia:origin"] == {**ORIGIN, "source": "stage file origin"}
-    # Distances from the stage file's origin
-    assert g.distance_km.values[0] == pytest.approx(35.3, abs=0.1)
-
+    assert stored.counts.isel(channel=0, time=slice(500, 1000)).isnull().all()
+    assert float(stored.counts.isel(channel=1, time=0)) == 1.0
+    assert stored.time_offset.values[1] == np.timedelta64(8_400_000, "ns")
+    assert node.attrs["gaia:origin"] == {**ORIGIN, "source": "stage file origin"}
+    # Sites round-trip with their geometry index; distances from the origin
+    sites = node["sites"].to_dataset().xvec.decode_cf()
+    assert sites.xindexes["geometry"].crs.to_epsg() == 4326
+    assert sites.location.values.tolist() == ["", ""]
+    assert sites.distance_km.values[0] == pytest.approx(35.3, abs=0.1)
     item = json.loads((out / "pd.json").read_text())
     assert item["bbox"] == pytest.approx([-151.0, 63.2, -150.5, 63.8])
     assert item["properties"]["start_datetime"] == "2023-09-14T02:06:00Z"

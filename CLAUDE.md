@@ -48,7 +48,7 @@ src/gaia_cli/
   regrid.py       # per-array spatial regridding methods
   presets/        # built-in stage files (conus-precip)
   stations.py     # ragged-array helpers for station data: to_dataframe, to_grid
-  waveforms.py    # FDSN station/dataselect, miniSEED decoding, native-rate groups; to_physical, to_grid
+  waveforms.py    # FDSN station/dataselect, miniSEED decoding; sites/channels tables + native-rate groups; to_physical, to_grid
   prism_cache/    # rolling S3 cache of PRISM COGs (no other gaia_cli imports)
   datasets/       # one module per data source (load(), EXTENT, KIND; see dev/adding-a-dataset.md)
     __init__.py   # DATASETS registry: name -> module
