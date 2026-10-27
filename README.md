@@ -17,6 +17,31 @@ pixi run gaia stage --config conus-precip \
 See [examples/skagit-precip.ipynb](examples/skagit-precip.ipynb) for an analysis of the result, and
 [examples/pioneer-landlab.ipynb](examples/pioneer-landlab.ipynb) for staging Landlab inputs.
 
+## Staging on GitHub Actions
+
+This is a convenience for creating datasets without requiring any local setup, but you must have *write* permissions to this repository to run GitHub actions.
+
+The [Stage Event](.github/workflows/stage-event.yml) workflow collates and stages data required for landlab landslide modeling in Zarr format. It optionally aligns the datasets and and uploads the results to a public object store. Run it from the
+[Actions tab](https://github.com/gaia-hazlab/gaia-cli/actions/workflows/stage-event.yml)
+or with the GitHub CLI:
+
+```bash
+gh workflow run stage-event.yml -R gaia-hazlab/gaia-cli \
+  -f config=examples/pioneer.yaml -f name=pioneer \
+  -f align="--crs utm --res 10 --aoi examples/pioneer-aoi.geojson" -f landlab_inputs=true
+```
+
+See the workflow file for all inputs, and
+[stage files](https://gaia-hazlab.github.io/gaia-cli/cli#stage-files) for writing
+your own `config`.
+
+## Public datasets
+
+Staged stores shared publicly can be browsed in
+[STAC Browser](https://browser.moregeo.it/external/s3.kopah.uw.edu/gaia/scratch/public/catalog.json)
+or on a map in
+[stac-map](https://developmentseed.org/stac-map/?href=https://s3.kopah.uw.edu/gaia/scratch/public/catalog.json).
+
 ## Development
 
 ```bash
