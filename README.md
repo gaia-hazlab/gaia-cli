@@ -1,5 +1,8 @@
 # gaia-cli
 
+[![DOI](https://zenodo.org/badge/1156542089.svg)](https://doi.org/10.5281/zenodo.23771204)
+
+
 Stage geospatial datasets for an event (an area of interest and a time window) into
 one analysis-ready Zarr store: weather stations, PRISM, HRRR, land cover, elevation,
 soil and burn severity.
