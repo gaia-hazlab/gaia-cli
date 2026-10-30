@@ -139,6 +139,14 @@ def aggregate_time(
     for name in timed:
         da = sub[name]
         method = da.attrs.get("cell_methods", "time: mean")
+        if not inside.any():
+            # nothing inside the target window (e.g. 2012-2020 DEM strips next to a
+            # 2023 event): every bin is missing, so all NaN rather than an error
+            empty = xr.full_like(ds[name].isel(time=0, drop=True), np.nan, dtype=float)
+            agg = empty.expand_dims(time=len(labels)).transpose(*ds[name].dims)
+            agg.attrs = {**da.attrs, "cell_methods": method.replace("point", "mean")}
+            out[name] = agg
+            continue
         grouped = da.groupby("_bin")
         if "sum" in method:
             agg = grouped.sum()
