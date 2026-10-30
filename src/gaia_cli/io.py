@@ -208,13 +208,20 @@ _PACKING = ("dtype", "scale_factor", "add_offset", "_FillValue", "fill_value")
 
 def _packing(var: xr.DataArray) -> dict:
     """*var*'s CF packing, if its encoding stores it as another dtype (e.g. soil's
-    integers with a scale_factor), else nothing.
+    integers with a scale_factor), or the fill value of integers stored as
+    they are (waveform counts' gaps), else nothing.
 
     An explicit encoding replaces the variable's own, so the single-chunk
-    encoding must repeat it. Variables written as they are keep NaN fills.
+    encoding must repeat it. Floats written as they are keep NaN fills.
     """
     if np.dtype(var.encoding.get("dtype", var.dtype)) == var.dtype:
-        return {}
+        if var.dtype.kind not in "iu":
+            return {}
+        return {
+            k: var.encoding[k]
+            for k in ("_FillValue", "fill_value")
+            if k in var.encoding
+        }
     return {k: var.encoding[k] for k in _PACKING if k in var.encoding}
 
 
@@ -234,8 +241,9 @@ def _prepare_for_zarr(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
     dataset gets Zarr chunks equal to each variable's full shape, so
     ``to_zarr`` doesn't introduce its own default chunking. A larger one is
     returned unchanged: dask arrays keep their chunks (which Zarr requires to
-    be uniform, apart from the last), and in-memory arrays get Zarr's default
-    chunking.
+    be uniform, apart from the last), and in-memory arrays keep the chunks
+    their encoding sets (waveform counts: one channel by up to an hour), else
+    get Zarr's default chunking.
     """
     # Fixed-width numpy strings (<U*) have no Zarr v3 spec; store as variable-length UTF-8
     ds = ds.assign_coords(

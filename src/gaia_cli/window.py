@@ -20,7 +20,8 @@ DATE_ONLY = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 # Timed datasets are read this far beyond each end of their window, so that
 # periods straddling the window's edges (e.g. PRISM's 12 UTC day) are complete
-# when `gaia align` aggregates one product into another's time steps
+# when `gaia align` aggregates one product into another's time steps. A
+# dataset module can set its own PAD (seismic: none)
 PAD = pd.Timedelta(days=1)
 
 
@@ -39,12 +40,14 @@ class Window:
             ".." if t is None else t.isoformat() for t in (self.start, self.end)
         )
 
-    def padded(self) -> Window:
-        """The interval actually read: ``PAD`` beyond each closed end."""
+    def padded(self, pad: pd.Timedelta | None = None) -> Window:
+        """The interval actually read: *pad* (default ``PAD``) beyond each
+        closed end."""
+        step = PAD if pad is None else pad
         return dataclasses.replace(
             self,
-            start=None if self.start is None else self.start - PAD,
-            end=None if self.end is None else self.end + PAD,
+            start=None if self.start is None else self.start - step,
+            end=None if self.end is None else self.end + step,
         )
 
 

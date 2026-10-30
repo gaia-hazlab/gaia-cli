@@ -42,10 +42,12 @@ TOP_KEYS = (
     "datasets",
 )
 # KIND -> group prefix in the output store
-GROUPS = {"raster": "rasters", "stations": "stations"}
+GROUPS = {"raster": "rasters", "stations": "stations", "waveforms": "waveforms"}
 # Built-in stage files without AOIs or windows, used as --config NAME -i -s -e
 PRESETS = Path(__file__).parent / "presets"
 WINDOW_ARGS = ("start_date", "end_date")
+# load() arguments the runner fills in, never options or flags
+RESERVED = ("aoi", *WINDOW_ARGS, "origin")
 # `name` names the store and STAC Item in the output folder
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 # The resolved configuration, written to the output folder next to the store
@@ -93,13 +95,24 @@ def timed(module: ModuleType) -> bool:
     return all(a in inspect.signature(module.load).parameters for a in WINDOW_ARGS)
 
 
+def pad(module: ModuleType) -> pd.Timedelta | None:
+    """How far beyond each end of its window the dataset is read: the
+    module's ``PAD``, or None for :data:`gaia_cli.window.PAD`."""
+    return getattr(module, "PAD", None)
+
+
+def takes_origin(module: ModuleType) -> bool:
+    """Whether the dataset's ``load()`` takes the stage file's ``origin``."""
+    return "origin" in inspect.signature(module.load).parameters
+
+
 def options(load: typing.Callable) -> dict[str, tuple[Any, Any]]:
     """``{option: (type, default)}`` from a dataset's ``load()`` signature."""
     hints = typing.get_type_hints(load)
     return {
         n: (hints.get(n), p.default)
         for n, p in inspect.signature(load).parameters.items()
-        if n not in ("aoi", *WINDOW_ARGS)
+        if n not in RESERVED
     }
 
 
@@ -357,7 +370,7 @@ def resolved(
         if req.windows:
             entry["window"] = str(req.windows[0])
             if dry_run:
-                entry["read"] = str(req.windows[0].padded())
+                entry["read"] = str(req.windows[0].padded(pad(DATASETS[req.dataset])))
         entry.update(_entry_options(req))
         if dry_run and req.name in skipped:
             entry["skipped"] = skipped[req.name]

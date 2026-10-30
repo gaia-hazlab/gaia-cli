@@ -2,7 +2,7 @@
 
 A stage file describes one event: its AOIs, time windows and the datasets to stage.
 `gaia stage --config` stages every dataset in it into one Zarr store, one group per
-dataset (`stations/synoptic`, `rasters/prism`, `rasters/hrrr`, `rasters/nlcd`, `dem/cop30`, `soil/solus100`, `soil/statsgo`, `rasters/burn-severity`), in an
+dataset (`stations/synoptic`, `rasters/prism`, `rasters/hrrr`, `rasters/nlcd`, `dem/cop30`, `soil/solus100`, `soil/statsgo`, `rasters/burn-severity`, `waveforms/seismic`), in an
 [output folder](#output-folder).
 Single-dataset commands (`gaia stage prism -i … -s … -e …`) build the same
 configuration from their flags and write the same layout, with one group.
@@ -54,7 +54,7 @@ read with the same one-day padding as any window.
 ```yaml
 name: peters-dome-2023               # required; names the store and STAC Item
 time: 2023-09-14T02:06:49Z           # event anchor for relative windows; optional
-origin: {latitude: 63.1455, longitude: -151.1904}   # optional
+origin: {latitude: 63.1455, longitude: -151.1904}   # optional; seismic distances
 attrs:                               # copied to the store's root group
   title: Peters Dome rock-ice avalanche, 2023-09-14
 aois:                                # named AOIs
@@ -87,6 +87,11 @@ and `dem/usgs10m`. `--only dem` selects every variant, and `--only dem/usgs10m` 
 | `dem` | none; the key names the product: `dem/cop30` or `dem/usgs10m` (a bare `dem` is `dem/cop30`; see [dem.md](dem.md)); static, no window |
 | `soil` | none; the key names the product: `soil/solus100` or `soil/statsgo` (a bare `soil` is `soil/solus100`; see [soil.md](soil.md)); static, no window |
 | `burn-severity` | `fire` (part of the fire's name) and `year`, needed only when several fires intersect the AOI (see [burn-severity.md](burn-severity.md)); static, no window |
+| `seismic` | `network`, `station`, `location` (FDSN codes, default `*`) and `channel` (default `"HH?,BH?"`, in order of preference: each station keeps the first band it has; see [seismic.md](seismic.md)); one group per sample rate, `waveforms/seismic/<rate>hz` |
+
+`origin` isn't a dataset option: datasets that use it (`seismic`, for `distance_km` and
+`back_azimuth`) take the file's `origin`, else the AOI's centroid, and record which in
+their attributes. Single-dataset commands have no origin flag, so they use the centroid.
 
 ## Output folder
 
@@ -148,7 +153,8 @@ UTC, and offsets (`2025-12-01T00:00-08:00`) are converted.
 | `{pre: {...}, post: {...}}` | named sub-windows (for scene-based datasets) |
 | `select: all \| first \| last \| nearest`, `count: N` | which scenes to keep (scene-based datasets) |
 
-Timed datasets are **read one day beyond each end** of their window, so a window
+Timed datasets are **read one day beyond each end** of their window (`seismic`, whose
+samples have no periods to complete, reads exactly its window), so a window
 `2025-12-01/2025-12-20` reads `2025-11-30` through `2025-12-21`. Periods that straddle
 the window's edges, such as PRISM's 12 UTC day, are then complete, and `gaia align`
 has every source step it needs for each period in the window. `--dry-run` shows the
@@ -199,6 +205,7 @@ the provider.
 | `dem` | global (`usgs10m`: US only, not checked) | static |
 | `soil` | CONUS | static |
 | `burn-severity` | CONUS (USFS assessments) | static; fires from 2017 on |
+| `seismic` | global (EarthScope serves networks worldwide) | open |
 
 ## Validation
 
