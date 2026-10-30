@@ -98,10 +98,11 @@ class PrismCache:
         (``https://s3.kopah.uw.edu``).
 
         Writing uses boto3 credentials and is enabled, unless *writable* is
-        given, when ``PRISM_CACHE_PROFILE`` or ``AWS_ACCESS_KEY_ID`` is set, or
-        when ``AWS_PROFILE`` names a profile whose ``endpoint_url`` is the
-        cache endpoint (so an ``AWS_PROFILE`` for another store, e.g.
-        Backblaze, leaves the cache read-only). Otherwise reading is anonymous.
+        given, when ``PRISM_CACHE_PROFILE`` is set, when ``AWS_PROFILE`` names
+        a profile whose ``endpoint_url`` is the cache endpoint, or when
+        ``AWS_ACCESS_KEY_ID`` is set and ``AWS_ENDPOINT_URL`` is the cache
+        endpoint (so credentials for another store, e.g. Backblaze, leave the
+        cache read-only). Otherwise reading is anonymous.
         """
         url = os.environ.get("PRISM_CACHE_URL", DEFAULT_URL)
         profile = os.environ.get("PRISM_CACHE_PROFILE")
@@ -121,7 +122,11 @@ class PrismCache:
                     endpoint,
                 )
         if writable is None:
-            writable = bool(profile or os.environ.get("AWS_ACCESS_KEY_ID"))
+            # In CI the env keys are for the output store, which may not be the cache
+            env_keys = os.environ.get("AWS_ACCESS_KEY_ID") and (
+                os.environ.get("AWS_ENDPOINT_URL", "").rstrip("/") == endpoint
+            )
+            writable = bool(profile or env_keys)
         parsed = urlparse(url)
         bucket, prefix = parsed.netloc, parsed.path.strip("/")
         common = {

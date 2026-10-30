@@ -57,4 +57,5 @@ https://huggingface.co/api/buckets/gaia-hazlab/<bucket>/tree/<prefix>  # listing
 - **Staging** ([stage.yml](../.github/workflows/stage.yml), [stage-event.yml](../.github/workflows/stage-event.yml)): pick `storage: huggingface`. It reads the `huggingface` GitHub Environment:
   - secrets `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (the `HFAK...` S3 credentials)
   - vars `AWS_ENDPOINT_URL=https://s3.hf.co/gaia-hazlab`, `AWS_DEFAULT_REGION=us-east-1`, `S3_BUCKET=gaia-scratch`
+  - The PRISM cache stays on Kopah. A job gets only one Environment's keys, so when `storage` isn't `kopah`, a `fill-prism-cache` job in the `kopah` Environment first stages PRISM alone (`--only prism`, output discarded) to fill the cache. The stage job then reads the cache anonymously.
 - **Monthly wipe** ([wipe-hf-scratch.yml](../.github/workflows/wipe-hf-scratch.yml)): authenticates with a [Trusted Publisher](https://huggingface.co/docs/hub/trusted-publishers) instead of a secret. On the bucket's **Settings → Trusted Publishers**, add GitHub Actions with `repository=gaia-hazlab/gaia-cli`, `branch=main`, `workflow=wipe-hf-scratch.yml`. A manual run defaults to a dry run.
