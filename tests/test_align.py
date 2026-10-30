@@ -106,7 +106,7 @@ def test_no_overlap_gives_all_nan_not_an_error():
     assert out.precipitation.attrs["cell_methods"] == "time: sum"
 
 
-def test_align_keeps_a_group_outside_the_time_window(tmp_path):
+def test_align_keeps_a_group_outside_the_time_window():
     old = _hourly_in(2020)
     dt = xr.DataTree.from_dict(
         {"rasters/prism": _daily(), "rasters/hrrr": _hourly(), "rasters/strips": old}
