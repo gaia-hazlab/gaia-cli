@@ -1,0 +1,29 @@
+name: Wipe Hugging Face scratch bucket
+
+# Hugging Face buckets have no lifecycle rules, so empty gaia-hazlab/gaia-scratch
+# on the 1st of each month. Auth is a Trusted Publisher (OIDC) configured in the
+# bucket's settings: no stored secret, and the token is scoped to this bucket.
+
+on:
+  schedule:
+    - cron: "0 8 1 * *"  # 08:00 UTC on the 1st
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List what would be deleted without deleting it"
+        default: true
+        type: boolean
+
+jobs:
+  wipe:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # to exchange a GitHub OIDC token for a Hugging Face token
+    env:
+      BUCKET: gaia-hazlab/gaia-scratch
+      HF_OIDC_RESOURCE: buckets/gaia-hazlab/gaia-scratch
+    steps:
+      - name: Remove all files
+        env:
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: pipx run --spec huggingface_hub hf buckets rm "${BUCKET}" --recursive --yes ${DRY_RUN}

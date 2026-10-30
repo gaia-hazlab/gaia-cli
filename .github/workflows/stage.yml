@@ -45,6 +45,7 @@ on:
         options:
           - kopah
           - backblaze
+          - huggingface
 
 jobs:
   stage:
