@@ -86,6 +86,40 @@ def test_minimum_and_maximum_keep_their_extremes():
     np.testing.assert_allclose(out.tmax.sel(day).squeeze(), 23.0)
 
 
+def _hourly_in(year):
+    # the same hourly series, but in another year, bounds included
+    times = pd.date_range(f"{year}-12-01T13:00", f"{year}-12-03T12:00", freq="h")
+    da = _raster(times, 3_000, 2, 2, np.ones((len(times), 2, 2)))
+    da.attrs[regrid.METHOD_ATTR] = "conservative"
+    return io.with_time_bounds(da, -1, 0, "time: sum")
+
+
+def test_no_overlap_gives_all_nan_not_an_error():
+    # e.g. multitemporal DEM strips from 2012-2020 next to a 2025 event window
+    old = _hourly_in(2020)
+
+    out = align.aggregate_time(old, *_day_bins(_daily()))
+
+    assert out.precipitation.sizes == {"time": 3, "y": 2, "x": 2}
+    assert out.precipitation.dims == old.precipitation.dims
+    assert np.isnan(out.precipitation).all()
+    assert out.precipitation.attrs["cell_methods"] == "time: sum"
+
+
+def test_align_keeps_a_group_outside_the_time_window():
+    old = _hourly_in(2020)
+    dt = xr.DataTree.from_dict(
+        {"rasters/prism": _daily(), "rasters/hrrr": _hourly(), "rasters/strips": old}
+    )
+
+    aligned = align.align(dt, time_like="rasters/prism")
+
+    strips = aligned["rasters/strips"].to_dataset()
+    np.testing.assert_array_equal(strips.time, aligned["rasters/prism"].time)
+    assert np.isnan(strips.precipitation).all()
+    np.testing.assert_allclose(aligned["rasters/prism"].precipitation, 10.0)
+
+
 def test_align_daily_on_coarsest_grid_roundtrip(tmp_path):
     dt = xr.DataTree.from_dict({"rasters/prism": _daily(), "rasters/hrrr": _hourly()})
     path = str(tmp_path / "native.zarr")
