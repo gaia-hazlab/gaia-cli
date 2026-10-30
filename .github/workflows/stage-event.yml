@@ -41,7 +41,43 @@ on:
           - huggingface
 
 jobs:
+  # The PRISM cache is on Kopah, and a job gets one Environment's keys. When the
+  # outputs go to another store, fill the cache from a kopah job first; the stage
+  # job then reads the cache anonymously.
+  fill-prism-cache:
+    if: ${{ inputs.storage != 'kopah' }}
+    runs-on: ubuntu-latest
+    environment: kopah
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_ENDPOINT_URL: ${{ vars.AWS_ENDPOINT_URL }}
+      AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION || 'us-west-2' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Tags, for the package version (hatch-vcs)
+          fetch-depth: 0
+
+      - uses: prefix-dev/setup-pixi@v0.11.2
+        with:
+          cache: true
+
+      - name: Stage PRISM alone, filling the cache
+        env:
+          CONFIG: ${{ inputs.config }}
+        run: |
+          # --only rejects a dataset the stage file doesn't list
+          if ! pixi run gaia stage --config "${CONFIG}" --only prism --dry-run > /dev/null; then
+            echo "No PRISM in ${CONFIG}; nothing to fill"
+            exit 0
+          fi
+          pixi run gaia stage --config "${CONFIG}" --only prism -o prism-only
+
   stage:
+    needs: fill-prism-cache
+    # Run when the fill succeeded or was skipped
+    if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.storage }}
     env:

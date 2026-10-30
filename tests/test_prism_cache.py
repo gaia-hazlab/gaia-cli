@@ -311,6 +311,20 @@ def test_from_env_output_profile_for_kopah_writes_cache(aws_config):
     assert PrismCache.from_env().writable
 
 
+def test_from_env_keys_for_other_store_leave_cache_read_only(aws_config):
+    aws_config.setenv("AWS_ACCESS_KEY_ID", "HFAK")
+    aws_config.setenv("AWS_SECRET_ACCESS_KEY", "s")
+    aws_config.setenv("AWS_ENDPOINT_URL", "https://s3.hf.co/gaia-hazlab")
+    assert not PrismCache.from_env().writable
+
+
+def test_from_env_keys_for_kopah_write_cache(aws_config):
+    aws_config.setenv("AWS_ACCESS_KEY_ID", "k")
+    aws_config.setenv("AWS_SECRET_ACCESS_KEY", "s")
+    aws_config.setenv("AWS_ENDPOINT_URL", "https://s3.kopah.uw.edu")
+    assert PrismCache.from_env().writable
+
+
 def test_from_env_cache_profile_supplies_endpoint(aws_config):
     aws_config.setenv("AWS_PROFILE", "kopah")
     aws_config.setenv("PRISM_CACHE_PROFILE", "b2")
