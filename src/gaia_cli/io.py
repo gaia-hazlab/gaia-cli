@@ -226,6 +226,49 @@ warnings.filterwarnings("ignore", message="Consolidated metadata is currently no
 # answers anonymous GETs for missing keys with 403 rather than 404, which
 # readers treat as an error instead of as fill value.
 
+# Registry entries for the GeoZarr conventions written by _geozarr_attrs
+_ZARR_CONVENTIONS = [
+    {
+        "schema_url": "https://raw.githubusercontent.com/zarr-conventions/proj/refs/tags/v0.1/schema.json",
+        "spec_url": "https://github.com/zarr-conventions/proj/blob/v0.1/README.md",
+        "uuid": "f17cb550-5864-4468-aeb7-f3180cfb622f",
+        "name": "proj",
+        "description": "Coordinate reference system information for geospatial data",
+    },
+    {
+        "schema_url": "https://raw.githubusercontent.com/zarr-conventions/spatial/refs/tags/v0.1/schema.json",
+        "spec_url": "https://github.com/zarr-conventions/spatial/blob/v0.1/README.md",
+        "uuid": "689b58e2-cf7b-45e0-9fff-9cfc0883d6b4",
+        "name": "spatial",
+        "description": "Spatial coordinate information",
+    },
+]
+
+
+def _geozarr_attrs(ds: xr.Dataset) -> dict:
+    """GeoZarr ``proj:`` and ``spatial:`` group attributes for a raster group.
+
+    Browser viewers built on zarrita read the grid from these rather than from
+    CF grid_mapping. On a group they apply to its arrays (zarr-conventions
+    proj and spatial v0.1).
+    """
+    crs = ds.rio.crs
+    attrs = {
+        "zarr_conventions": _ZARR_CONVENTIONS,
+        "proj:wkt2": crs.to_wkt(version="WKT2_2019"),
+    }
+    if (epsg := crs.to_epsg()) is not None:
+        attrs["proj:code"] = f"EPSG:{epsg}"
+    attrs.update(
+        {
+            "spatial:dimensions": ["y", "x"],
+            "spatial:transform": list(ds.rio.transform())[:6],
+            "spatial:shape": [ds.sizes["y"], ds.sizes["x"]],
+            "spatial:bbox": list(ds.rio.bounds()),
+        }
+    )
+    return attrs
+
 
 def _prepare_for_zarr(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
     """Load datasets up to ~10 MB into memory and store each variable as one chunk.
@@ -260,6 +303,8 @@ def _prepare_for_zarr(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
                 var.attrs["grid_mapping"] = "spatial_ref"
                 if wkt:
                     var.attrs["_CRS"] = {"wkt": wkt}
+        if {"x", "y"} <= set(ds.dims) and ds.rio.crs is not None:
+            ds = ds.assign_attrs(_geozarr_attrs(ds))
     for var in ds.data_vars.values():
         dtype = np.dtype(var.encoding.get("dtype", var.dtype))
         if dtype.kind == "f":

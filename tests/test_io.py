@@ -112,6 +112,32 @@ def test_save_datatree_writes_fill_value_chunks(tmp_path):
     assert (path / "a" / "spatial_ref" / "c").exists()
 
 
+def test_save_datatree_writes_geozarr_group_attrs(tmp_path):
+    # zarrita-based viewers place the grid from proj:/spatial:, not grid_mapping
+    coords = {"y": [5_000_015.0, 5_000_005.0], "x": [500_005.0, 500_015.0, 500_025.0]}
+    raster = xr.Dataset(
+        {"v": (("time", "y", "x"), np.ones((1, 2, 3)))}, coords
+    ).rio.write_crs("EPSG:32610")
+    stations = xr.Dataset({"p": ("station", [1.0])})
+    path = tmp_path / "t.zarr"
+
+    io.save_datatree(
+        xr.DataTree.from_dict({"rasters/a": raster, "stations/s": stations}), str(path)
+    )
+
+    meta = json.loads((path / "zarr.json").read_text())["consolidated_metadata"]
+    attrs = meta["metadata"]["rasters/a"]["attributes"]
+    assert [c["name"] for c in attrs["zarr_conventions"]] == ["proj", "spatial"]
+    assert attrs["proj:code"] == "EPSG:32610"
+    assert rasterio.CRS.from_wkt(attrs["proj:wkt2"]).to_epsg() == 32610
+    assert attrs["spatial:dimensions"] == ["y", "x"]
+    assert attrs["spatial:transform"] == [10, 0, 500_000, 0, -10, 5_000_020]
+    assert attrs["spatial:shape"] == [2, 3]
+    assert attrs["spatial:bbox"] == [500_000, 5_000_000, 500_030, 5_000_020]
+    assert meta["metadata"]["rasters/a/v"]["dimension_names"] == ["time", "y", "x"]
+    assert "proj:code" not in meta["metadata"]["stations/s"]["attributes"]
+
+
 def test_save_datatree_append_keeps_groups_and_describes_the_whole_store(tmp_path):
     path = str(tmp_path / "out.zarr")
     a = xr.Dataset({"v": ("time", [1.0])}, attrs={"license": "CC-BY-4.0"})
