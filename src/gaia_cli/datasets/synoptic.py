@@ -29,6 +29,11 @@ TOKEN = os.environ.get("SYNOPTIC_TOKEN")
 SYNOPTIC_API = "https://api.synopticdata.com/v2"
 RESET_MM = 10  # drops in raw gauge accumulation larger than this are treated as resets
 PRECIP = "precip_accum"  # staged as "precipitation", a running total
+# Synoptic variables converted to SI: (factor, units)
+SI = {
+    "soil_moisture": (0.01, "m3 m-3"),  # volumetric water content, from %
+    "soil_moisture_tension": (1.0, "kPa"),  # from centibars
+}
 # Written by hand (no STAC Collection): stations are mostly in the US, Alaska
 # included, but the API serves networks worldwide
 EXTENT = {
@@ -205,6 +210,7 @@ def get_station_timeseries(
         # vars = 'precip' # 'Querying too many station hours. 195840.0 hours were requested.' ...
         "vars": ",".join(variables),
         "obtimezone": "UTC",  # ensure UTC returns
+        "sensorvars": 1,  # sensor depths, for soil variables
     }
     if PRECIP in variables:
         # Enable derived precip (precip_accumulated_set_1d, precip_intervals_set_1d)
@@ -227,10 +233,30 @@ def get_station_timeseries(
     return data
 
 
-def _column(obs: pd.DataFrame, var: str) -> str | None:
-    """The first sensor set reporting *var*, e.g. ``air_temp_set_1``."""
-    sets = sorted(c for c in obs if re.fullmatch(rf"{re.escape(var)}_set_\d+d?", c))
-    return sets[0] if sets else None
+def _columns(obs: pd.DataFrame, station: dict, var: str) -> dict[str, str]:
+    """Every sensor set reporting *var*, by the name it is staged under.
+
+    A set with a depth below ground is named for it (``soil_moisture_10cm``).
+    Otherwise set 1 keeps the variable's name and set *n* is ``<var>_set_n``.
+    Derived sets (``_set_1d``) are used only when nothing is reported.
+    """
+    sets = {}
+    for derived in ("", "d"):
+        for c in obs:
+            if m := re.fullmatch(rf"{re.escape(var)}_set_(\d+){derived}", c):
+                sets[c] = int(m[1])
+        if sets:
+            break
+    positions = station.get("SENSOR_VARIABLES", {}).get(var, {})
+    names = {}
+    for column, n in sorted(sets.items(), key=lambda item: item[1]):
+        position = (positions.get(column) or {}).get("position")
+        if position is not None and float(position) < 0:
+            name = f"{var}_{round(-float(position) * 100, 1):g}cm"
+        else:
+            name = var if n == 1 else f"{var}_set_{n}"
+        names[name if name not in names else f"{var}_set_{n}"] = column
+    return names
 
 
 def _precip_source(station: dict) -> str:
@@ -251,8 +277,10 @@ def construct_ragged(data: dict, variables: Sequence[str] = (PRECIP,)) -> xr.Dat
         ``precipitation``, the running total since the first report: Synoptic's
         derived ``precip_accumulated_set_1d`` when present, otherwise the raw
         accumulation de-reset with :func:`accumulate_raw_precip`. Other
-        variables keep their name and take the first sensor set (``_set_1``),
-        as numbers.
+        variables keep every sensor set, as numbers: a set below ground is
+        named for its depth (``soil_moisture_10cm``), otherwise set 1 keeps the
+        variable's name and set *n* is ``<var>_set_n``. Units are Synoptic's,
+        except those in :data:`SI`: soil moisture in m3 m-3, tension in kPa.
 
     Returns
     -------
@@ -265,6 +293,7 @@ def construct_ragged(data: dict, variables: Sequence[str] = (PRECIP,)) -> xr.Dat
     """
     units = data.get("UNITS", {})
     meta, reports = [], []
+    staged = {}  # staged name -> Synoptic variable
     for station in data["STATION"]:
         obs = pd.DataFrame(station["OBSERVATIONS"])
         obs.index = pd.DatetimeIndex(obs.pop("date_time")).tz_localize(None)
@@ -278,8 +307,10 @@ def construct_ragged(data: dict, variables: Sequence[str] = (PRECIP,)) -> xr.Dat
                     table["precipitation"] = accumulate_raw_precip(
                         obs["precip_accum_set_1"]
                     )
-            elif (column := _column(obs, var)) is not None:
-                table[var] = obs[column]
+            else:
+                for name, column in _columns(obs, station, var).items():
+                    table[name] = obs[column]
+                    staged[name] = var
         table = table.apply(pd.to_numeric, errors="coerce").dropna(how="all")
         if table.empty:
             log.debug("Station %s: no reports of %s", station["STID"], variables)
@@ -317,9 +348,15 @@ def construct_ragged(data: dict, variables: Sequence[str] = (PRECIP,)) -> xr.Dat
             "long_name": "precipitation accumulated since the first report",
             "units": "mm",
         }
-    for var in variables:
-        if var in ds and var in units:
-            ds[var].attrs["units"] = units[var]
+    for name, var in staged.items():
+        if name not in ds:
+            continue
+        if var in SI:
+            factor, unit = SI[var]
+            ds[name] = ds[name] * factor
+            ds[name].attrs["units"] = unit
+        elif var in units:
+            ds[name].attrs["units"] = units[var]
     return ds
 
 

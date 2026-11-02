@@ -33,9 +33,16 @@ of shapely points, and the helpers below do that for you.
   the raw `precip_accum` with gauge resets removed. `precip_source` names the reported
   variable it was derived from (`precip_accum`, `precip_accum_one_hour`,
   `precip_accum_since_local_midnight`, …).
-- `--variables` adds other Synoptic variables, such as `air_temp` or `wind_speed`,
-  under their Synoptic names. Each takes the station's first sensor set (`_set_1`), as
-  a number, with Synoptic's `units`. A report missing a variable has NaN for it.
+- `--variables` adds other Synoptic variables, such as `air_temp` or `soil_moisture`,
+  under their Synoptic names, as numbers with Synoptic's `units`, except that soil
+  moisture becomes a volume fraction (m3 m-3, from %) and tension kPa (from centibars,
+  the same numbers). Every sensor set is
+  kept. A set that Synoptic places below ground is named for its depth
+  (`soil_moisture_10cm`). Otherwise set 1 keeps the variable's name and set *n* becomes
+  `<variable>_set_n`, as with the two unlabelled soil sensors at NWAC's Paradise
+  station. A report missing a variable has NaN for it. See
+  [add-soil-moisture-plan.md](add-soil-moisture-plan.md) for which networks report soil
+  moisture, and at which depths.
 - A report with none of the variables is dropped, and so is a station without any
   such report.
 - QC flags are not stored yet.

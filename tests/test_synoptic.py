@@ -166,10 +166,65 @@ def test_construct_ragged_keeps_other_variables():
     # Stations without any of the variables are dropped
     assert ds.station.values.tolist() == ["BOTH", "TEMP"]
     assert ds.row_size.values.tolist() == [2, 1]
-    # The first sensor set
+    # Every sensor set
     assert ds.air_temp.values.tolist() == [2.5, 3.0, 1.0]
+    assert ds.air_temp_set_2.values[:2].tolist() == [9.0, 9.0]
+    assert np.isnan(ds.air_temp_set_2.values[2])
     assert ds.air_temp.attrs["units"] == "Celsius"
+    assert ds.air_temp_set_2.attrs["units"] == "Celsius"
     assert np.isnan(ds.precipitation.values[1:]).all()
+
+
+def test_construct_ragged_names_soil_sensors_by_depth():
+    times = ["2025-12-01T00:00:00Z", "2025-12-01T01:00:00Z"]
+    profile = _station(
+        "PROFILE",
+        {
+            "date_time": times,
+            "soil_moisture_set_1": [20.0, 21.0],
+            "soil_moisture_set_2": [30.0, 31.0],
+            "soil_moisture_set_10": [40.0, 41.0],
+            "soil_moisture_set_11": [42.0, 43.0],
+        },
+    )
+    depths = {"soil_moisture_set_1": "-0.05", "soil_moisture_set_2": "-0.15"}
+    depths |= {"soil_moisture_set_10": "-1.0", "soil_moisture_set_11": "-1.0"}
+    profile["SENSOR_VARIABLES"] = {
+        "soil_moisture": {k: {"position": v} for k, v in depths.items()}
+    }
+    unknown = _station(
+        "UNKNOWN",
+        {
+            "date_time": times,
+            "soil_moisture_set_1": [10.0, None],
+            "soil_moisture_set_2": [12.0, 13.0],
+        },
+    )
+    unknown["SENSOR_VARIABLES"] = {
+        "soil_moisture": {"soil_moisture_set_1": {"position": None}}
+    }
+    data = {"UNITS": {"soil_moisture": "%"}, "STATION": [profile, unknown]}
+
+    ds = synoptic.construct_ragged(data, ["soil_moisture"])
+
+    soil = [v for v in ds.data_vars if str(v).startswith("soil_moisture")]
+    assert sorted(soil) == sorted(
+        [
+            "soil_moisture_5cm",
+            "soil_moisture_15cm",
+            "soil_moisture_100cm",
+            # A second sensor at the same depth keeps its set number
+            "soil_moisture_set_11",
+            "soil_moisture",
+            "soil_moisture_set_2",
+        ]
+    )
+    # Percent becomes a volume fraction
+    assert ds.soil_moisture_15cm.values[:2] == pytest.approx([0.30, 0.31])
+    assert ds.soil_moisture_100cm.values[:2] == pytest.approx([0.40, 0.41])
+    assert ds.soil_moisture.values[2] == pytest.approx(0.10)
+    assert ds.soil_moisture_set_2.values[2:] == pytest.approx([0.12, 0.13])
+    assert ds.soil_moisture_5cm.attrs["units"] == "m3 m-3"
 
 
 def test_construct_ragged_raises_without_any_reports():

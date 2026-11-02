@@ -24,6 +24,12 @@ Station reports from the [Synoptic Data](https://synopticdata.com) API. Requires
 
 - `precip_accum` (default) is staged as `precipitation`, a running total in mm. Other
   Synoptic variables, such as `air_temp`, keep their Synoptic names and units.
+- Every sensor is kept. Soil sensors with a known depth are named for it, such as
+  `soil_moisture_10cm` (`-v soil_moisture`). Other extra sensors are
+  `<variable>_set_2`, `_set_3`, ….
+- Units are SI: soil moisture is volumetric water content in m³ m⁻³ (Synoptic's
+  percent / 100), and `soil_moisture_tension` is in kPa.
+- Free Synoptic accounts can only request about the last year of reports.
 - Every report is kept, as a CF ragged array. `gaia_cli.stations.to_grid(ds)` puts the
   reports on a regular hourly (or daily) grid, and `to_dataframe(ds)` gives one row per
   report.
