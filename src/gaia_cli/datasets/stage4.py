@@ -387,6 +387,11 @@ def load(
         da.sizes["y"],
         da.sizes["x"],
     )
+    log.info(
+        "Stage IV source grids are kept locally in %s; feel free to delete it "
+        "(they are re-fetched as needed). Set STAGE4_CACHE to use another directory.",
+        cache_dir().resolve(),
+    )
     out = io.with_time_bounds(
         da, start_hours=-12, end_hours=12, cell_methods="time: sum"
     )
