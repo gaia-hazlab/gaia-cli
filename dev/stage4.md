@@ -47,8 +47,10 @@ GRIB has to be read from a local file, but whole monthly tars are large (about
 3. extracts the 24 h member for the domain, decompresses it (`.gz` with `gzip`,
    `.Z` with `unlzw3`) and writes it to the cache.
 
-The cache is `~/.cache/gaia/stage4/` (`STAGE4_CACHE` to change it):
-`YYYY/<grib file>` and `index/stage4.YYYYMM.json`. Cached grids are never
+The cache is `./.cache/gaia/stage4/`, under the directory gaia runs in, not the
+home directory, which is small on shared HPC systems. Set `STAGE4_CACHE` to change
+it, for example to share one cache across working directories on scratch storage.
+It holds `YYYY/<grib file>` and `index/stage4.YYYYMM.json`. Cached grids are never
 re-fetched; Stage IV isn't revised after it is archived. Days missing from the archive
 (including a month GDEX hasn't posted yet) are NaN, with a warning. A window with no
 data at all is an error.

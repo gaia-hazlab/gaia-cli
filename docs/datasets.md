@@ -70,7 +70,8 @@ precipitation analyses, about 4.8 km, polar stereographic.
 - The grid follows the AOI: CONUS from 2002, or Alaska from 2020-07-01. An Alaska
   window starting earlier is an error.
 - Fetched from the NCAR GDEX archive, one day at a time, into a local cache
-  (`~/.cache/gaia/stage4`, or `STAGE4_CACHE`). Days missing from the archive are NaN.
+  (`./.cache/gaia/stage4` under the directory gaia runs in, or `STAGE4_CACHE`). Days
+  missing from the archive are NaN.
 - License: CC-BY-4.0.
 
 (nlcd)=

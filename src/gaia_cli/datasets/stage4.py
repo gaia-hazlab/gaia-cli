@@ -2,7 +2,8 @@
 
 CONUS from 2002, Alaska from July 2020; the domain follows the AOI. Grids are
 fetched from the NCAR GDEX archive (d507005) into a local cache, by default
-~/.cache/gaia/stage4 (set STAGE4_CACHE to change it). See dev/stage4.md.
+./.cache/gaia/stage4 under the directory gaia runs in (set STAGE4_CACHE to
+change it). See dev/stage4.md.
 
 Examples
 --------
@@ -99,9 +100,9 @@ def domain(aoi: gpd.GeoDataFrame) -> str:
 
 
 def cache_dir() -> Path:
-    return Path(
-        os.environ.get("STAGE4_CACHE", Path.home() / ".cache" / "gaia" / "stage4")
-    )
+    # Under the working directory, not ~: home directories on shared HPC
+    # systems are small
+    return Path(os.environ.get("STAGE4_CACHE", Path(".cache") / "gaia" / "stage4"))
 
 
 def member_names(day: dt.date, domain: str) -> list[str]:

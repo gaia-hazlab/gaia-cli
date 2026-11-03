@@ -50,6 +50,12 @@ def test_extent_bboxes_contain_the_grids():
     assert union == [min(conus[0], ak[0]), conus[1], conus[2], ak[3]]
 
 
+def test_cache_defaults_to_the_working_directory(monkeypatch, tmp_path):
+    monkeypatch.delenv("STAGE4_CACHE")
+    monkeypatch.chdir(tmp_path)
+    assert stage4.cache_dir().resolve() == tmp_path / ".cache" / "gaia" / "stage4"
+
+
 # ---- archive ------------------------------------------------------------------
 
 
