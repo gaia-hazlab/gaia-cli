@@ -23,6 +23,7 @@ dependencies = [
   "requests",
   "rioxarray>=0.23",
   "shapely>=2",
+  "unlzw3",
   "xarray",
   "xvec>=0.5.2,<0.6",
   "zarr",
@@ -116,3 +117,6 @@ pystac-client = ">=0.9.0,<0.10"
 python-dotenv = ">=1.2.4,<2"
 icechunk = ">=2.3.0,<3"
 exactextract = ">=0.3.0,<0.4"
+# GDAL GRIB driver for Stage IV (pip rasterio wheels include it)
+libgdal-grib = ">=3.13.3,<4"
+unlzw3 = ">=0.2.2,<0.3"

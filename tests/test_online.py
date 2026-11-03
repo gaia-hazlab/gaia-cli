@@ -49,6 +49,13 @@ def check_hrrr(ds):
     assert float(ds.precipitation.min()) >= 0
 
 
+def check_stage4(ds):
+    # Read from GDEX into a fresh cache: the 24 h totals ending 12 UTC on each day
+    assert ds.sizes["time"] == 3
+    assert float(ds.precipitation.min()) >= 0
+    assert ds.attrs["stage4:domain"] == "conus"
+
+
 def check_nlcd(ds):
     classes = np.unique(ds.landcover.values)
     assert {42, 52} & set(classes.tolist())  # evergreen forest, shrub/scrub
@@ -103,6 +110,7 @@ def check_statsgo(ds):
             id="prism-temperature",
         ),
         ("hrrr", check_hrrr, {}),
+        ("stage4/daily", check_stage4, {}),
         ("nlcd", check_nlcd, {}),
         ("dem/cop30", check_dem, {}),
         ("dem/usgs10m", check_dem, {}),
@@ -111,7 +119,8 @@ def check_statsgo(ds):
         ("soil/statsgo", check_statsgo, {}),
     ],
 )
-def test_stage(tmp_path, dataset, check, options):
+def test_stage(tmp_path, monkeypatch, dataset, check, options):
+    monkeypatch.setenv("STAGE4_CACHE", str(tmp_path / "stage4"))
     config = tmp_path / "stage.yaml"
     config.write_text(STAGE.format(dataset=dataset, options=json.dumps(options)))
     out = tmp_path / "out"
