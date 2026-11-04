@@ -7,7 +7,7 @@ title: Datasets
 | [`synoptic`](#synoptic) | weather station reports | mostly US, Alaska included | stations | every report | `stations/synoptic` |
 | [`prism`](#prism) | PRISM daily precipitation and temperature | CONUS, 1981 on | 800 m | daily | `rasters/prism` |
 | [`hrrr`](#hrrr) | NOAA HRRR analysis | CONUS, 2014-10 on | 3 km | hourly | `rasters/hrrr` |
-| [`stage4`](#stage4) | NCEP Stage IV precipitation | CONUS, 2002 on; Alaska, 2020-07 on | 4.8 km | daily | `stage4/daily` |
+| [`stage4`](#stage4) | NCEP Stage IV precipitation | CONUS, 2002 on; Alaska, 2020-07 on | 4.8 km | daily, 6-hourly, hourly | `stage4/<accumulation>` |
 | [`nlcd`](#nlcd) | Annual NLCD land cover | CONUS, 1985–2024 | 30 m | static | `rasters/nlcd` |
 | [`dem`](#dem) | elevation | global (`cop30`), US (`usgs10m`) | 30 m, 10 m | static | `dem/<product>` |
 | [`soil`](#soil) | soil properties | CONUS | 100 m, 30 m | static | `soil/<product>` |
@@ -65,8 +65,12 @@ Conformal Conic, hourly.
 NCEP/EMC [Stage IV](https://gdex.ucar.edu/datasets/d507005/) radar and gauge
 precipitation analyses, about 4.8 km, polar stereographic.
 
-- Staged as `precipitation`, the 24 h total in mm. The value stamped D covers
-  12:00 UTC on D−1 to 12:00 UTC on D, the same as a PRISM day.
+- Staged as `precipitation` in mm, one group per `--accumulation`: `daily` (default,
+  `stage4/daily`), `sixhourly` or `hourly`. The daily value stamped D covers 12:00 UTC on
+  D−1 to 12:00 UTC on D, the same as a PRISM day. 6-hourly and hourly values are
+  stamped at the end of their period, like HRRR.
+- Hourly grids have no data over parts of the western US (including Washington) before
+  2018: those steps are NaN, with a warning. Alaska has no hourly grids.
 - The grid follows the AOI: CONUS from 2002, or Alaska from 2020-07-01. An Alaska
   window starting earlier is an error.
 - Fetched from the NCAR GDEX archive, one day at a time, into a local cache

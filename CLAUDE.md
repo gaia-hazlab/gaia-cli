@@ -54,7 +54,7 @@ src/gaia_cli/
     synoptic.py   # Synoptic API station reports (CF ragged array)
     prism.py      # PRISM daily grids (from prism_cache); also `gaia prism fill`
     hrrr.py       # HRRR analysis (Icechunk)
-    stage4.py     # NCEP Stage IV daily precipitation (GDEX archive, local cache)
+    stage4.py     # NCEP Stage IV daily/6-hourly/hourly precipitation (GDEX archive, local cache)
     nlcd.py, dem.py, soil.py, burn_severity.py   # static layers
 
 tests/          # pytest suite; test_online.py needs network

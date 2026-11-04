@@ -1,7 +1,7 @@
 # Stage IV precipitation
 
-Module: `src/gaia_cli/datasets/stage4.py` · Command: `gaia stage stage4`
-(stage-file key and group `stage4/daily`)
+Module: `src/gaia_cli/datasets/stage4.py` · Command: `gaia stage stage4 -a <accumulation>`
+(stage-file keys and groups `stage4/daily`, `stage4/sixhourly`, `stage4/hourly`)
 
 ## Source
 
@@ -10,21 +10,23 @@ Module: `src/gaia_cli/datasets/stage4.py` · Command: `gaia stage stage4`
 - Archive: NCAR GDEX dataset [d507005](https://gdex.ucar.edu/datasets/d507005/)
   ("NCEP/CPC Four Kilometer Precipitation Set, Gauge and Radar",
   [10.5065/D69Z93M3](https://doi.org/10.5065/D69Z93M3)), CC-BY-4.0, read anonymously.
-- Only the **24 h** totals are staged so far (`--accumulation daily`). The archive
-  also holds 1 h and 6 h files; see [Hourly and 6 h](#hourly-and-6-h).
+- Three accumulations, each its own group: `daily` (24 h, the default),
+  `sixhourly` (6 h) and `hourly` (1 h), from the archive's `24h`, `06h` and `01h`
+  files. Alaska has no hourly grids; see [Hourly and 6 h](#hourly-and-6-h).
 
 ## Archive layout
 
 ```
 https://data.gdex.ucar.edu/d507005/stage4/stage4.YYYYMM.tar    one month, uncompressed
 └─ ST4.YYYYMMDD                                                 one tar per day, not in date order
-   ├─ 01h files, hour-ending 00–23 UTC of that date
-   ├─ 06h files ending 00, 06, 12, 18 UTC
-   └─ 24h file ending 12 UTC                                    ← staged
+   ├─ 01h files, hour-ending 00–23 UTC of that date            ← hourly
+   ├─ 06h files ending 00, 06, 12, 18 UTC                       ← sixhourly
+   └─ 24h file ending 12 UTC                                    ← daily
 ```
 
-The name of the 24 h member, per domain and era. The code matches these names; the
-dates are approximate:
+A grid ending at 00 UTC on D is in D's tar, not D−1's. The members' names, per domain
+and era (shown for 24 h; `01h` and `06h` follow the same pattern). The code matches
+these names; the dates are approximate:
 
 | period | CONUS | Alaska | format |
 |---|---|---|---|
@@ -34,7 +36,10 @@ dates are approximate:
 
 From 2020 the daily tars also hold Puerto Rico (`st4_pr`) grids and `.gif` maps, which
 are ignored. The 2019–20 tars use PAX headers. Earlier daily tars contain Alaska
-`.gif` maps but no Alaska GRIB.
+`.gif` maps but no Alaska GRIB. The 2019-01 to 2019-03 monthly tars (136–164 MB, against
+about 90 MB for their neighbours) also hold every grid as a loose file after its daily
+tar; indexing reads their many small headers 1 MB at a time, so it takes seconds
+rather than thousands of requests.
 
 ## Fetching and the cache
 
@@ -42,18 +47,21 @@ GRIB has to be read from a local file, but whole monthly tars are large (about
 300 MB from 2020). GDEX serves byte ranges, so `fetch_day`:
 
 1. reads only the monthly tar's 512-byte headers (about 31 range requests) to find
-   each `ST4.YYYYMMDD`'s offset, and caches that index as JSON;
+   each `ST4.YYYYMMDD`'s offset, stopping once every day is found, and caches that
+   index as JSON;
 2. range-gets that one daily tar (about 1 MB in 2002, about 10 MB from 2020);
-3. extracts the 24 h member for the domain, decompresses it (`.gz` with `gzip`,
-   `.Z` with `unlzw3`) and writes it to the cache.
+3. extracts the day's members for the domain and accumulation (one 24 h, four 6 h or
+   24 1 h grids), decompresses them (`.gz` with `gzip`, `.Z` with `unlzw3`) and writes
+   them to the cache.
 
 The cache is `./.cache/gaia/stage4/`, under the directory gaia runs in, not the
 home directory, which is small on shared HPC systems. Set `STAGE4_CACHE` to change
 it, for example to share one cache across working directories on scratch storage.
 It holds `YYYY/<grib file>` and `index/stage4.YYYYMM.json`. Cached grids are never
-re-fetched; Stage IV isn't revised after it is archived. Days missing from the archive
-(including a month GDEX hasn't posted yet) are NaN, with a warning. A window with no
-data at all is an error.
+re-fetched; Stage IV isn't revised after it is archived. If a day's tar lacks some of
+its grids, the tar is fetched again on the next run. Grids missing from the archive
+(including a month GDEX hasn't posted yet) are NaN, with one warning that counts them. A
+window with no data at all is an error.
 
 ## Grids
 
@@ -82,18 +90,26 @@ coarse check already skips AOIs outside both.
 
 ## Time
 
-The 24 h total in `….YYYYMMDD12.24h` covers **(D−1 12:00, D 12:00] UTC**, the same
-period as a [PRISM day](prism.md#time-the-prism-day). It is stamped like PRISM, D 00:00,
-with `time_bounds` (time − 12 h, time + 12 h] and `cell_methods: time: sum`. Stage IV
-and PRISM therefore share time coordinates, and `gaia align` can sum HRRR hours into
-them.
+| accumulation | file | covers | stamped | `time_bounds` |
+|---|---|---|---|---|
+| `daily` | `….YYYYMMDD12.24h` | (D−1 12:00, D 12:00] UTC | D 00:00, like a [PRISM day](prism.md#time-the-prism-day) | (time − 12 h, time + 12 h] |
+| `sixhourly` | `….YYYYMMDDHH.06h`, HH 00/06/12/18 | (T − 6 h, T] | T, the period end | (time − 6 h, time] |
+| `hourly` | `….YYYYMMDDHH.01h` | (T − 1 h, T] | T, the period end, like HRRR | (time − 1 h, time] |
+
+All have `cell_methods: time: sum`. Daily Stage IV and PRISM therefore share time
+coordinates, hourly Stage IV and HRRR share theirs, and `gaia align` can sum hours into
+days. For a window `-s S -e E`, the sub-daily steps are those whose end lies in [S, E]
+(as for HRRR), so the first hourly step of a day covers 23:00–00:00 of the day before.
+Checked live: for Bolt Creek on 2025-12-09, the 24 hourly and the four 6-hourly basin
+means sum to the daily one (114.1 mm).
 
 The time comes from the file name. Inside the GRIB the reference time is the *start*
 of the period (D−1 12 UTC), so cfgrib's `time` is a day earlier than the label.
 
 **Alaska** grids start 2020-07-01. A request whose window starts earlier is an error;
 the extra day the runner reads before the window (2020-06-30 for a window starting
-2020-07-01) is NaN.
+2020-07-01) is NaN. Alaska has 24 h and 6 h grids only, so `hourly` with an Alaska AOI
+is an error.
 
 ## Values
 
@@ -110,8 +126,18 @@ the extra day the runner reads before the window (2020-06-30 for a window starti
 
 ## Hourly and 6 h
 
-To add them, add values to `Accumulation`, extend `member_names` with the `01h`/`06h`
-stamps, and use bounds (−1 h, 0) or (−6 h, 0) with the end time as the label, like
-HRRR. Alaska has no 1 h product, so hourly with an Alaska AOI must be an error. In the
-western RFCs (including NWRFC), 1 h Stage IV can be 6 h totals split by hour, so check
-before using it for sub-daily timing.
+**Hourly gaps in the West.** Before 2018 the hourly mosaic has no data over parts of
+the western US, so those grids exist but are NaN there. Sampled at 12 UTC on the first
+day of a month (fraction of cells with data):
+
+| | WA (NWRFC) | N. California (CNRFC) | CO, UT, AZ, MT | OK (ABRFC) |
+|---|---|---|---|---|
+| 1 h, 2002-07 to 2017-12 | none | 2011-01: yes; 2017-01: none | yes | yes |
+| 1 h, from 2018-01 | yes | yes | yes | yes |
+| 6 h | yes, except 2002-07 | yes | yes | yes |
+
+Washington's first hourly data in a binary search over months was 2018-01 (none in
+2017-12). Steps whose grid has no data anywhere over the AOI are left NaN, and `load()`
+logs one warning that counts them and, for hourly, names this gap. Daily and 6-hourly
+cover these regions. Where hourly exists in the western RFCs (including NWRFC), it can
+be 6 h totals split by hour, so check before relying on it for sub-daily timing.

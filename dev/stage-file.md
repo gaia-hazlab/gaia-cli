@@ -83,7 +83,7 @@ and `dem/usgs10m`. `--only dem` selects every variant, and `--only dem/usgs10m` 
 | `synoptic` | `variables` (list, default `[precip_accum]`; see [stations.md](stations.md)) |
 | `prism` | `variables` (list of `ppt`, `tmin`, `tmax`, `tmean`; default `[ppt]`; see [prism.md](prism.md#values)) |
 | `hrrr` | `variable` (default `precipitation_surface`) |
-| `stage4` | none; the key names the accumulation: `stage4/daily` (a bare `stage4` is `stage4/daily`; see [stage4.md](stage4.md)) |
+| `stage4` | none; the key names the accumulation: `stage4/daily`, `stage4/sixhourly` or `stage4/hourly` (a bare `stage4` is `stage4/daily`; see [stage4.md](stage4.md)) |
 | `nlcd` | `year` (default `2021`); static, no window |
 | `dem` | none; the key names the product: `dem/cop30` or `dem/usgs10m` (a bare `dem` is `dem/cop30`; see [dem.md](dem.md)); static, no window |
 | `soil` | none; the key names the product: `soil/solus100` or `soil/statsgo` (a bare `soil` is `soil/solus100`; see [soil.md](soil.md)); static, no window |
