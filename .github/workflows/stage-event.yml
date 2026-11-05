@@ -95,7 +95,7 @@ jobs:
       ALIGNED: ${{ inputs.name }}-aligned
       LANDLAB: ${{ inputs.name }}-landlab
       ALIGN_OPTIONS: ${{ inputs.align }}
-      S3_PREFIX: s3://${{ vars.S3_BUCKET || 'gaia' }}/scratch/github-workflows
+      S3_PREFIX: s3://${{ vars.S3_BUCKET || 'gaia-scratch' }}/gaia-cli/github-workflows
     steps:
       - name: Check inputs
         if: ${{ inputs.landlab_inputs && inputs.align == '' }}

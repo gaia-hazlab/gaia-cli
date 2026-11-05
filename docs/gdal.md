@@ -13,7 +13,7 @@ Remote stores work through `/vsicurl/` (or `/vsis3/`), using the store's consoli
 metadata:
 
 ```bash
-gdal raster info 'ZARR:"/vsicurl/https://s3.kopah.uw.edu/gaia/scratch/public/test/test.zarr":/rasters/prism/precipitation'
+gdal raster info 'ZARR:"/vsicurl/https://s3.kopah.uw.edu/gaia-scratch/gaia-cli/pioneer-10m/pioneer-10m.zarr":/rasters/prism/precipitation'
 ```
 
 Each raster variable carries its CRS as a `_CRS` attribute and its nodata as the Zarr

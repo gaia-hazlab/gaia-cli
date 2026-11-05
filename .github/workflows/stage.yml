@@ -101,7 +101,7 @@ jobs:
       AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
       # Output folder (gaia stage -o): <NAME>/<NAME>.zarr, its STAC Item and stage.yaml
       NAME: ${{ inputs.workflow_name }}-${{ inputs.subcommand }}-${{ inputs.start_date }}_${{ inputs.end_date }}
-      S3_DEST: s3://${{ vars.S3_BUCKET || 'gaia' }}/scratch/github-workflows/${{ inputs.workflow_name }}-${{ inputs.subcommand }}-${{ inputs.start_date }}_${{ inputs.end_date }}
+      S3_DEST: s3://${{ vars.S3_BUCKET || 'gaia-scratch' }}/gaia-cli/github-workflows/${{ inputs.workflow_name }}-${{ inputs.subcommand }}-${{ inputs.start_date }}_${{ inputs.end_date }}
     steps:
       - uses: actions/checkout@v7
         with:

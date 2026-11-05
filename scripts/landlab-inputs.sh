@@ -5,7 +5,7 @@
 #
 #   scripts/landlab-inputs.sh STORE OUTDIR
 #
-# STORE can be remote, e.g. /vsis3/gaia/scratch/public/pioneer-10m/pioneer-10m.zarr with
+# STORE can be remote, e.g. /vsis3/gaia-scratch/gaia-cli/pioneer-10m/pioneer-10m.zarr with
 # AWS_S3_ENDPOINT=s3.kopah.uw.edu AWS_NO_SIGN_REQUEST=YES AWS_VIRTUAL_HOSTING=FALSE.
 #
 # STORE must already be on the contract grid, e.g.

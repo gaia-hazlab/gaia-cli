@@ -26,7 +26,7 @@ aois:
   local: {latitude: 63.1455, longitude: -151.1904, radius_km: 15}
 aoi: regional
 window: 2023-06-01/2023-09-21
-output: s3://gaia/scratch/peters-dome
+output: s3://gaia-scratch/gaia-cli/peters-dome
 datasets:
   hrrr: {aoi: local, window: {before: 6h, after: 1d}, variable: temperature_2m}
   prism: {variables: [ppt, tmax]}

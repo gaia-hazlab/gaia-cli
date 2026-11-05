@@ -101,14 +101,14 @@ To write GeoTIFF or ESRI ASCII files from the result, use GDAL ([](gdal.md)).
 ## `gaia catalog rebuild`
 
 ```bash
-gaia catalog rebuild -p s3://gaia/scratch/public
+gaia catalog rebuild -p s3://gaia-scratch/gaia-cli
 ```
 
 Collects the STAC Items of every store under a prefix into a `catalog.json`. The
 public stores are browsable in
-[STAC Browser](https://browser.moregeo.it/external/s3.kopah.uw.edu/gaia/scratch/public/catalog.json)
+[STAC Browser](https://browser.moregeo.it/external/s3.kopah.uw.edu/gaia-scratch/gaia-cli/catalog.json)
 and on a map in
-[stac-map](https://developmentseed.org/stac-map/?href=https://s3.kopah.uw.edu/gaia/scratch/public/catalog.json).
+[stac-map](https://developmentseed.org/stac-map/?href=https://s3.kopah.uw.edu/gaia-scratch/gaia-cli/catalog.json).
 
 (prism-cache)=
 ## `gaia prism fill`

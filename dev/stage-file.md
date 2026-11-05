@@ -65,7 +65,7 @@ aois:                                # named AOIs
   local: {latitude: 63.1455, longitude: -151.1904, radius_km: 15}
 aoi: regional                        # default AOI: a name, path, URL or inline AOI
 window: 2023-06-01/2023-09-21        # default window
-output: s3://gaia/scratch/peters-dome   # output folder; -o overrides it
+output: s3://gaia-scratch/gaia-cli/peters-dome   # output folder; -o overrides it
 datasets:
   hrrr: {aoi: local, window: {before: 6h, after: 1d}, variable: temperature_2m}
   prism: {variables: [ppt, tmin, tmax]}
