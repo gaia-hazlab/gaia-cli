@@ -11,4 +11,5 @@ datasets:
   synoptic: {}
   prism: {}
   hrrr: {}
+  stage4/daily: {}
   nlcd: {year: 2021}
