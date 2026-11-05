@@ -315,3 +315,62 @@ def test_parse_methods():
     assert align._parse_methods([]) is None
     with pytest.raises(ValueError, match="not one of"):
         align._parse_methods(["dem/usgs10m=bicubic"])
+
+
+def _passes():
+    """Four instantaneous Sentinel-1-like passes on two tracks, with scene coordinates."""
+    times = pd.to_datetime(
+        ["2023-09-07T16:45", "2023-09-09T16:29", "2023-09-19T16:45", "2023-09-21T16:29"]
+    )
+    da = _raster(times, 10, 4, 4, np.arange(64.0).reshape(4, 4, 4) + 1).rename("vv")
+    da.attrs[regrid.METHOD_ATTR] = "average"
+    return da.to_dataset().assign_coords(
+        platform=("time", ["SENTINEL-1A"] * 4),
+        relative_orbit=("time", np.array([102, 131, 102, 131])),
+        scene_ids=("time", ["a", "b", "c", "d e"]),
+    )
+
+
+def test_a_scene_groups_own_steps_keep_its_scene_coordinates(tmp_path):
+    s1 = _passes()
+    dt = xr.DataTree.from_dict(
+        {"rasters/sentinel1-rtc": s1, "dem/cop30": _elevation(30, 2)}
+    )
+    path = str(tmp_path / "native.zarr")
+    io.save_datatree(dt, path)
+
+    aligned = align.align(io.open_datatree(path), crs="EPSG:32610", res=20)
+    io.save_datatree(aligned, str(tmp_path / "aligned.zarr"))
+    out = io.open_datatree(str(tmp_path / "aligned.zarr"))[
+        "rasters/sentinel1-rtc"
+    ].to_dataset()
+
+    np.testing.assert_array_equal(out.time, s1.time)
+    assert out.relative_orbit.values.tolist() == [102, 131, 102, 131]
+    assert out.relative_orbit.dtype.kind == "i"
+    assert out.platform.values.tolist() == ["SENTINEL-1A"] * 4
+    assert out.scene_ids.values.tolist() == ["a", "b", "c", "d e"]
+    assert out.vv.sizes["time"] == 4 and out.vv.notnull().any()
+
+
+def test_scene_coordinates_that_a_coarser_step_would_mix_are_dropped(caplog):
+    s1 = _passes()
+    labels = pd.to_datetime(["2023-09-10", "2023-09-22", "2023-10-04"]).values
+    start = labels - np.timedelta64(12, "D")
+
+    with caplog.at_level("INFO", logger="gaia_cli.align"):
+        out = align.aggregate_time(s1, labels, start, labels)
+
+    # Each 12-day step mixes tracks 102 and 131, so their passes average together
+    assert "relative_orbit" not in out.coords
+    assert "relative_orbit: dropped" in caplog.text
+    # The same platform in each step is kept; the empty last step gets ""
+    assert out.platform.values.tolist() == ["SENTINEL-1A", "SENTINEL-1A", ""]
+    assert "scene_ids" not in out.coords
+
+
+def test_numeric_scene_coordinates_with_empty_steps_become_float():
+    s1 = _passes().isel(time=[1, 3])  # track 131 only
+    labels = pd.to_datetime(["2023-09-10", "2023-09-16", "2023-09-22"]).values
+    out = align.aggregate_time(s1, labels, labels - np.timedelta64(6, "D"), labels)
+    np.testing.assert_array_equal(out.relative_orbit.values, [131.0, np.nan, 131.0])
