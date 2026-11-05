@@ -97,13 +97,16 @@ def _hourly_in(year):
 def test_no_overlap_gives_all_nan_not_an_error():
     # e.g. multitemporal DEM strips from 2012-2020 next to a 2025 event window
     old = _hourly_in(2020)
+    old["precipitation"] = old.precipitation.astype("float32")
 
     out = align.aggregate_time(old, *_day_bins(_daily()))
 
     assert out.precipitation.sizes == {"time": 3, "y": 2, "x": 2}
     assert out.precipitation.dims == old.precipitation.dims
     assert np.isnan(out.precipitation).all()
+    assert out.precipitation.dtype == old.precipitation.dtype
     assert out.precipitation.attrs["cell_methods"] == "time: sum"
+    assert "aggregated_from" in out.precipitation.attrs
 
 
 def test_align_keeps_a_group_outside_the_time_window():
