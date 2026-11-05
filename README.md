@@ -18,8 +18,7 @@ pixi run gaia stage --config conus-precip \
 ```
 
 See [examples/skagit-precip.ipynb](examples/skagit-precip.ipynb) for an analysis of the result, and
-[examples/pioneer-landlab.ipynb](examples/pioneer-landlab.ipynb) for staging Landlab inputs, and
-[examples/peters-dome.ipynb](examples/peters-dome.ipynb) for Sentinel-1 before and after a landslide.
+[examples/pioneer-landlab.ipynb](examples/pioneer-landlab.ipynb) for staging Landlab inputs.
 
 ## Staging on GitHub Actions
 
