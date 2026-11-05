@@ -29,6 +29,7 @@ from .stagefile import (
     CONFIG_FILE,
     DATASETS,
     PRESETS,
+    SCENE_WINDOWS,
     StageConfig,
     StageFileError,
     group,
@@ -41,7 +42,9 @@ from .stagefile import (
     plain,
     presets,
     read_config,
+    read_window,
     resolved,
+    scenes,
     timed,
     write_stage_file,
 )
@@ -83,15 +86,17 @@ def run(
         module = DATASETS[req.dataset]
         kwargs = dict(req.options)
         if req.windows:
-            w = req.windows[0].padded()
+            w = read_window(req)
             assert w.start is not None and w.end is not None  # checked in load_config
             # load() takes inclusive bounds; the window's end is exclusive
             kwargs["start_date"] = w.start.isoformat()
             kwargs["end_date"] = (w.end - pd.Timedelta(seconds=1)).isoformat()
+            if scenes(module):
+                kwargs[SCENE_WINDOWS] = req.windows
         log.info(
             "%s: loading (%s)",
             req.name,
-            f"{req.windows[0]}, read as {req.windows[0].padded()}"
+            f"{', '.join(map(str, req.windows))}, read as {read_window(req)}"
             if req.windows
             else "static",
         )

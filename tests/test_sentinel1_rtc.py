@@ -9,13 +9,15 @@ import pystac
 import pytest
 import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
+import yaml
 from shapely.geometry import box, mapping
 
-from gaia_cli import stac, stagefile
+from gaia_cli import runner, stac, stagefile
 from gaia_cli.aoi import load_aoi
 from gaia_cli.cli import stage_app
 from gaia_cli.datasets import sentinel1_rtc
-from gaia_cli.datasets.sentinel1_rtc import OrbitState
+from gaia_cli.datasets.sentinel1_rtc import Match, OrbitState
+from gaia_cli.window import parse_window
 
 # 10 x 10 cells of 10 m in UTM 5N, near Peters Dome; each frame is half of it
 X0, Y0 = 590000, 7010000
@@ -245,3 +247,177 @@ def test_native_crs_is_the_most_common(scenes):
     other.properties["proj:code"] = "EPSG:32606"
     assert stac.native_crs([other, *scenes]) == "EPSG:32605"
     assert stac.item_crs(other) == "EPSG:32606"
+
+
+# ---- choosing scenes (stage-file windows) --------------------------------------
+
+EVENT = pd.Timestamp("2023-09-14T02:06:49")
+PRE_POST = {
+    "pre": {"before": "30d", "select": "last"},
+    "post": {"after": "30d", "select": "first"},
+}
+
+
+def scene(when, track, name=None):
+    it = pystac.Item(
+        name or f"{when}-{track}",
+        None,
+        None,
+        dt.datetime.fromisoformat(when),
+        {"sat:relative_orbit": track},
+    )
+    return [it]
+
+
+# Peters Dome, Aug-Oct 2023: tracks 102 and 131, with one 102 pass only before
+PETERS_PASSES = [
+    scene("2023-08-28T16:29", 131),
+    scene("2023-09-07T16:45", 102),
+    scene("2023-09-09T16:29", 131),
+    scene("2023-09-19T16:45", 102),
+    scene("2023-09-21T16:29", 131),
+    scene("2023-10-03T16:29", 131),
+    scene("2023-08-14T03:00", 160),  # a third track seen only before
+]
+
+
+def chosen(picked):
+    return [
+        (name, s[0].datetime.strftime("%m-%d"), s[0].properties["sat:relative_orbit"])
+        for name, s in picked
+    ]
+
+
+def test_select_last_before_and_first_after():
+    windows = parse_window(PRE_POST, EVENT)
+    assert chosen(stac.select(PETERS_PASSES, windows)) == [
+        ("pre", "09-09", 131),
+        ("post", "09-19", 102),  # a different track: what match prevents
+    ]
+
+
+def test_match_pairs_scenes_on_each_track_that_has_both():
+    windows = parse_window(PRE_POST, EVENT)
+    assert chosen(stac.select(PETERS_PASSES, windows, "sat:relative_orbit")) == [
+        ("pre", "09-07", 102),
+        ("pre", "09-09", 131),
+        ("post", "09-19", 102),
+        ("post", "09-21", 131),
+    ]  # track 160 has no post scene, so it is dropped
+
+
+@pytest.mark.parametrize(
+    "spec, expected",
+    [
+        ({"before": "30d", "after": "30d"}, 7 - 1),  # all, minus 08-14 (31 days before)
+        (
+            {"before": "30d", "after": "30d", "select": "nearest", "count": 2},
+            ["09-09", "09-19"],
+        ),
+        ({"before": "30d", "select": "last", "count": 2}, ["09-07", "09-09"]),
+        ({"after": "30d", "select": "first", "count": 3}, ["09-19", "09-21", "10-03"]),
+    ],
+)
+def test_select_all_nearest_and_count(spec, expected):
+    picked = stac.select(PETERS_PASSES, parse_window(spec, EVENT))
+    if isinstance(expected, int):
+        assert len(picked) == expected and all(name is None for name, _ in picked)
+    else:
+        assert [s[0].datetime.strftime("%m-%d") for _, s in picked] == expected
+
+
+def test_overlapping_windows_count_a_scene_once():
+    windows = parse_window(
+        {
+            "pre": {"before": "10d", "after": "10d"},
+            "post": {"before": "10d", "after": "10d"},
+        },
+        EVENT,
+    )
+    picked = stac.select(PETERS_PASSES, windows)
+    ids = [s[0].id for _, s in picked]
+    assert len(ids) == len(set(ids)) == 4
+    assert {name for name, _ in picked} == {"pre"}
+
+
+def test_load_keeps_the_passes_the_windows_choose(pc):
+    windows = parse_window(PRE_POST, EVENT)
+    ds = sentinel1_rtc.load(AOI, "2023-08-15", "2023-10-14", windows=windows)
+    assert ds.window.values.tolist() == ["pre", "post"]
+    assert ds.scene_ids.values.tolist() == ["a-north a-south", "c"]
+    assert [
+        lk["href"].rsplit("/", 1)[-1]
+        for lk in ds.attrs["links"]
+        if "/items/" in lk["href"]
+    ] == ["a-north", "a-south", "c"]
+
+
+def test_load_errors_when_no_track_has_both_windows(pc):
+    windows = parse_window({"pre": {"before": "1d"}, "post": {"after": "30d"}}, EVENT)
+    with pytest.raises(ValueError, match="on any track with passes in every window"):
+        sentinel1_rtc.load(
+            AOI, "2023-09-13", "2023-10-14", match=Match.relative_orbit, windows=windows
+        )
+
+
+STAGE = """name: peters
+time: 2023-09-14T02:06:49Z
+aoi: {bbox: [-151.3, 63.1, -151.1, 63.2]}
+datasets:
+  sentinel1-rtc:
+    window:
+      pre: {before: 30d, select: last}
+      post: {after: 30d, select: first}
+    match: relative_orbit
+"""
+
+
+def test_stage_file_takes_pre_post_select_and_match(tmp_path):
+    path = tmp_path / "stage.yaml"
+    path.write_text(STAGE)
+    (req,) = stagefile.load_config(str(path)).requests
+    assert [w.name for w in req.windows] == ["pre", "post"]
+    assert req.options["match"] is Match.relative_orbit
+    assert stagefile.read_window(req).start == EVENT - pd.Timedelta(days=30)
+
+
+def test_resolved_stage_file_repeats_the_windows(tmp_path, capsys):
+    path = tmp_path / "stage.yaml"
+    path.write_text(STAGE)
+    stage_app(["--config", str(path), "--dry-run"], result_action="return_value")
+    out = capsys.readouterr().out
+    assert "read: 2023-08-15T02:06:49/2023-10-14T02:06:49" in out  # exact, not padded
+    doc = yaml.safe_load(out)
+    window = doc["datasets"]["sentinel1-rtc"]["window"]
+    assert window["pre"] == {
+        "start": "2023-08-15T02:06:49",
+        "end": "2023-09-14T02:06:49",
+        "select": "last",
+    }
+    # The resolved windows parse back to the same windows
+    again = parse_window(window, pd.Timestamp(doc["time"]))
+    assert [(w.name, w.start, w.end, w.select) for w in again] == [
+        (w.name, w.start, w.end, w.select)
+        for w in stagefile.load_config(str(path)).requests[0].windows
+    ]
+
+
+def test_runner_passes_the_windows_and_their_exact_span(tmp_path, monkeypatch):
+    calls = []
+
+    def load(aoi, start_date, end_date, match: Match = Match.none, windows=None):
+        calls.append((start_date, end_date, match, [w.name for w in windows]))
+        return xr.Dataset({"vv": ("time", [1.0])}, attrs={"title": "s1"})
+
+    monkeypatch.setattr(sentinel1_rtc, "load", load)
+    path = tmp_path / "stage.yaml"
+    path.write_text(STAGE)
+    runner.stage(config=str(path), output_path=str(tmp_path / "out"))
+    assert calls == [
+        (
+            "2023-08-15T02:06:49",
+            "2023-10-14T02:06:48",
+            Match.relative_orbit,
+            ["pre", "post"],
+        )
+    ]

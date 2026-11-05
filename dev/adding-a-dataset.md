@@ -23,6 +23,11 @@ and optionally:
   values are separate products, each written to its own top-level group
   `<name>/<value>` instead of `<GROUPS[KIND]>/<name>`. Stage files key them as
   `<name>/<value>` (see `dem.py`, [stage-file.md](stage-file.md)).
+- **`SCENES = True`**: the dataset chooses among scenes, so a stage file may give it
+  `pre`/`post` windows with `select` and `count` ([stage-file.md](stage-file.md#choosing-scenes)).
+  `load()` then also takes `windows: list[Window] | None = None`, which the runner sets
+  (it is not an option), and `start_date`/`end_date` span the windows exactly. Use
+  `stac.select` to pick the scenes before loading them (see `sentinel1_rtc.py`).
 - **`REGRID_METHOD`**: `gaia align`'s default spatial method for the dataset's
   raster variables, one of `regrid.Method` (`conservative`, `average`,
   `bilinear`, `cubic`, `nearest`). The runner stores it as each variable's

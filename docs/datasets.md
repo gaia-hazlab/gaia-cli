@@ -132,3 +132,18 @@ Sentinel-1 radiometrically terrain-corrected backscatter from
 ```bash
 gaia stage sentinel1-rtc -i aoi.geojson -s 2023-09-01 -e 2023-09-30 -o out --relative-orbit 131
 ```
+
+In a stage file, keep only the last pass before and the first pass after an event, on
+each track that has both:
+
+```yaml
+time: 2023-09-14T02:06:49Z
+datasets:
+  sentinel1-rtc:
+    window:
+      pre:  {before: 30d, select: last}
+      post: {after: 30d,  select: first}
+    match: relative_orbit
+```
+
+Each pass then has a `window` coordinate, `pre` or `post`.

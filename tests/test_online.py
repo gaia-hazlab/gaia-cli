@@ -6,6 +6,7 @@ import os
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 from shapely.geometry import box
@@ -195,3 +196,36 @@ def test_sentinel1_rtc_passes_around_peters_dome(tmp_path):
     vv, vh = (float(ds[p].median()) for p in ("vv", "vh"))
     assert 10**-3 < vh < vv < 10**0.5
     assert ds.vv.attrs["gaia:regrid-method"] == "average"
+
+
+def test_sentinel1_rtc_pre_and_post_passes_on_each_track(tmp_path):
+    # The regional AOI sees tracks 102 and 131; the last pass before and the first
+    # after the event on each. Loaded lazily, so nothing is read
+    from gaia_cli.datasets import sentinel1_rtc
+    from gaia_cli.window import parse_window
+
+    windows = parse_window(
+        {
+            "pre": {"before": "30d", "select": "last"},
+            "post": {"after": "30d", "select": "first"},
+        },
+        pd.Timestamp("2023-09-14T02:06:49"),
+    )
+    aoi = gpd.GeoDataFrame(
+        geometry=[box(-152.2, 62.75, -150.2, 63.55)], crs="EPSG:4326"
+    )
+    ds = sentinel1_rtc.load(
+        aoi,
+        "2023-08-15T02:06:49",
+        "2023-10-14T02:06:48",
+        match=sentinel1_rtc.Match.relative_orbit,
+        windows=windows,
+    )
+    assert [str(t)[:10] for t in ds.time.values] == [
+        "2023-09-07",
+        "2023-09-09",
+        "2023-09-19",
+        "2023-09-21",
+    ]
+    assert ds.window.values.tolist() == ["pre", "pre", "post", "post"]
+    assert ds.relative_orbit.values.tolist() == [102, 131, 102, 131]

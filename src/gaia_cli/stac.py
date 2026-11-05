@@ -20,6 +20,7 @@ import requests
 import xarray as xr
 
 from . import io
+from .window import Window
 
 log = logging.getLogger(__name__)
 
@@ -121,3 +122,64 @@ def load(
         chunks={},
     )
     return io.clip_to_aoi(ds, aoi)  # ty: ignore[invalid-argument-type, invalid-return-type]
+
+
+def select(
+    scenes: Sequence[Sequence[pystac.Item]],
+    windows: Sequence[Window],
+    match: str | None = None,
+) -> list[tuple[str | None, Sequence[pystac.Item]]]:
+    """The scenes (each a group of items, such as a pass's frames) that
+    *windows* choose, with each one's window name, in time order.
+
+    A scene's time is its first item's. Each window keeps the scenes in
+    ``[start, end)`` that its ``select`` picks (``all`` by default; ``first``,
+    ``last`` or ``nearest`` to its anchor time, ``count`` of them, default 1).
+    With *match*, an item property such as ``sat:relative_orbit``, the choice
+    is made for each value separately, and only values with scenes in every
+    window are kept: a pre and a post scene on each track that has both.
+    """
+
+    def when(scene):
+        t = pd.Timestamp(scene[0].datetime)
+        return t.tz_convert(None) if t.tzinfo else t
+
+    def pick(found, w):
+        if w.select in (None, "all"):
+            return found
+        n = w.count or 1
+        if w.select == "first":
+            return found[:n]
+        if w.select == "last":
+            return found[-n:]
+        assert w.anchor is not None  # parse_window requires `time` for nearest
+        return sorted(found, key=lambda s: (abs(when(s) - w.anchor), when(s)))[:n]
+
+    ordered = sorted(scenes, key=lambda s: (when(s), s[0].id))
+    chosen: dict[object, list[tuple[str | None, Sequence[pystac.Item]]]] = {}
+    for w in windows:
+        inside = [
+            s
+            for s in ordered
+            if (w.start is None or when(s) >= w.start)
+            and (w.end is None or when(s) < w.end)
+        ]
+        keys = dict.fromkeys(
+            s[0].properties.get(match) if match else None for s in inside
+        )
+        for key in keys:
+            group = [
+                s for s in inside if not match or s[0].properties.get(match) == key
+            ]
+            chosen.setdefault(key, []).extend((w.name, s) for s in pick(group, w))
+    if match and len(windows) > 1:
+        names = {w.name for w in windows}
+        chosen = {k: v for k, v in chosen.items() if {name for name, _ in v} == names}
+    seen, out = set(), []
+    for name, scene in sorted(
+        (c for v in chosen.values() for c in v), key=lambda c: (when(c[1]), c[1][0].id)
+    ):
+        if scene[0].id not in seen:  # a scene in two overlapping windows counts once
+            seen.add(scene[0].id)
+            out.append((name, scene))
+    return out

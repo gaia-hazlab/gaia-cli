@@ -91,7 +91,7 @@ and `dem/usgs10m`. `--only dem` selects every variant, and `--only dem/usgs10m` 
 | `dem` | none; the key names the product: `dem/cop30` or `dem/usgs10m` (a bare `dem` is `dem/cop30`; see [dem.md](dem.md)); static, no window |
 | `soil` | none; the key names the product: `soil/solus100` or `soil/statsgo` (a bare `soil` is `soil/solus100`; see [soil.md](soil.md)); static, no window |
 | `burn-severity` | `fire` (part of the fire's name) and `year`, needed only when several fires intersect the AOI (see [burn-severity.md](burn-severity.md)); static, no window |
-| `sentinel1-rtc` | `polarizations` (list of `vv`, `vh`, `hh`, `hv`; default `[vv, vh]`), `orbit_state` (`any`, `ascending`, `descending`; default `any`), `relative_orbit` (default `0`, every track); see [sentinel1-rtc.md](sentinel1-rtc.md) |
+| `sentinel1-rtc` | `polarizations` (list of `vv`, `vh`, `hh`, `hv`; default `[vv, vh]`), `orbit_state` (`any`, `ascending`, `descending`; default `any`), `relative_orbit` (default `0`, every track), `match` (`none`, `relative_orbit`; see [Choosing scenes](#choosing-scenes)); see [sentinel1-rtc.md](sentinel1-rtc.md) |
 
 ## Output folder
 
@@ -179,9 +179,34 @@ accepts full RFC 3339 timestamps.
 Durations are a number and a unit (`s`, `min`, `h`, `d`, `w`), such as `17min` or `30d`,
 or ISO 8601 (`PT17M`). Months and years aren't durations; use absolute dates.
 
-The current datasets each take one closed window, so `pre`/`post`, `select` and open
-ends are rejected for them. Each dataset's own time convention (for example PRISM's
-12 UTC day) applies inside the window; see the dataset's doc.
+Most datasets take one closed window, so `pre`/`post` and `select` are rejected for
+them. Each dataset's own time convention (for example PRISM's 12 UTC day) applies
+inside the window; see the dataset's doc.
+
+### Choosing scenes
+
+Scene datasets (`sentinel1-rtc`; `SCENES = True` in the module) take `pre`/`post`
+windows and `select`/`count`, and are read over exactly the span of their windows, with
+no padding. Each window keeps the scenes in `[start, end)` that its `select` picks:
+`all` (the default), `first`, `last`, or `nearest` to `time`, `count` of them
+(default 1). They are chosen from the STAC search results, before any pixels are read.
+
+```yaml
+time: 2023-09-14T02:06:49Z
+datasets:
+  sentinel1-rtc:
+    window:
+      pre:  {before: 30d, select: last}    # the last pass before `time`
+      post: {after: 30d,  select: first}   # the first pass after it
+    match: relative_orbit                   # on each track that has both
+```
+
+With `match: relative_orbit`, each window chooses on each relative orbit separately, and
+only tracks with scenes in every window are kept, so a pre and a post pass share their
+viewing geometry; without it, `pre` and `post` may come from different tracks. Each
+chosen pass records its window in a `window` coordinate (`pre`, `post`). The resolved
+`stage.yaml` writes the windows with absolute bounds and their `select` and `count`.
+Windows must still be closed.
 
 ## Coverage
 

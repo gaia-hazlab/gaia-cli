@@ -349,6 +349,8 @@ def test_registered_modules_declare_kind_and_extent(name):
     assert stagefile.timed(module) == any(a in params for a in stagefile.WINDOW_ARGS)
     if hasattr(module, "REGRID_METHOD"):
         assert module.REGRID_METHOD in typing.get_args(regrid.Method)
+    if stagefile.scenes(module):  # the runner passes the stage file's windows
+        assert stagefile.timed(module) and stagefile.SCENE_WINDOWS in params
     if hasattr(module, "VARIANT"):  # an option with a default, its values the keys
         assert module.VARIANT in stagefile.options(module.load)
     (overall, *_) = module.EXTENT["spatial"]["bbox"]
