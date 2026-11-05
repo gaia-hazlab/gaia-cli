@@ -61,10 +61,10 @@ s3://gaia-scratch/gaia-cli/peters-dome/
   peters-dome.json         # STAC Item = the manifest (see "STAC Item as the manifest")
   stage.yaml               # the resolved stage file, as an asset of the Item
   peters-dome.zarr/        # DataTree, consolidated as today
-    rasters/*              # (time, y, x) or (y, x), native grids
+    rasters/*              # (time, y, x) or (y, x), native grids; scene metadata
+                           # (orbit, track, ids) as coordinates along time (step 2.4a)
     waveforms/seismic/100hz, waveforms/seismic/40hz, ...   # (channel, time) at native rate
     stations/synoptic      # CF DSG timeSeries, contiguous ragged array (below)
-    scenes/sentinel1       # 1-D (scene) arrays: id, time, orbit, track, coverage
     vectors/*              # xvec-encoded features, as today
 ```
 
@@ -200,7 +200,8 @@ several assets:
 
 1. **Start with A′.** Keep one Zarr DataTree per event. Store station observations as
    CF DSG contiguous ragged arrays, waveforms at native rate with channel metadata on a
-   `channel` dimension, and scene indexes as 1-D arrays. Derive dense station grids on
+   `channel` dimension, and scene indexes as coordinates along each raster's `time`
+   (each time step is one scene or pass, so no separate `scene` group is needed). Derive dense station grids on
    demand. This fixes the fidelity problems with no new dependencies.
 2. **The STAC Item is the manifest**, with the resolved `stage.yaml` as an asset.
 3. **Move to B when either trigger occurs:**

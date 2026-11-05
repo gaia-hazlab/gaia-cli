@@ -5,7 +5,7 @@
 
 Stage geospatial datasets for an event (an area of interest and a time window) into
 one analysis-ready Zarr store: weather stations, PRISM, HRRR, land cover, elevation,
-soil and burn severity.
+soil, burn severity and Sentinel-1 radar backscatter.
 
 **Documentation: <https://gaia-hazlab.github.io/gaia-cli/>**
 

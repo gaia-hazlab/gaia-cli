@@ -9,7 +9,17 @@ dev/adding-a-dataset.md.
 
 from types import ModuleType
 
-from . import burn_severity, dem, hrrr, nlcd, prism, soil, stage4, synoptic
+from . import (
+    burn_severity,
+    dem,
+    hrrr,
+    nlcd,
+    prism,
+    sentinel1_rtc,
+    soil,
+    stage4,
+    synoptic,
+)
 
 # Name -> module. The name is the `gaia stage <name>` command, the stage-file
 # key and the store group's last part
@@ -22,4 +32,5 @@ DATASETS: dict[str, ModuleType] = {
     "dem": dem,
     "soil": soil,
     "burn-severity": burn_severity,
+    "sentinel1-rtc": sentinel1_rtc,
 }

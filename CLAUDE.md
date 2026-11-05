@@ -43,6 +43,7 @@ src/gaia_cli/
   window.py       # times, durations and window grammar
   io.py           # Shared I/O: clipping, Zarr and STAC Item writing, object stores
   provenance.py   # provenance attributes and STAC Items
+  stac.py         # Planetary Computer STAC search, SAS signing, odc-stac loading
   catalog.py      # "gaia catalog rebuild"
   align.py        # "gaia align": time aggregation and regridding onto one grid
   regrid.py       # per-array spatial regridding methods
@@ -55,6 +56,7 @@ src/gaia_cli/
     prism.py      # PRISM daily grids (from prism_cache); also `gaia prism fill`
     hrrr.py       # HRRR analysis (Icechunk)
     stage4.py     # NCEP Stage IV daily/6-hourly/hourly precipitation (GDEX archive, local cache)
+    sentinel1_rtc.py  # Sentinel-1 RTC gamma0 per pass (Planetary Computer, via stac.py)
     nlcd.py, dem.py, soil.py, burn_severity.py   # static layers
 
 tests/          # pytest suite; test_online.py needs network
