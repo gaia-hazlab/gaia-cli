@@ -91,6 +91,7 @@ and `dem/usgs10m`. `--only dem` selects every variant, and `--only dem/usgs10m` 
 | `dem` | none; the key names the product: `dem/cop30` or `dem/usgs10m` (a bare `dem` is `dem/cop30`; see [dem.md](dem.md)); static, no window |
 | `soil` | none; the key names the product: `soil/solus100` or `soil/statsgo` (a bare `soil` is `soil/solus100`; see [soil.md](soil.md)); static, no window |
 | `burn-severity` | `fire` (part of the fire's name) and `year`, needed only when several fires intersect the AOI (see [burn-severity.md](burn-severity.md)); static, no window |
+| `sentinel1-rtc` | `polarizations` (list of `vv`, `vh`, `hh`, `hv`; default `[vv, vh]`), `orbit_state` (`any`, `ascending`, `descending`; default `any`), `relative_orbit` (default `0`, every track); see [sentinel1-rtc.md](sentinel1-rtc.md) |
 
 ## Output folder
 

@@ -18,6 +18,7 @@ dependencies = [
   "pandas",
   "pyproj",
   "pystac",
+  "pystac-client>=0.9",
   "pyyaml>=6",
   "rasterio",
   "requests",
@@ -102,7 +103,7 @@ pytest-cov = ">=7.1.0,<8"
 
 [tool.pixi.dependencies]
 # Notebooks only: ipykernel, matplotlib, folium, mapclassify, xyzservices,
-# rustac, pystac-client, python-dotenv
+# rustac, python-dotenv
 ipykernel = ">=7.4.0,<8"
 rioxarray = ">=0.23.0,<0.24"
 obstore = ">=0.11.1,<0.12"

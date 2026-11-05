@@ -12,6 +12,7 @@ title: Datasets
 | [`dem`](#dem) | elevation | global (`cop30`), US (`usgs10m`) | 30 m, 10 m | static | `dem/<product>` |
 | [`soil`](#soil) | soil properties | CONUS | 100 m, 30 m | static | `soil/<product>` |
 | [`burn-severity`](#burn-severity) | BAER soil burn severity | CONUS, fires 2017 on | 20–30 m | static | `rasters/burn-severity` |
+| [`sentinel1-rtc`](#sentinel1-rtc) | Sentinel-1 radar backscatter | global, 2014-10 on | 10 m | each pass | `rasters/sentinel1-rtc` |
 
 A dataset that the AOI or window misses (for example `prism` in Alaska) is skipped
 with a warning. Licenses differ: check each group's `license` attribute before sharing
@@ -111,3 +112,23 @@ USDA Forest Service [BAER](https://burnseverity.cr.usgs.gov/baer/) soil burn sev
 maps, chosen by the AOI. Where several fires intersect it, choose one with `--fire`
 (part of its name) and `--year`. Classes: 1 unburned to very low, 2 low, 3 moderate,
 4 high. Each fire keeps its own grid. License: U.S. public domain.
+
+(sentinel1-rtc)=
+## Sentinel-1 RTC
+
+Sentinel-1 radiometrically terrain-corrected backscatter from
+[Planetary Computer](https://planetarycomputer.microsoft.com/dataset/sentinel-1-rtc),
+10 m, in the scenes' UTM zone. No account needed.
+
+- `vv` and `vh` (default; `--polarizations` also takes `hh`, `hv`): gamma0 as
+  **linear power**; `10 * log10(vv)` gives dB.
+- One time step per satellite pass, at the pass's start time. Each step records its
+  `platform`, `orbit_state`, `relative_orbit` (track) and `absolute_orbit`, and
+  `--orbit-state` and `--relative-orbit` keep only some of them.
+- Sentinel-1B stopped in December 2021, so 2022–2024 has a 12-day repeat in most
+  places.
+- License: CC-BY-4.0.
+
+```bash
+gaia stage sentinel1-rtc -i aoi.geojson -s 2023-09-01 -e 2023-09-30 -o out --relative-orbit 131
+```

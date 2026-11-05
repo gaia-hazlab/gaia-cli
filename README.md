@@ -5,7 +5,7 @@
 
 Stage geospatial datasets for an event (an area of interest and a time window) into
 one analysis-ready Zarr store: weather stations, PRISM, HRRR, land cover, elevation,
-soil and burn severity.
+soil, burn severity and Sentinel-1 radar backscatter.
 
 **Documentation: <https://gaia-hazlab.github.io/gaia-cli/>**
 
@@ -18,7 +18,8 @@ pixi run gaia stage --config conus-precip \
 ```
 
 See [examples/skagit-precip.ipynb](examples/skagit-precip.ipynb) for an analysis of the result, and
-[examples/pioneer-landlab.ipynb](examples/pioneer-landlab.ipynb) for staging Landlab inputs.
+[examples/pioneer-landlab.ipynb](examples/pioneer-landlab.ipynb) for staging Landlab inputs, and
+[examples/peters-dome.ipynb](examples/peters-dome.ipynb) for Sentinel-1 before and after a landslide.
 
 ## Staging on GitHub Actions
 

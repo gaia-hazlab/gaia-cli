@@ -52,7 +52,8 @@ Examples: `prism.py`, `hrrr.py`.
 1. **Open the source** into an `xr.Dataset`/`DataArray` with a spatial CRS
    readable by `rioxarray` (`da.rio.crs`). Use whatever access pattern fits the
    source (STAC + `odc.stac`, Icechunk, `rioxarray.open_rasterio`, …); see
-   `open_prism` / `open_hrrr`.
+   `open_prism` / `open_hrrr`. Planetary Computer collections can use `stac.search`
+   and `stac.load` (signed, lazy, native grid; see `sentinel1_rtc.py`).
 2. **Standardize names**: spatial dims `x`, `y`; time dim `time`; variable name
    and units, e.g. `precipitation` in `mm`.
 3. **Clip to the AOI** with `io.clip_to_aoi(da, aoi)`. This reprojects the AOI

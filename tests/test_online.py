@@ -167,3 +167,31 @@ def test_pioneer_dems_on_the_landlab_grid(tmp_path):
         assert 2600 < float(da.max()) < 2750
     # Different geoids and a surface vs a bare-earth model: close, not equal
     assert abs(float((cop30 - usgs10m).median())) < 5
+
+
+# Peters Dome, AK: the 2023-09-14 landslide lies between two passes of descending
+# relative orbit 131 over the source area (only Sentinel-1A flew in 2023)
+PETERS_S1 = """
+name: peters-dome-s1
+aoi: {latitude: 63.1455, longitude: -151.1904, radius_km: 5}
+window: 2023-09-01/2023-09-30
+datasets:
+  sentinel1-rtc: {}
+"""
+
+
+def test_sentinel1_rtc_passes_around_peters_dome(tmp_path):
+    config = tmp_path / "stage.yaml"
+    config.write_text(PETERS_S1)
+    runner.stage(config=str(config), output_path=str(tmp_path / "out"))
+
+    tree = xr.open_datatree(tmp_path / "out" / "peters-dome-s1.zarr", engine="zarr")
+    ds = tree["rasters/sentinel1-rtc"].to_dataset()
+    assert [str(t)[:10] for t in ds.time.values] == ["2023-09-09", "2023-09-21"]
+    assert ds.relative_orbit.values.tolist() == [131, 131]
+    assert set(ds.orbit_state.values.tolist()) == {"descending"}
+    assert ds.attrs["license"] == "CC-BY-4.0"
+    # Linear gamma0: VH below VV, both mostly between -30 and +5 dB
+    vv, vh = (float(ds[p].median()) for p in ("vv", "vh"))
+    assert 10**-3 < vh < vv < 10**0.5
+    assert ds.vv.attrs["gaia:regrid-method"] == "average"
