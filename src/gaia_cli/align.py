@@ -135,21 +135,29 @@ def aggregate_time(
     sub = ds[timed].isel(time=np.flatnonzero(inside))
     sub = sub.assign_coords(_bin=("time", jj[inside]))
 
+    any_inside = inside.any()
     out = {}
     for name in timed:
         da = sub[name]
         method = da.attrs.get("cell_methods", "time: mean")
-        grouped = da.groupby("_bin")
-        if "sum" in method:
-            agg = grouped.sum()
-        elif "minimum" in method:
-            agg = grouped.min()
-        elif "maximum" in method:
-            agg = grouped.max()
+        if any_inside:
+            grouped = da.groupby("_bin")
+            if "sum" in method:
+                agg = grouped.sum()
+            elif "minimum" in method:
+                agg = grouped.min()
+            elif "maximum" in method:
+                agg = grouped.max()
+            else:
+                agg = grouped.mean()
+            agg = agg.where(grouped.count() >= expected)
+            agg = agg.reindex(_bin=np.arange(len(labels))).rename(_bin="time")
         else:
-            agg = grouped.mean()
-        agg = agg.where(grouped.count() >= expected)
-        agg = agg.reindex(_bin=np.arange(len(labels))).rename(_bin="time")
+            # nothing inside the target window (e.g. 2012-2020 DEM strips next to a
+            # 2023 event): every bin is missing, so all NaN rather than an error
+            dtype = da.dtype if np.issubdtype(da.dtype, np.floating) else np.float32
+            empty = xr.full_like(ds[name].isel(time=0, drop=True), np.nan, dtype=dtype)
+            agg = empty.expand_dims(time=len(labels)).transpose(*ds[name].dims)
         agg.attrs = {
             **da.attrs,
             "cell_methods": method.replace("point", "mean"),
