@@ -107,6 +107,34 @@ def _step(ds: xr.Dataset) -> np.timedelta64:
     return np.median(end - start)
 
 
+def _time_coords(ds: xr.Dataset, steps: np.ndarray, bins: np.ndarray, n: int) -> dict:
+    """*ds*'s other coordinates along ``time``, one value per target interval.
+
+    *steps* are the source steps used and *bins* their target intervals. A
+    coordinate is kept when the steps in each interval agree on its value, as
+    for a Sentinel-1 pass's orbit when each pass is its own interval; intervals
+    with no step get ``""`` (text) or NaN. One that an interval would mix, such
+    as two tracks' passes in one interval, is dropped.
+    """
+    out = {}
+    for name, coord in ds.coords.items():
+        if name == "time" or coord.dims != ("time",):
+            continue
+        values = pd.Series(coord.values[steps])
+        if (values.groupby(bins).nunique() > 1).any():
+            log.info("%s: dropped, it differs within a target time step", name)
+            continue
+        per_bin = values.groupby(bins).first().reindex(range(n))
+        if coord.dtype.kind in "OSTU":
+            data = np.asarray(per_bin.fillna("").tolist(), dtype=str)
+        elif per_bin.isna().any():
+            data = per_bin.to_numpy(dtype=float)
+        else:
+            data = per_bin.to_numpy(dtype=coord.dtype)
+        out[str(name)] = ("time", data, coord.attrs)
+    return out
+
+
 def aggregate_time(
     ds: xr.Dataset,
     labels: np.ndarray,
@@ -166,6 +194,8 @@ def aggregate_time(
         out[name] = agg
 
     result = xr.Dataset(out, attrs=ds.attrs).assign_coords(time=labels)
+    steps = np.flatnonzero(inside)
+    result = result.assign_coords(_time_coords(ds, steps, jj[steps], len(labels)))
     result["time_bounds"] = (("time", "nv"), np.stack([target_start, target_end], -1))
     result.time.attrs["bounds"] = "time_bounds"
     if "spatial_ref" in ds.coords:
