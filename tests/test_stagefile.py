@@ -310,6 +310,33 @@ def test_run_writes_one_group_per_dataset(tmp_path, monkeypatch):
     assert tree["rasters/prism"].attrs["title"] == "prism"
 
 
+def test_groups_over_the_size_limit_fail_before_writing(tmp_path, monkeypatch, caplog):
+    calls = []
+    monkeypatch.setattr(prism, "load", fake_load("prism", calls))
+    monkeypatch.setattr(hrrr, "load", fake_load("hrrr", calls))
+    monkeypatch.setattr(runner, "MAX_BYTES", 4)  # each fake group is 8 bytes
+    config = write(tmp_path, CONUS + "  prism: {}\n  hrrr: {}\n")
+    caplog.set_level("INFO", logger="gaia_cli.runner")
+    with pytest.raises(SystemExit, match=r"2 of 2 dataset\(s\) failed") as e:
+        runner.stage(config=config, output_path=str(tmp_path / "out"))
+    assert "prism: ValueError: 8 B is over the 4 B limit" in str(e.value)
+    assert "prism: 8 B to write" in caplog.text
+    assert not (tmp_path / "out" / "bolt-creek.zarr").exists()
+
+
+@pytest.mark.parametrize(
+    "nbytes, text",
+    [
+        (8, "8 B"),
+        (1536, "1.5 kB"),
+        (10 * 1024**3, "10.0 GB"),
+        (2048 * 1024**3, "2048.0 GB"),
+    ],
+)
+def test_size(nbytes, text):
+    assert runner.size(nbytes) == text
+
+
 # ---- registry and extent -----------------------------------------------------
 
 

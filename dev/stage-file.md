@@ -27,7 +27,10 @@ run controls combine with a file:
 
 A dataset that fails doesn't stop the run. The others are written, every failure is
 listed at the end, and the command exits with an error. Rerun with `--skip-existing` to
-retry only the datasets that failed. The single-dataset commands also take
+retry only the datasets that failed. Each dataset's size is logged, and one over
+10 GB (`runner.MAX_BYTES`, the in-memory size of what `load()` returns) fails before it
+is written. Most `load()`s return lazy arrays, so this usually comes before any data
+is read. The single-dataset commands also take
 `--dry-run`, `--overwrite` and `--skip-existing`, so
 `gaia stage nlcd -i aoi.geojson -o out --skip-existing` adds land cover to the store
 in `out/`.

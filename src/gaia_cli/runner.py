@@ -49,6 +49,19 @@ from .window import unknown
 
 log = logging.getLogger(__name__)
 
+# The largest group a run writes. load() returns lazy arrays where it can, so the
+# check usually comes before any data is read
+MAX_BYTES = 10 * 1024**3
+
+
+def size(nbytes: float) -> str:
+    """*nbytes* in human units, e.g. ``1.3 GB`` (powers of 1024)."""
+    for unit in ("B", "kB", "MB", "GB"):
+        if nbytes < 1024 or unit == "GB":
+            return f"{nbytes:.0f} {unit}" if unit == "B" else f"{nbytes:.1f} {unit}"
+        nbytes /= 1024
+    raise AssertionError  # unreachable
+
 
 def run(
     cfg: StageConfig,
@@ -86,6 +99,12 @@ def run(
             obj = module.load(aois[aoi_key(req.aoi)], **kwargs)
             # Station data is xvec CF-encoded for the store
             node = module.to_dataset(obj) if module.KIND == "stations" else obj
+            log.info("%s: %s to write", req.name, size(node.nbytes))
+            if node.nbytes > MAX_BYTES:
+                raise ValueError(
+                    f"{size(node.nbytes)} is over the {size(MAX_BYTES)} limit; "
+                    "use a smaller AOI or window"
+                )
             if method := getattr(module, "REGRID_METHOD", None):
                 for var in node.data_vars.values():
                     if {"x", "y"} <= set(var.dims):
