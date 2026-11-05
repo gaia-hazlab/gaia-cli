@@ -82,7 +82,3 @@ with no pass get `""` or NaN); one that a step would mix, such as `relative_orbi
 both tracks fall in one step, is dropped with a log message. Such a step is also NaN
 unless it holds as many passes as the median pass spacing implies, which irregular
 passes rarely do.
-
-## Not yet
-
-- `pre`/`post` windows with `select` and `match: relative_orbit` (step 2.4b).
