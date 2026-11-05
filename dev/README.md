@@ -18,7 +18,7 @@ published at <https://gaia-hazlab.github.io/gaia-cli/>.
 
 ## Object store credentials
 
-Zarr outputs are well-suited to S3-compatible object stores (e.g. AWS S3, MinIO, etc.). The examples below write to either a University of Washington object store called [Kopah](https://hyak.uw.edu/docs/systems/kopah/overview/), [backblaze B2](https://www.backblaze.com/docs), or a [Hugging Face bucket](huggingface.md). We output to a `scratch` prefix that has a 30-day lifecycle policy (any uploaded file is deleted after 30 days). You must have credentials to write to this bucket, credentials can be configured by setting environment variables `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` or by using the AWS config files and settings AWS_PROFILE to the profile name. For example, to use the `kopah` profile, set `AWS_PROFILE=kopah` in your environment:
+Zarr outputs are well-suited to S3-compatible object stores (e.g. AWS S3, MinIO, etc.). The examples below write to either a University of Washington object store called [Kopah](https://hyak.uw.edu/docs/systems/kopah/overview/), [backblaze B2](https://www.backblaze.com/docs), or a [Hugging Face bucket](huggingface.md). We output to the publicly readable `gaia-scratch` bucket on Kopah, under `gaia-cli/`. It has a 30-day lifecycle policy (any uploaded file is deleted after 30 days). You must have credentials to write to this bucket, credentials can be configured by setting environment variables `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` or by using the AWS config files and settings AWS_PROFILE to the profile name. For example, to use the `kopah` profile, set `AWS_PROFILE=kopah` in your environment:
 
 `~/.aws/config`:
 ```
@@ -87,7 +87,7 @@ gh workflow run stage.yml \
 
 `stage-event.yml` stages a whole stage file: a path in the repository or an http(s)
 URL (whose AOIs are then URLs or inline). It can then align the store and write
-Landlab inputs from it. The stores go to `s3://gaia/scratch/github-workflows/<name>`
+Landlab inputs from it. The stores go to `s3://gaia-scratch/gaia-cli/github-workflows/<name>`
 and `<name>-aligned`; every output folder is also kept as an artifact for 7 days.
 
 ```bash

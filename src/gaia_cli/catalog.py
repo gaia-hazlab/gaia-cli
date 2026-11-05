@@ -110,7 +110,7 @@ def rebuild(prefix: Annotated[str, Parameter(name=["--prefix", "-p"])]):
 
     Examples
     --------
-        $ gaia catalog rebuild -p s3://gaia/scratch
+        $ gaia catalog rebuild -p s3://gaia-scratch/gaia-cli
     """
     io.check_s3_env(prefix)
     store = io.object_store(prefix)

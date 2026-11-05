@@ -49,7 +49,7 @@ aois:                              # named AOIs for datasets that need another o
   waveforms: {latitude: 63.1455, longitude: -151.1904, radius_km: 400}
 
 window: 2023-06-01/2023-09-21                  # default window (STAC/OGC interval string)
-output: s3://gaia/scratch/peters-dome          # output folder (see 03); -o overrides it
+output: s3://gaia-scratch/gaia-cli/peters-dome          # output folder (see 03); -o overrides it
 
 datasets:
   seismic:

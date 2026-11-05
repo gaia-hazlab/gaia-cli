@@ -57,7 +57,7 @@ CF Discrete Sampling Geometries (DSG) **contiguous ragged array** representation
 of a dense grid.
 
 ```
-s3://gaia/scratch/peters-dome/
+s3://gaia-scratch/gaia-cli/peters-dome/
   peters-dome.json         # STAC Item = the manifest (see "STAC Item as the manifest")
   stage.yaml               # the resolved stage file, as an asset of the Item
   peters-dome.zarr/        # DataTree, consolidated as today
@@ -111,7 +111,7 @@ s3://gaia/scratch/peters-dome/
 ### B. Zarr for arrays, GeoParquet for tables (**later, if a trigger occurs**)
 
 ```
-s3://gaia/scratch/peters-dome/
+s3://gaia-scratch/gaia-cli/peters-dome/
   peters-dome.json                  # STAC Item = the manifest
   stage.yaml
   peters-dome.zarr/                 # rasters/*, waveforms/*

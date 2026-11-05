@@ -9,8 +9,8 @@ resolved `stage.yaml` ([stage-file.md](stage-file.md#output-folder)). `gaia cata
 setup the PRISM cache uses.
 
 ```
-s3://gaia/scratch/
-  catalog.json            # written by `gaia catalog rebuild -p s3://gaia/scratch`
+s3://gaia-scratch/gaia-cli/
+  catalog.json            # written by `gaia catalog rebuild -p s3://gaia-scratch/gaia-cli`
   skagit-hrrr/             # written by `gaia stage hrrr -o …/skagit-hrrr`
     skagit-hrrr.zarr/
     skagit-hrrr.json      # STAC Item
@@ -40,7 +40,7 @@ The Item is built from the store's provenance attributes (see
 ## Rebuilding the catalog
 
 ```bash
-gaia catalog rebuild -p s3://gaia/scratch    # needs AWS_PROFILE with write access
+gaia catalog rebuild -p s3://gaia-scratch/gaia-cli    # needs AWS_PROFILE with write access
 gaia catalog rebuild -p ./outputs            # local directories work too
 ```
 

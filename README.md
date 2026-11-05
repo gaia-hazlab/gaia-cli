@@ -41,9 +41,9 @@ your own `config`.
 ## Public datasets
 
 Staged stores shared publicly can be browsed in
-[STAC Browser](https://browser.moregeo.it/external/s3.kopah.uw.edu/gaia/scratch/public/catalog.json)
+[STAC Browser](https://browser.moregeo.it/external/s3.kopah.uw.edu/gaia-scratch/gaia-cli/catalog.json)
 or on a map in
-[stac-map](https://developmentseed.org/stac-map/?href=https://s3.kopah.uw.edu/gaia/scratch/public/catalog.json).
+[stac-map](https://developmentseed.org/stac-map/?href=https://s3.kopah.uw.edu/gaia-scratch/gaia-cli/catalog.json).
 
 ## Development
 
