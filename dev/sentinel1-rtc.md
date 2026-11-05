@@ -73,7 +73,16 @@ before anything is read: a 100 × 90 km AOI over one month (4 passes) is about 3
   relative orbit 131 (2023-09-09 and 09-21); orbit 102 covers the western part of the
   regional AOI.
 
+## With `gaia align`
+
+Sentinel-1 is usually the coarsest time step in a store, so it is `align`'s time target
+and each pass stays its own step: the scene coordinates are kept. Aligned onto another
+product's coarser steps, a coordinate is kept only where every step agrees on it (steps
+with no pass get `""` or NaN); one that a step would mix, such as `relative_orbit` when
+both tracks fall in one step, is dropped with a log message. Such a step is also NaN
+unless it holds as many passes as the median pass spacing implies, which irregular
+passes rarely do.
+
 ## Not yet
 
 - `pre`/`post` windows with `select` and `match: relative_orbit` (step 2.4b).
-- `gaia align` drops the scene coordinates along `time`.
