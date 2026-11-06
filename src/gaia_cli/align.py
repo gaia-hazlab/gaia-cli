@@ -136,6 +136,34 @@ def _time_coords(ds: xr.Dataset, steps: np.ndarray, bins: np.ndarray, n: int) ->
     return out
 
 
+def _expected_counts(
+    ds: xr.Dataset, target_start: np.ndarray, target_end: np.ndarray
+) -> np.ndarray:
+    """How many of *ds*'s time steps fit wholly in each target interval
+    ``(start, end]``, had none been missing.
+
+    Counts the steps of *ds*'s regular grid (its first step plus multiples of its
+    step), so a bin whose edges fall between source steps, or a bin longer or
+    shorter than the rest, gets its own count.
+    """
+    start, end, is_point = _intervals(ds)
+    step = _step(ds)
+    ns = np.dtype("datetime64[ns]")
+    if step <= np.timedelta64(0, "ns"):  # one time step: any value will do
+        return np.ones(len(target_end), dtype=int)
+    s = np.timedelta64(step, "ns").astype(np.int64)
+    origin = end[0].astype(ns).astype(np.int64)
+    lo = (target_start.astype(ns).astype(np.int64) - origin).astype(float)
+    hi = (target_end.astype(ns).astype(np.int64) - origin).astype(float)
+    last = np.floor(hi / s)  # source steps k with origin + k * s <= end
+    if is_point:  # points in (start, end]
+        first = np.floor(lo / s) + 1
+    else:  # intervals (t - length, t] with start <= t - length
+        length = np.timedelta64(np.median(end - start), "ns").astype(np.int64)
+        first = np.ceil((lo + length) / s)
+    return np.maximum(last - first + 1, 0).astype(int)
+
+
 def aggregate_time(
     ds: xr.Dataset,
     labels: np.ndarray,
@@ -148,7 +176,9 @@ def aggregate_time(
     it (point values: ``start < t <= end``). Values combine according to the
     variable's ``cell_methods`` (``time: sum`` → sum, ``time: minimum`` → min,
     ``time: maximum`` → max, otherwise mean). Bins
-    missing any expected source step become NaN instead of a silent undercount.
+    missing any expected source step become NaN instead of a silent undercount;
+    each bin expects the source steps that fit wholly inside it
+    (:func:`_expected_counts`), so bins need not be whole multiples of the step.
     """
     start, end, is_point = _intervals(ds)
     step = _step(ds)
@@ -157,7 +187,13 @@ def aggregate_time(
     inside = (j < len(target_end)) & (
         (target_start[jj] < start) if is_point else (target_start[jj] <= start)
     )
-    expected = round(float(np.median(target_end - target_start) / step))
+    expected = _expected_counts(ds, target_start, target_end)
+    counts = np.unique(expected[expected > 0])
+    per_bin = (
+        f"{counts.min()} to {counts.max()}"
+        if len(counts) > 1
+        else counts.max(initial=0)
+    )
 
     bounds = _bounds_name(ds)
     timed = [str(v) for v in ds.data_vars if "time" in ds[v].dims and v != bounds]
@@ -179,7 +215,9 @@ def aggregate_time(
                 agg = grouped.max()
             else:
                 agg = grouped.mean()
-            agg = agg.where(grouped.count() >= expected)
+            count = grouped.count()
+            need = xr.DataArray(expected, dims="_bin").isel(_bin=count["_bin"].values)
+            agg = agg.where(count >= need.assign_coords(_bin=count["_bin"]))
             agg = agg.reindex(_bin=np.arange(len(labels))).rename(_bin="time")
         else:
             # nothing inside the target window (e.g. 2012-2020 DEM strips next to a
@@ -190,7 +228,7 @@ def aggregate_time(
         agg.attrs = {
             **da.attrs,
             "cell_methods": method.replace("point", "mean"),
-            "aggregated_from": f"{expected} values of {np.timedelta64(step, 'm')}",
+            "aggregated_from": f"{per_bin} values of {np.timedelta64(step, 'm')}",
         }
         out[name] = agg
 
