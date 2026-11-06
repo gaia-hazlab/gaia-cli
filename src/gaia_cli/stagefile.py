@@ -26,7 +26,7 @@ import yaml
 from . import io
 from .aoi import aoi_key, check_lonlat, load_aoi, parse_aoi
 from .datasets import DATASETS
-from .window import Window, parse_time, parse_window, unknown
+from .window import Window, parse_time, parse_window, union, unknown
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +46,8 @@ GROUPS = {"raster": "rasters", "stations": "stations"}
 # Built-in stage files without AOIs or windows, used as --config NAME -i -s -e
 PRESETS = Path(__file__).parent / "presets"
 WINDOW_ARGS = ("start_date", "end_date")
+# load() argument of scene datasets (SCENES = True): the windows to choose scenes in
+SCENE_WINDOWS = "windows"
 # `name` names the store and STAC Item in the output folder
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 # The resolved configuration, written to the output folder next to the store
@@ -93,13 +95,18 @@ def timed(module: ModuleType) -> bool:
     return all(a in inspect.signature(module.load).parameters for a in WINDOW_ARGS)
 
 
+def scenes(module: ModuleType) -> bool:
+    """Whether the dataset chooses scenes: takes ``pre``/``post`` windows and ``select``."""
+    return getattr(module, "SCENES", False)
+
+
 def options(load: typing.Callable) -> dict[str, tuple[Any, Any]]:
     """``{option: (type, default)}`` from a dataset's ``load()`` signature."""
     hints = typing.get_type_hints(load)
     return {
         n: (hints.get(n), p.default)
         for n, p in inspect.signature(load).parameters.items()
-        if n not in ("aoi", *WINDOW_ARGS)
+        if n not in ("aoi", *WINDOW_ARGS, SCENE_WINDOWS)
     }
 
 
@@ -284,12 +291,13 @@ def parse_config(doc: dict, path: str, base_dir: Path | None) -> StageConfig:
                 )
             else:
                 windows = check(f"{ds_name}.window", parse_window, spec, time) or []
-            if len(windows) > 1 or any(w.name for w in windows):
-                problems.append(f"{ds_name}.window: takes one window, not pre/post")
-            if any(w.select for w in windows):
-                problems.append(
-                    f"{ds_name}.window: select is only for scene-based datasets"
-                )
+            if not scenes(module):
+                if len(windows) > 1 or any(w.name for w in windows):
+                    problems.append(f"{ds_name}.window: takes one window, not pre/post")
+                if any(w.select for w in windows):
+                    problems.append(
+                        f"{ds_name}.window: select is only for scene-based datasets"
+                    )
             if any(w.start is None or w.end is None for w in windows):
                 problems.append(f"{ds_name}.window: needs both a start and an end")
 
@@ -355,14 +363,31 @@ def resolved(
         else:
             entry["aoi"] = req.aoi
         if req.windows:
-            entry["window"] = str(req.windows[0])
+            entry["window"] = window_entry(req.windows)
             if dry_run:
-                entry["read"] = str(req.windows[0].padded())
+                entry["read"] = str(read_window(req))
         entry.update(_entry_options(req))
         if dry_run and req.name in skipped:
             entry["skipped"] = skipped[req.name]
         out["datasets"][req.name] = entry
     return out
+
+
+def window_entry(windows: list[Window]) -> str | dict:
+    """*windows* as stage-file YAML: ``start/end``, or a mapping with ``select``
+    and ``count``, or ``{pre: …, post: …}``."""
+    if any(w.name for w in windows):
+        return {w.name: w.spec() for w in windows}
+    (w,) = windows
+    return w.spec() if w.select or w.count else str(w)
+
+
+def read_window(req: Request) -> Window:
+    """The interval *req* reads: its window padded by a day, or for a scene
+    dataset the span of its windows, exactly."""
+    if scenes(DATASETS[req.dataset]):
+        return union(req.windows)
+    return req.windows[0].padded()
 
 
 def _entry_options(req: Request) -> dict:

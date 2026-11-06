@@ -22,6 +22,7 @@ import pystac
 import xarray as xr
 
 from .. import provenance, stac
+from ..window import Window
 
 log = logging.getLogger(__name__)
 
@@ -33,10 +34,19 @@ EXTENT = {
     "temporal": {"interval": [["2014-10-10T00:28:21Z", None]]},
 }
 KIND = "raster"
+# Takes pre/post windows with select and count (see stac.select)
+SCENES = True
 # `gaia align` default: the mean of linear power (average dB values after aligning)
 REGRID_METHOD = "average"
 
 Polarization = Literal["vv", "vh", "hh", "hv"]
+
+
+class Match(str, Enum):
+    """What pre and post scenes must share; ``relative_orbit`` pairs them on each track."""
+
+    none = "none"
+    relative_orbit = "relative_orbit"
 
 
 class OrbitState(str, Enum):
@@ -93,6 +103,8 @@ def load(
     polarizations: tuple[Polarization, ...] = ("vv", "vh"),
     orbit_state: OrbitState = OrbitState.any,
     relative_orbit: int = 0,
+    match: Match = Match.none,
+    windows: list[Window] | None = None,
 ) -> xr.Dataset:
     """Sentinel-1 RTC gamma0 for every pass over *aoi*, lazily, on the native grid.
 
@@ -110,13 +122,21 @@ def load(
         Pass direction: any, ascending or descending.
     relative_orbit : int
         Relative orbit (track) number; 0 keeps every track.
+    match : Match
+        With pre and post windows in a stage file, ``relative_orbit`` chooses
+        each window's scenes on each track separately and keeps the tracks
+        that have scenes in both.
+    windows : list of Window
+        Set by the runner from a stage file's windows: the passes each window
+        selects are kept (see ``stac.select``). Default: every pass.
 
     Returns
     -------
     xarray.Dataset
         One float32 variable per polarization along ``(time, y, x)``, with the
         coordinates ``platform``, ``orbit_state``, ``relative_orbit``,
-        ``absolute_orbit`` and ``scene_ids`` along ``time``.
+        ``absolute_orbit`` and ``scene_ids`` along ``time``, and ``window``
+        (e.g. ``pre``, ``post``) when the windows are named.
     """
     query = {}
     if orbit_state is not OrbitState.any:
@@ -137,6 +157,25 @@ def load(
             f"from {start_date} to {end_date}"
         )
     groups = passes(items)
+    labels = [None] * len(groups)
+    if windows:
+        key = "sat:relative_orbit" if match is Match.relative_orbit else None
+        picked = stac.select(groups, windows, key)
+        if not picked:
+            raise ValueError(
+                "no Sentinel-1 RTC passes match the windows"
+                + (" on any track with passes in every window" if key else "")
+            )
+        labels = [name for name, _ in picked]
+        groups = [list(scene) for _, scene in picked]
+        items = [it for g in groups for it in g]
+        for name, scene in picked:
+            log.info(
+                "Sentinel-1 RTC: %s %s, relative orbit %s",
+                name or "selected",
+                scene[0].datetime,
+                scene[0].properties["sat:relative_orbit"],
+            )
     # odc-stac takes each group's time from its first item and orders the
     # groups by key, so the key is the pass's index in time order
     index = {it.id: i for i, group in enumerate(groups) for it in group}
@@ -168,5 +207,7 @@ def load(
         absolute_orbit=("time", np.array([p["sat:absolute_orbit"] for p in first])),
         scene_ids=("time", [" ".join(it.id for it in g) for g in groups]),
     )
+    if any(labels):
+        ds = ds.assign_coords(window=("time", [name or "" for name in labels]))
     ds.attrs = {**source_attrs(items), **provenance.time_extent(ds)}
     return ds

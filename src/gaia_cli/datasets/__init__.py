@@ -3,7 +3,8 @@
 Each module has ``load()``, ``EXTENT`` (a STAC Collection extent) and ``KIND``,
 and optionally ``VARIANT``: a ``load()`` option named by the key
 (``dem/usgs10m``), each value its own top-level group; and ``REGRID_METHOD``:
-``gaia align``'s default for its raster variables (else nearest). See
+``gaia align``'s default for its raster variables (else nearest); and ``SCENES``:
+it takes ``pre``/``post`` windows and ``select`` to choose scenes. See
 dev/adding-a-dataset.md.
 """
 

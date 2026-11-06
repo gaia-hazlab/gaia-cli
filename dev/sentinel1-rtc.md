@@ -37,6 +37,18 @@ Options filter the search: `polarizations` (default `[vv, vh]`; scenes without a
 them are skipped, e.g. HH/HV scenes over Greenland), `orbit_state` and
 `relative_orbit` (STAC `query` filters). No scenes is an error.
 
+## Choosing passes
+
+A stage file can choose passes instead of keeping every one: `pre`/`post` windows with
+`select` and `count`, and `match: relative_orbit` to choose on each track separately
+([stage-file.md](stage-file.md#choosing-scenes)). `stac.select` picks among the passes
+(frames already grouped) before anything is loaded, so only the chosen passes are read,
+and each gets a `window` coordinate. Over the regional Peters Dome AOI,
+`pre: {before: 30d, select: last}`, `post: {after: 30d, select: first}` and
+`match: relative_orbit` give 2023-09-07 and 09-19 on track 102, and 09-09 and 09-21 on
+track 131. Without `match`, they give 09-09 (track 131) and 09-19 (track 102): two
+viewing geometries, which a change map shouldn't mix.
+
 ## Values
 
 - **Linear power** gamma0, float32, `units: "1"`. Convert to dB with
@@ -70,7 +82,3 @@ with no pass get `""` or NaN); one that a step would mix, such as `relative_orbi
 both tracks fall in one step, is dropped with a log message. Such a step is also NaN
 unless it holds as many passes as the median pass spacing implies, which irregular
 passes rarely do.
-
-## Not yet
-
-- `pre`/`post` windows with `select` and `match: relative_orbit` (step 2.4b).
