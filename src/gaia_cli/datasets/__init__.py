@@ -17,6 +17,7 @@ from . import (
     nlcd,
     prism,
     sentinel1_rtc,
+    sentinel2,
     soil,
     stage4,
     synoptic,
@@ -34,4 +35,5 @@ DATASETS: dict[str, ModuleType] = {
     "soil": soil,
     "burn-severity": burn_severity,
     "sentinel1-rtc": sentinel1_rtc,
+    "sentinel2": sentinel2,
 }

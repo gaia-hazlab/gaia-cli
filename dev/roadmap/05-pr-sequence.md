@@ -43,7 +43,7 @@ Ordered by the priorities in [04](04-datasets.md#prioritized-new-datasets).
 | 2.3 | `era5` + atmosphere profiles (Open-Meteo) | 0.2 | Document the usage policy and rate limits. Skip ERA5-Land, which nothing reads. |
 | 2.4a | `sentinel1-rtc` | 0.1 | Adds the Planetary Computer STAC helper (`stac.py`). Every pass in one closed window, its frames mosaicked; the scene index (platform, orbit state, relative and absolute orbit, item ids) as coordinates along `time` ([../sentinel1-rtc.md](../sentinel1-rtc.md)). |
 | 2.4b | scene selection | 2.4a | `pre`/`post` windows with `select`/`count` for datasets with `SCENES = True`, read over exactly their span, and `match: relative_orbit`: the chosen scenes before and after the event on each track that has both. Chosen by `stac.select` from the STAC items before any pixels are read; a `window` coordinate labels each scene ([../stage-file.md](../stage-file.md#choosing-scenes)). |
-| 2.4c | `sentinel2` | 2.4b | Same helper and selection. Skip Landsat, which nothing reads. |
+| 2.4c | `sentinel2` | 2.4b | Same helper and selection (`stac.group`, `stac.load_scenes`, `stac.select`). L2A reflectance by processing baseline, stored as packed uint16, and SCL as CF flags; the newest processing of each tile; `max_cloud_cover` on the tile's `eo:cloud_cover` ([../sentinel2.md](../sentinel2.md)). Clearest-scene selection over the AOI stays later. Skip Landsat, which nothing reads. |
 
 ## Phase 3: conversion and reference workflows
 

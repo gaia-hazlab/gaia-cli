@@ -100,11 +100,14 @@ def load(
     bands: Sequence[str],
     aoi: gpd.GeoDataFrame,
     groupby: str | Callable = "id",
+    resolution: float | None = None,
 ) -> xr.Dataset:
     """*bands* of *items*, lazily, clipped to *aoi* on the native grid.
 
     Items in another CRS than most are reprojected onto that one; *groupby*
-    (an odc-stac groupby) decides which items share a time step.
+    (an odc-stac groupby) decides which items share a time step. The pixel
+    size is the items' own (``proj:transform``) unless *resolution* is given,
+    e.g. the finest of bands at several resolutions.
     """
     crs = native_crs(items)
     native = [it for it in items if item_crs(it) == crs]
@@ -116,12 +119,45 @@ def load(
         items,
         bands=bands,
         crs=crs,
-        resolution=abs(transform[0]) if transform else None,
+        resolution=resolution or (abs(transform[0]) if transform else None),
         bbox=tuple(aoi.to_crs("EPSG:4326").total_bounds),
         groupby=groupby,
         chunks={},
     )
     return io.clip_to_aoi(ds, aoi)  # ty: ignore[invalid-argument-type, invalid-return-type]
+
+
+def group(
+    items: Sequence[pystac.Item], key: Callable[[pystac.Item], object]
+) -> list[list[pystac.Item]]:
+    """*items* grouped into scenes by *key* (e.g. a pass's frames), each scene's
+    items and the scenes themselves in time order."""
+    groups: dict[object, list[pystac.Item]] = {}
+    for item in items:
+        groups.setdefault(key(item), []).append(item)
+    for g in groups.values():
+        g.sort(key=lambda it: (it.datetime, it.id))
+    return sorted(groups.values(), key=lambda g: (g[0].datetime, g[0].id))
+
+
+def load_scenes(
+    scenes: Sequence[Sequence[pystac.Item]],
+    bands: Sequence[str],
+    aoi: gpd.GeoDataFrame,
+    resolution: float | None = None,
+) -> xr.Dataset:
+    """*bands* of *scenes* (from :func:`group`), one time step per scene at
+    its first item's time, its items mosaicked (first valid value wins)."""
+    # odc-stac takes each group's time from its first item and orders the
+    # groups by key, so the key is the scene's index in time order
+    index = {it.id: i for i, scene in enumerate(scenes) for it in scene}
+    return load(
+        [it for scene in scenes for it in scene],
+        bands,
+        aoi,
+        groupby=lambda item, parsed, idx: index[item.id],
+        resolution=resolution,
+    )
 
 
 def select(

@@ -13,6 +13,7 @@ title: Datasets
 | [`soil`](#soil) | soil properties | CONUS | 100 m, 30 m | static | `soil/<product>` |
 | [`burn-severity`](#burn-severity) | BAER soil burn severity | CONUS, fires 2017 on | 20–30 m | static | `rasters/burn-severity` |
 | [`sentinel1-rtc`](#sentinel1-rtc) | Sentinel-1 radar backscatter | global, 2014-10 on | 10 m | each pass | `rasters/sentinel1-rtc` |
+| [`sentinel2`](#sentinel2) | Sentinel-2 surface reflectance | global, 2015-06 on | 10 m | each pass | `rasters/sentinel2` |
 
 A dataset that the AOI or window misses (for example `prism` in Alaska) is skipped
 with a warning. Licenses differ: check each group's `license` attribute before sharing
@@ -147,3 +148,26 @@ datasets:
 ```
 
 Each pass then has a `window` coordinate, `pre` or `post`.
+
+(sentinel2)=
+## Sentinel-2
+
+Sentinel-2 Level-2A surface reflectance from
+[Planetary Computer](https://planetarycomputer.microsoft.com/dataset/sentinel-2-l2a),
+at 10 m in the scenes' UTM zone. No account needed.
+
+- `--bands` by common name: `blue`, `green`, `red`, `nir`, `swir16` and `scl` by default;
+  also `coastal`, `rededge1`–`3`, `nir08`, `nir09`, `swir22`. Reflectance is 0–1;
+  20 m and 60 m bands are upsampled to 10 m.
+- `scl` is the scene classification (clouds, shadows, snow, water, …) as CF flags; mask
+  clouds with `ds.where(~ds.scl.isin([3, 8, 9, 10]))`.
+- One time step per satellite pass, its tiles mosaicked. `--max-cloud-cover` skips
+  tiles cloudier than a percentage; that is the cloud cover of the whole 110 km tile,
+  not the AOI's.
+- Like `sentinel1-rtc`, a stage file can keep the last pass before and the first after
+  an event with `pre`/`post` windows, as in the [Sentinel-1 example](#sentinel1-rtc).
+- License: Copernicus Sentinel data terms (free, with attribution).
+
+```bash
+gaia stage sentinel2 -i aoi.geojson -s 2023-09-01 -e 2023-09-30 -o out --max-cloud-cover 50
+```

@@ -64,12 +64,7 @@ def pass_key(item: pystac.Item) -> tuple[str, int]:
 
 def passes(items: list[pystac.Item]) -> list[list[pystac.Item]]:
     """*items* grouped into passes, the passes in time order."""
-    groups: dict[tuple[str, int], list[pystac.Item]] = {}
-    for item in items:
-        groups.setdefault(pass_key(item), []).append(item)
-    for group in groups.values():
-        group.sort(key=lambda it: (it.datetime, it.id))
-    return sorted(groups.values(), key=lambda g: (g[0].datetime, g[0].id))
+    return stac.group(items, pass_key)
 
 
 def source_attrs(items: list[pystac.Item]) -> dict:
@@ -176,15 +171,7 @@ def load(
                 scene[0].datetime,
                 scene[0].properties["sat:relative_orbit"],
             )
-    # odc-stac takes each group's time from its first item and orders the
-    # groups by key, so the key is the pass's index in time order
-    index = {it.id: i for i, group in enumerate(groups) for it in group}
-    ds = stac.load(
-        items,
-        list(polarizations),
-        aoi,
-        groupby=lambda item, parsed, idx: index[item.id],
-    )
+    ds = stac.load_scenes(groups, list(polarizations), aoi)
     log.info(
         "Sentinel-1 RTC: %d pass(es) of %d scene(s), %d x %d cells",
         len(groups),
