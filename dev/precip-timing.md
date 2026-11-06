@@ -5,7 +5,8 @@ version, and why Synoptic's precipitation service does not solve the problem.
 
 `gaia stage synoptic` now stores every report ([stations.md](stations.md)), and
 `gaia_cli.stations.to_grid(ds)` builds the hourly axis described here when you read
-the store. Its `precipitation_report_time` is the `report_time` below.
+the store. Its `precip_accum_report_time` (`precipitation_report_time` after `gaia align`) is
+the `report_time` below.
 
 ## Summary
 

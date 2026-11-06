@@ -12,7 +12,7 @@ for why.
 | dimension | variables |
 |---|---|
 | `geometry` (one per station) | `station` (id, `cf_role: timeseries_id`), `name`, `elevation` (m), `network_id` (Synoptic `MNET_ID`), `precip_source`, `row_size`, and the point geometry (xvec CF-encoded) |
-| `obs` (one per report) | `time` (UTC), `precipitation`, and any other requested variables |
+| `obs` (one per report) | `time` (UTC), `precip_accum`, and any other requested variables |
 
 The group has `featureType: timeSeries`. `row_size` has `sample_dimension: obs`: the
 first `row_size[0]` reports belong to the first station, the next `row_size[1]` to the
@@ -27,7 +27,7 @@ The same encoding adds `lat`, `lon` and `spatial_ref`. Points have one node each
 part of the ragged array. `ds.xvec.decode_cf()` turns them back into a `geometry` index
 of shapely points, and the helpers below do that for you.
 
-- `precipitation` is the running total since the station's first report in the window
+- `precip_accum` is the running total since the station's first report in the window
   (mm), as in [precip-timing.md](precip-timing.md). It is Synoptic's derived
   `precip_accumulated_set_1d`. If the account cannot use derived precipitation, it is
   the raw `precip_accum` with gauge resets removed. `precip_source` names the reported
@@ -74,7 +74,7 @@ totals = stations.to_grid(ds, freq="1D", how="sum", variables=["precipitation"])
   *t* that is less than one `freq` old, taken separately for each variable. A station
   that reports temperature every 5 minutes and precipitation hourly keeps both. Times
   without such a report are NaN. `<variable>_report_time` records when each value was
-  reported. With `freq="1h"` and only `precipitation`, this is exactly the hourly array
+  reported. With `freq="1h"` and only `precip_accum`, this is exactly the hourly array
   that `gaia stage synoptic` used to write.
 - **`how="sum"`**, for running totals: the amount in each interval `(t - freq, t]`,
   the difference of the running total at both ends. `time_bounds` gives the

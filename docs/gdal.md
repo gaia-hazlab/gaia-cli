@@ -1,19 +1,23 @@
 # Reading stores with GDAL
 
 GDAL's Zarr driver reads staged and aligned stores (GDAL ≥ 3.4; tested with 3.13), and
-so does anything built on it: QGIS, rasterio, the `gdal` command line. Each array is a
-subdataset:
+so does anything built on it: QGIS, rasterio, the `gdal` command line. Open each array
+through its group, `ZARR:"<store>/<group>":/<array>`:
 
 ```bash
-gdal raster info pioneer-10m/pioneer-10m.zarr     # lists the subdatasets
-gdal raster info 'ZARR:"pioneer-10m/pioneer-10m.zarr":/dem/usgs10m/elevation'
+gdal raster info pioneer-10m/pioneer-10m.zarr/dem/usgs10m   # lists the group's arrays
+gdal raster info 'ZARR:"pioneer-10m/pioneer-10m.zarr/dem/usgs10m":/elevation'
 ```
+
+Opening the whole store (`ZARR:"<store>":/dem/usgs10m/elevation`) crashes GDAL 3.13
+when any raster group also holds a 2-D array on other dimensions, such as PRISM's
+`time_bounds`.
 
 Remote stores work through `/vsicurl/` (or `/vsis3/`), using the store's consolidated
 metadata:
 
 ```bash
-gdal raster info 'ZARR:"/vsicurl/https://s3.kopah.uw.edu/gaia-scratch/gaia-cli/pioneer-10m/pioneer-10m.zarr":/rasters/prism/precipitation'
+gdal raster info 'ZARR:"/vsicurl/https://s3.kopah.uw.edu/gaia-scratch/gaia-cli/pioneer-10m/pioneer-10m.zarr/rasters/prism":/ppt'
 ```
 
 Each raster variable carries its CRS as a `_CRS` attribute and its nodata as the Zarr
@@ -27,7 +31,7 @@ writing a model's files is a format conversion. For example, a float32 ESRI ASCI
 with -9999 for nodata:
 
 ```bash
-gdal raster pipeline read 'ZARR:"pioneer-10m/pioneer-10m.zarr":/soil/solus100/cec7' \
+gdal raster pipeline read 'ZARR:"pioneer-10m/pioneer-10m.zarr/soil/solus100":/cec7' \
   ! unscale --ot Float32 \
   ! write cec7.vrt
 gdal raster calc -i A=cec7.vrt --calc A --ot Float32 --nodata -9999 --propagate-nodata cec7.tif

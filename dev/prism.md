@@ -11,8 +11,8 @@ Module: `src/gaia_cli/datasets/prism.py`, `src/gaia_cli/prism_cache/` · Command
 - Access: unzipped COGs in the gaia PRISM cache (see [below](#the-gaia-prism-cache)),
   loaded with `odc.stac` from STAC items built in memory. File names look
   like `prism_ppt_us_30s_YYYYMMDD`.
-- Variables: `-v ppt tmin tmax tmean` (default `ppt`,
-  written as `precipitation`), or `variables: [ppt, tmin, tmax]` in a
+- Variables: `-v ppt tmin tmax tmean` (default `ppt`), or
+  `variables: [ppt, tmin, tmax]` in a
   stage file. Other names are rejected before anything is read.
 - Reference: [PRISM Datasets (PDF)](https://prism.oregonstate.edu/documents/PRISM_datasets.pdf).
 
@@ -99,7 +99,7 @@ to 04:00 PST on D.
 
 ## Values
 
-| variable | written as | units | `cell_methods` | `standard_name` |
+| variable | `gaia align` name | units | `cell_methods` | `standard_name` |
 | --- | --- | --- | --- | --- |
 | `ppt` | `precipitation` | mm per PRISM day | `time: sum` | `lwe_thickness_of_precipitation_amount` |
 | `tmin` | `tmin` | degC | `time: minimum` | `air_temperature` |

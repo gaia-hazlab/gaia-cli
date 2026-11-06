@@ -39,3 +39,21 @@ DATASETS: dict[str, ModuleType] = {
     "sentinel1-rtc": sentinel1_rtc,
     "sentinel2": sentinel2,
 }
+
+
+def cf_criteria() -> dict[str, dict[str, str]]:
+    """cf-xarray custom criteria selecting variables by their common name.
+
+    Each dataset's ``COMMON_NAMES`` is stamped on its staged variables as
+    ``gaia:common-name``; with these criteria ``ds.cf["precipitation"]`` gives PRISM
+    ``ppt``, ERA5 ``tp`` or HRRR ``precipitation_surface``, staged or aligned::
+
+        import cf_xarray as cfxr
+        cfxr.set_options(custom_criteria=cf_criteria())
+    """
+    from ..provenance import COMMON_NAME_ATTR
+
+    names = {
+        c for m in DATASETS.values() for c in getattr(m, "COMMON_NAMES", {}).values()
+    }
+    return {c: {COMMON_NAME_ATTR: f"^{c}$"} for c in sorted(names)}

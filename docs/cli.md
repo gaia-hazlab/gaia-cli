@@ -88,6 +88,9 @@ each dataset uses its own default resampling (conservative for PRISM and HRRR,
 bilinear for DEMs, mode for categories), which `--method` overrides, for every dataset
 or for one (`-m dem/usgs10m=cubic`). The input store is not changed.
 
+Variables keep their staged names. To select the same quantity in every group
+(`ds.cf["precipitation"]`), see [](datasets.md).
+
 `--crs utm --res 10 --aoi $AOI` builds a grid from the AOI alone: its UTM zone, its
 bounds snapped outward to multiples of 10 m, and NaN in cells whose center is outside
 it. This is the analysis grid of the

@@ -264,7 +264,7 @@ def fake_days(monkeypatch):
 def test_load_clips_and_bounds_each_day(fake_days, caplog):
     fake_days["days"].add(dt.date(2025, 12, 9))
     ds = stage4.load(BOLT_CREEK, "2025-12-07T00:00:00", "2025-12-10T23:59:59")
-    p = ds.precipitation
+    p = ds.apcp
     assert p.sizes["time"] == 4 and 0 < p.sizes["x"] < 20 and 0 < p.sizes["y"] < 20
     assert [str(t)[:13] for t in ds.time_bounds.values[0]] == [
         "2025-12-06T12",
@@ -291,7 +291,7 @@ def test_load_sub_daily_is_stamped_at_period_end(fake_days, accumulation, hours,
     ds = stage4.load(
         BOLT_CREEK, "2025-12-07T00:00:00", "2025-12-07T23:59:59", accumulation
     )
-    p = ds.precipitation
+    p = ds.apcp
     assert p.sizes["time"] == steps
     first, last = (pd.Timestamp(t) for t in ds.time.values[[0, -1]])
     assert first == pd.Timestamp("2025-12-07T00") and last.hour == 24 - hours
@@ -314,7 +314,7 @@ def test_load_hourly_without_data_over_the_aoi_warns(fake_days, caplog):
     fake_days["empty"].update(pd.date_range("2015-01-01T00", "2015-01-01T05", freq="h"))
     fake_days["ends"].add(pd.Timestamp("2015-01-01T06"))
     ds = stage4.load(BOLT_CREEK, "2015-01-01T00:00", "2015-01-01T07:00", "hourly")
-    p = ds.precipitation
+    p = ds.apcp
     assert p.sizes["time"] == 8
     assert np.isnan(p.isel(time=slice(0, 7))).all() and p.isel(time=7).notnull().any()
     assert "6 of 8 hourly step(s) have no data over the AOI" in caplog.text

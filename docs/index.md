@@ -17,7 +17,7 @@ analysis-ready store and open it with xarray:
 import xarray as xr
 
 tree = xr.open_datatree("skagit/skagit.zarr", engine="zarr")
-tree["rasters/prism"].precipitation
+tree["rasters/prism"].ppt
 ```
 
 gaia-cli is new and changes often. The documentation describes the latest commit on

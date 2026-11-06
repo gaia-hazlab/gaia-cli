@@ -161,3 +161,20 @@ def test_helpers_read_the_stored_group(tmp_path):
     assert grid.name.values.tolist() == ["first", ""]
     assert grid.precipitation.values.tolist() == [[0.0, 1.0], [0.0, 2.0]]
     assert grid.xindexes["geometry"].crs.to_epsg() == 4326
+
+
+@pytest.mark.parametrize("how", ["last", "sum"])
+def test_to_grid_keeps_station_coords_when_selected_by_common_name(how):
+    import cf_xarray as cfxr
+
+    from gaia_cli.datasets import cf_criteria
+
+    ds = _ragged(
+        A=_hours(0, 1, precip_accum=[0.0, 1.0]),
+        B=_hours(0, 1, precip_accum=[0.0, 2.0]),
+    )
+    ds.precip_accum.attrs["gaia:common-name"] = "precipitation"
+    grid = stations.to_grid(ds, how=how)
+    with cfxr.set_options(custom_criteria=cf_criteria()):
+        da = grid.cf["precipitation"]
+    assert {"station", "elevation"} <= set(da.coords)

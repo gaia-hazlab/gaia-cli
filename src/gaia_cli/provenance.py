@@ -49,6 +49,9 @@ COLLECTION_LINK_RELS = {"license", "about", "cite-as"}
 ZARR = "application/vnd+zarr"
 YAML = "application/yaml"
 RUN_KEYS = ("created", "gaia:cli-version", "gaia:command", "stac_extensions")
+# Stamped on staged variables from the dataset module's COMMON_NAMES: one name for
+# the same quantity across datasets, selectable with cf-xarray (datasets.cf_criteria)
+COMMON_NAME_ATTR = "gaia:common-name"
 MULTIPLE_LICENSES_NOTE = (
     "Products in this store have different licenses; check each group's "
     "`license` and `links` before sharing."

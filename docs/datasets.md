@@ -20,14 +20,36 @@ A dataset that the AOI or window misses (for example `prism` in Alaska) is skipp
 with a warning. Licenses differ: check each group's `license` attribute before sharing
 a store.
 
+Variables keep their source's names (PRISM `ppt`, ERA5 `tp`), in SI units, in staged
+and aligned stores. Quantities that several datasets have also carry a common name in
+`gaia:common-name`:
+
+| common name | variables |
+|---|---|
+| `precipitation` (mm) | `prism` `ppt`, `hrrr` `precipitation_surface`, `stage4` `apcp`, `era5` `tp`, `synoptic` `precip_accum` (a running total) |
+| `temperature` (degC, 2 m air) | `prism` `tmean`, `hrrr` `temperature_2m`, `era5` `t2m` |
+
+To select by common name, use [cf-xarray](https://cf-xarray.readthedocs.io) with
+gaia's criteria:
+
+```python
+import cf_xarray as cfxr
+from gaia_cli.datasets import cf_criteria
+
+cfxr.set_options(custom_criteria=cf_criteria())
+ds.cf["precipitation"]   # ppt in a PRISM group, tp in an ERA5 group
+```
+
+`ds.cf[...]` also takes CF standard names, e.g. `lwe_thickness_of_precipitation_amount`.
+
 (synoptic)=
 ## Synoptic stations
 
 Station reports from the [Synoptic Data](https://synopticdata.com) API. Requires a
 `SYNOPTIC_TOKEN`.
 
-- `precip_accum` (default) is staged as `precipitation`, a running total in mm. Other
-  Synoptic variables, such as `air_temp`, keep their Synoptic names and units.
+- `precip_accum` (default) is staged as a running total in mm. Other Synoptic
+  variables, such as `air_temp`, keep their Synoptic units.
 - Every report is kept, as a CF ragged array. `gaia_cli.stations.to_grid(ds)` puts the
   reports on a regular hourly (or daily) grid, and `to_dataframe(ds)` gives one row per
   report.
@@ -38,8 +60,7 @@ Station reports from the [Synoptic Data](https://synopticdata.com) API. Requires
 
 [PRISM](https://prism.oregonstate.edu) AN81d daily grids, 800 m, EPSG:4269.
 
-- Variables: `ppt` (default, staged as `precipitation`, mm), `tmin`, `tmax`, `tmean`
-  (degC).
+- Variables: `ppt` (default, mm), `tmin`, `tmax`, `tmean` (degC).
 - A **PRISM day** D covers 12:00 UTC on D−1 to 12:00 UTC on D. The value is stamped
   D 00:00, and `time_bounds` gives the true period.
 - Read from a public cache of PRISM's grids, browsable in
@@ -55,8 +76,8 @@ NOAA High-Resolution Rapid Refresh analysis from
 [dynamical.org](https://dynamical.org/catalog/noaa-hrrr-analysis/), 3 km, Lambert
 Conformal Conic, hourly.
 
-- Variable: `precipitation-surface` (default, staged as `precipitation` in mm per
-  hour), or any other in `gaia stage hrrr --help`.
+- Variable: `precipitation-surface` (default, staged as `precipitation_surface` in mm
+  per hour), or any other in `gaia stage hrrr --help`.
 - Precipitation is **hour-ending**: the value at 13:00 fell between 12:00 and 13:00
   UTC.
 - Wind components are grid-relative, not east/north.
@@ -97,7 +118,8 @@ Settings → API Clients), or run `arraylake auth login` once.
 NCEP/EMC [Stage IV](https://gdex.ucar.edu/datasets/d507005/) radar and gauge
 precipitation analyses, about 4.8 km, polar stereographic.
 
-- Staged as `precipitation` in mm, one group per `--accumulation`: `daily` (default,
+- Staged as `apcp` (GRIB's APCP, total precipitation) in mm, one group per
+  `--accumulation`: `daily` (default,
   `stage4/daily`), `sixhourly` or `hourly`. The daily value stamped D covers 12:00 UTC on
   D−1 to 12:00 UTC on D, the same as a PRISM day. 6-hourly and hourly values are
   stamped at the end of their period, like HRRR.

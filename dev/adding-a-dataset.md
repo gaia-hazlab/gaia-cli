@@ -59,8 +59,12 @@ Examples: `prism.py`, `hrrr.py`.
    source (STAC + `odc.stac`, Icechunk, `rioxarray.open_rasterio`, …); see
    `open_prism` / `open_hrrr`. Planetary Computer collections can use `stac.search`
    and `stac.load` (signed, lazy, native grid; see `sentinel1_rtc.py`).
-2. **Standardize names**: spatial dims `x`, `y`; time dim `time`; variable name
-   and units, e.g. `precipitation` in `mm`.
+2. **Standardize dims and units, not names**: spatial dims `x`, `y`; time dim
+   `time`; SI units (mm, degC). Variables keep the source's names (`ppt`, `tp`).
+   If another dataset has the same quantity, add it to the module's `COMMON_NAMES`
+   (staged name → common name, e.g. `{"tp": "precipitation"}`): the runner stamps
+   it as `gaia:common-name`, which `datasets.cf_criteria()` lets cf-xarray select
+   (`ds.cf["precipitation"]`). Set a CF `standard_name` where one fits.
 3. **Clip to the AOI** with `io.clip_to_aoi(da, aoi)`. This reprojects the AOI
    into the raster's CRS and keeps every touched cell; the raster stays on its
    **native grid**. Putting products on a common grid is `gaia align`'s job (see

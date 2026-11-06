@@ -9,6 +9,7 @@ dynamic = ["version"]
 dependencies = [
   "arraylake>=1.8",
   "boto3",
+  "cf-xarray>=0.10",
   "cyclopts>=5.2.0,<6",
   "exactextract",
   "geopandas>=1.2.0,<2",
@@ -17,7 +18,6 @@ dependencies = [
   "obstore>=0.11",
   "odc-stac>=0.5.3",
   "pandas",
-  # ERA5 chunks are pcodec-compressed
   "pcodec>=1.1",
   "pyproj",
   "pystac",
@@ -121,9 +121,7 @@ pystac-client = ">=0.9.0,<0.10"
 python-dotenv = ">=1.2.4,<2"
 icechunk = ">=2.3.0,<3"
 exactextract = ">=0.3.0,<0.4"
-# GDAL GRIB driver for Stage IV (pip rasterio wheels include it)
 libgdal-grib = ">=3.13.3,<4"
 unlzw3 = ">=0.2.2,<0.3"
-# ERA5 (Earthmover Icechunk); arraylake needs python <3.15
 arraylake = ">=1.8.0,<2"
 pcodec = ">=1.1.0,<2"

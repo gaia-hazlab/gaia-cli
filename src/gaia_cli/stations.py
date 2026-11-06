@@ -76,7 +76,7 @@ def to_grid(
     ``<variable>_report_time`` records when each was reported, so a station
     reporting at :28 lags the clock hour by 28 minutes (see
     dev/precip-timing.md). ``how="sum"`` is for running
-    totals such as ``precipitation``: the amount in each interval
+    totals such as Synoptic's ``precip_accum``: the amount in each interval
     ``(t - freq, t]``, the difference of the running total at both ends.
 
     Parameters
@@ -143,7 +143,7 @@ def to_grid(
         for n in names:
             out[n].attrs["ancillary_variables"] = f"{n}_report_time"
             out.coords[f"{n}_report_time"] = (("geometry", "time"), report_time[n])
-        return out
+        return _with_station_coords(out, names)
     out = out.diff("time", label="upper")
     for n in names:
         out[n].attrs = {**ds[n].attrs, "cell_methods": "time: sum"}
@@ -152,4 +152,13 @@ def to_grid(
         np.stack([(out.time - step).values, out.time.values], -1),
     )
     out.time.attrs["bounds"] = "time_bounds"
+    return _with_station_coords(out, names)
+
+
+def _with_station_coords(out: xr.Dataset, names: list[str]) -> xr.Dataset:
+    """List the station coordinates (``station``, ``name``…) in each variable's
+    CF ``coordinates``, so ``ds.cf[...]`` keeps them."""
+    station = [str(c) for c, v in out.coords.items() if v.dims == ("geometry",)]
+    for n in names:
+        out[n].encoding["coordinates"] = " ".join(c for c in station if c != "geometry")
     return out

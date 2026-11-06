@@ -53,6 +53,16 @@ TO_MM = {"tp", "cp", "lsp", "sf", "sd"}
 # Static fields stored as coordinates of every variable; z_sfc is staged as orography
 STATIC = ("lsm", "z_sfc", "sdor", "slor")
 G = 9.80665  # m s-2, ECMWF's standard gravity
+# Common names (gaia:common-name) for quantities other datasets also have
+COMMON_NAMES = {"tp": "precipitation", "t2m": "temperature"}
+# CF standard names the store gives as "unknown"
+STANDARD_NAMES = {
+    "tp": "lwe_thickness_of_precipitation_amount",
+    "t2m": "air_temperature",
+    "d2m": "dew_point_temperature",
+    "swvl1": "volume_fraction_of_condensed_water_in_soil",
+    "swvl2": "volume_fraction_of_condensed_water_in_soil",
+}
 # GRIB_stepType -> how an hour-ending value combines over time
 CELL_METHODS = {"accum": "time: sum", "max": "time: maximum", "instant": "time: point"}
 
@@ -146,6 +156,10 @@ def _to_staged(da: xr.DataArray) -> xr.DataArray:
     """Convert *da* to staged units (degC, mm), keeping its name."""
     units = da.attrs.get("units")
     keep = {k: v for k, v in da.attrs.items() if not k.startswith("GRIB_")}
+    if keep.get("standard_name") == "unknown":
+        del keep["standard_name"]
+    if da.name in STANDARD_NAMES:
+        keep["standard_name"] = STANDARD_NAMES[str(da.name)]
     if units == "K":
         da = da - 273.15
         keep.update(units="degC", comment="Converted from K")

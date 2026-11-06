@@ -100,9 +100,9 @@ chunks).
   lapse-rate correction. `gaia align` drops it, as it does any variable without
   time in a timed group. `lsm`, `sdor` and `slor` are dropped.
 - `variables` defaults to `tp`, `sf`, `t2m`, `swvl1`, `swvl2`, `sd`, and takes any
-  of the 39 (see [Variables](#variables)). Names
-  stay ECMWF's; giving one quantity one name across datasets is for `gaia align`, in
-  its own PR.
+  of the 39 (see [Variables](#variables)). Names stay ECMWF's; `tp` and `t2m` carry the
+  common names `precipitation` and `temperature` (`COMMON_NAMES`), and CF standard
+  names replace the store's `unknown` (`STANDARD_NAMES`).
 - Units: K → degC; `tp`, `cp`, `lsp`, `sf`, `sd` (m of water) → mm. `GRIB_*`
   attributes are dropped.
 - Time: every value is hour-ending, so the group has `time_bounds` `(T − 1 h, T]`;
@@ -149,9 +149,8 @@ Not in this store, though ERA5 has them:
    Infrasound ducts in the stratosphere (~40–50 km) need more. Check how the Peters
    Dome analysis uses its profiles before choosing between these and another source
    (ARCO-ERA5 has 37 levels to 1 hPa).
-2. Variable names: **decided** to keep ECMWF's short names (`tp`, `t2m`, …) and
-   convert only units. Whether to give the same quantity one name across datasets
-   (`tp` here, `precipitation` in `hrrr` and `prism`) is planned for `gaia align`, in
-   its own PR.
+2. ~~Variable names~~: done. Staged and aligned stores keep ECMWF's short names;
+   `gaia:common-name` (`COMMON_NAMES`) selects one quantity across datasets with
+   cf-xarray.
 3. The hour-ending convention for `accum` variables is the CDS's; check it against a
    CDS download for one hour.

@@ -36,7 +36,8 @@ def check_synoptic(ds):
 
 def check_prism(ds):
     assert ds.sizes["time"] == 3
-    assert float(ds.precipitation.min()) >= 0
+    assert float(ds.ppt.min()) >= 0
+    assert ds.ppt.attrs["gaia:common-name"] == "precipitation"
 
 
 def check_prism_temperature(ds):
@@ -47,7 +48,7 @@ def check_prism_temperature(ds):
 
 def check_hrrr(ds):
     assert ds.sizes["time"] == 72
-    assert float(ds.precipitation.min()) >= 0
+    assert float(ds.precipitation_surface.min()) >= 0
 
 
 def check_era5(ds):
@@ -64,7 +65,7 @@ def check_era5(ds):
 def check_stage4(ds):
     # Read from GDEX into a fresh cache: the 24 h totals ending 12 UTC on each day
     assert ds.sizes["time"] == 3
-    assert float(ds.precipitation.min()) >= 0
+    assert float(ds.apcp.min()) >= 0
     assert ds.attrs["stage4:domain"] == "conus"
 
 
