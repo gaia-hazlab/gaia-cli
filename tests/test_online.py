@@ -57,6 +57,7 @@ def check_era5(ds):
     assert bool((ds.sf <= ds.tp + 1e-3).all())  # snowfall is part of the total
     assert -30 < float(ds.t2m.min()) < float(ds.t2m.max()) < 20  # degC
     assert 0 < float(ds.swvl1.min()) and float(ds.swvl2.max()) < 1
+    assert 0 < float(ds.orography.min()) < float(ds.orography.max()) < 2500  # m
     assert ds.attrs["gaia:icechunk-snapshot"]
 
 

@@ -50,8 +50,9 @@ Variable = Literal[
 ]  # fmt: skip
 # Water amounts in metres of water equivalent, staged in mm
 TO_MM = {"tp", "cp", "lsp", "sf", "sd"}
-# Static fields stored as coordinates of every variable; not staged
+# Static fields stored as coordinates of every variable; z_sfc is staged as orography
 STATIC = ("lsm", "z_sfc", "sdor", "slor")
+G = 9.80665  # m s-2, ECMWF's standard gravity
 # GRIB_stepType -> how an hour-ending value combines over time
 CELL_METHODS = {"accum": "time: sum", "max": "time: maximum", "instant": "time: point"}
 
@@ -155,6 +156,21 @@ def _to_staged(da: xr.DataArray) -> xr.DataArray:
     return da
 
 
+def _orography(z_sfc: xr.DataArray) -> xr.DataArray:
+    """ERA5's terrain height (m) from its surface geopotential (m2 s-2)."""
+    da = (z_sfc / G).rename("orography")
+    da.attrs = {
+        "long_name": "ERA5 terrain height",
+        "standard_name": "surface_altitude",
+        "units": "m",
+        "comment": "Surface geopotential z_sfc / 9.80665 m s-2: the height of "
+        "ERA5's smoothed terrain in each cell, the level t2m is valid at "
+        "(2 m above it)",
+        "gaia:regrid-method": "bilinear",
+    }
+    return da
+
+
 def load(
     aoi: gpd.GeoDataFrame,
     start_date: str,
@@ -184,8 +200,9 @@ def load(
     Returns
     -------
     xarray.Dataset
-        One variable per ERA5 variable plus CF ``time_bounds``, with provenance
-        attributes (see :func:`source_attrs`).
+        One variable per ERA5 variable plus CF ``time_bounds``, and the static
+        ``orography`` (ERA5's terrain height, m), with provenance attributes (see
+        :func:`source_attrs`).
     """
     with _aws_endpoint():
         ds = open_era5()
@@ -198,6 +215,8 @@ def load(
         if pd.Timestamp(end_date) > last:
             log.warning("ERA5 ends at %s, before the window does", last)
         ds = ds[list(variables)].sel(time=slice(start_date, end_date))
+        static = ds.reset_coords([c for c in STATIC if c in ds.coords])
+        orography = _orography(io.clip_to_aoi(static["z_sfc"], aoi).load())
         ds = ds.drop_vars([c for c in STATIC if c in ds.coords])
         parts = []
         for var in variables:
@@ -217,10 +236,11 @@ def load(
     for da in rest:
         out[da.name] = da
     out.time.attrs["bounds"] = "time_bounds"  # dropped when adding variables
+    out["orography"] = orography
     out.attrs = {
         **source_attrs(ds),
         "processing:lineage": "clipped to the AOI on the native 0.25° grid; "
-        "K → degC, m of water → mm",
+        "K → degC, m of water → mm, surface geopotential → orography (m)",
         **provenance.time_extent(out),
     }
     return out
