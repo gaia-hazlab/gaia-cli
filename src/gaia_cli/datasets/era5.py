@@ -38,6 +38,11 @@ EXTENT = {
     "temporal": {"interval": [["1940-01-01T00:00:00Z", None]]},
 }
 KIND = "raster"
+# Environment variables load() needs, checked before a run starts
+TOKENS = {
+    "ARRAYLAKE_TOKEN": "a free Earthmover API key, unless `arraylake auth login` "
+    "has been run"
+}
 # `gaia align` default: area-weighted, so precipitation totals are preserved
 REGRID_METHOD = "conservative"
 

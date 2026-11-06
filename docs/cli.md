@@ -59,6 +59,8 @@ gaia stage --config skagit.yaml -o skagit --only prism,hrrr
   `{latitude: 48.5, longitude: -121.5, radius_km: 20}`.
 - A dataset that fails doesn't stop the others. Rerun with `--skip-existing` to retry
   only the failed ones.
+- A missing token (`SYNOPTIC_TOKEN` for `synoptic`, `ARRAYLAKE_TOKEN` for `era5`) is
+  warned about before anything is staged, and by `--dry-run`.
 - A dataset larger than 10 GB fails before it is written; use a smaller AOI or window.
 - `--config` can be an http(s) URL, e.g. a stage file in another repository. Its AOIs
   must then be URLs or inline, not paths.
