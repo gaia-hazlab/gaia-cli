@@ -45,9 +45,16 @@ def fake_store(hours=48):
         for v in STEP_TYPES
     }
     lsm = xr.DataArray(np.ones(shape[1:], "float32"), dims=("latitude", "longitude"))
+    z_sfc = lsm * 1500 * 9.80665  # geopotential of 1500 m terrain
     return xr.Dataset(
         data,
-        coords={"valid_time": time, "latitude": lat, "longitude": lon, "lsm": lsm},
+        coords={
+            "valid_time": time,
+            "latitude": lat,
+            "longitude": lon,
+            "lsm": lsm,
+            "z_sfc": z_sfc,
+        },
         attrs={"summary": "ERA5", "acknowledgement": "Copernicus"},
     )
 
@@ -116,8 +123,14 @@ def test_load_units_and_time(fake_repo, aoi):
         "swvl2",
         "sd",
         "time_bounds",
+        "orography",
     }
-    assert "lsm" not in ds.coords
+    assert "lsm" not in ds.coords and "z_sfc" not in ds.coords
+    # Static terrain height from the surface geopotential
+    assert ds.orography.dims == ("y", "x")
+    assert float(ds.orography.max()) == pytest.approx(1500, rel=1e-5)
+    assert ds.orography.attrs["units"] == "m"
+    assert ds.orography.attrs["gaia:regrid-method"] == "bilinear"
     # m → mm, K → degC; names unchanged
     assert ds.tp.attrs["units"] == "mm" and float(ds.tp.max()) == pytest.approx(1.0)
     assert ds.sd.attrs["units"] == "mm"

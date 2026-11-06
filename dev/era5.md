@@ -92,8 +92,13 @@ chunks).
   one that ends after it logs a warning.
 - Renames `valid_time` → `time`, `latitude`/`longitude` → `y`/`x`, shifts longitudes
   to −180–180 (Alaska is ~209°E), writes EPSG:4326, and clips with `io.clip_to_aoi`
-  (a point AOI keeps the touched 0.25° cells). The static `lsm`, `z_sfc`, `sdor`,
-  `slor` coordinates are dropped.
+  (a point AOI keeps the touched 0.25° cells). The static `z_sfc` (surface
+  geopotential) is staged as `orography`, ERA5's terrain height in m (÷ 9.80665),
+  with no time dimension and `bilinear` regridding. ERA5's terrain is smooth: around
+  Peters Dome the cells are 1,200–2,100 m against ~2,760 m at the source, so `t2m`
+  is valid well below the summit; `orography` gives the height difference for a
+  lapse-rate correction. `gaia align` drops it, as it does any variable without
+  time in a timed group. `lsm`, `sdor` and `slor` are dropped.
 - `variables` defaults to `tp`, `sf`, `t2m`, `swvl1`, `swvl2`, `sd`, and takes any
   of the 39 (see [Variables](#variables)). Names
   stay ECMWF's; giving one quantity one name across datasets is for `gaia align`, in
