@@ -127,6 +127,7 @@ jobs:
       - name: Run gaia stage
         env:
           SYNOPTIC_TOKEN: ${{ secrets.SYNOPTIC_TOKEN }}
+          ARRAYLAKE_TOKEN: ${{ secrets.ARRAYLAKE_TOKEN }}
         run: pixi run gaia stage --config "${CONFIG}" -o "${NAME}"
 
       - name: Run gaia align

@@ -55,6 +55,7 @@ src/gaia_cli/
     synoptic.py   # Synoptic API station reports (CF ragged array)
     prism.py      # PRISM daily grids (from prism_cache); also `gaia prism fill`
     hrrr.py       # HRRR analysis (Icechunk)
+    era5.py       # ERA5 hourly single levels (Earthmover Icechunk via arraylake; ARRAYLAKE_TOKEN)
     stage4.py     # NCEP Stage IV daily/6-hourly/hourly precipitation (GDEX archive, local cache)
     sentinel1_rtc.py  # Sentinel-1 RTC gamma0 per pass (Planetary Computer, via stac.py)
     sentinel2.py  # Sentinel-2 L2A reflectance and SCL per pass (Planetary Computer, via stac.py)

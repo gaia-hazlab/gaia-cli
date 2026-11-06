@@ -7,6 +7,7 @@ title: Datasets
 | [`synoptic`](#synoptic) | weather station reports | mostly US, Alaska included | stations | every report | `stations/synoptic` |
 | [`prism`](#prism) | PRISM daily precipitation and temperature | CONUS, 1981 on | 800 m | daily | `rasters/prism` |
 | [`hrrr`](#hrrr) | NOAA HRRR analysis | CONUS, 2014-10 on | 3 km | hourly | `rasters/hrrr` |
+| [`era5`](#era5) | ECMWF ERA5 reanalysis, single levels | global, 1940 on (a few months behind) | 0.25° | hourly | `rasters/era5` |
 | [`stage4`](#stage4) | NCEP Stage IV precipitation | CONUS, 2002 on; Alaska, 2020-07 on | 4.8 km | daily, 6-hourly, hourly | `stage4/<accumulation>` |
 | [`nlcd`](#nlcd) | Annual NLCD land cover | CONUS, 1985–2024 | 30 m | static | `rasters/nlcd` |
 | [`dem`](#dem) | elevation | global (`cop30`), US (`usgs10m`) | 30 m, 10 m | static | `dem/<product>` |
@@ -60,6 +61,32 @@ Conformal Conic, hourly.
   UTC.
 - Wind components are grid-relative, not east/north.
 - License: CC-BY-4.0.
+
+(era5)=
+## ERA5
+
+ECMWF [ERA5](https://doi.org/10.1002/qj.3803) hourly reanalysis on single levels,
+read from [Earthmover](https://earthmover.io)'s Icechunk copy, 0.25°, EPSG:4326.
+Requires a free Earthmover account: set `ARRAYLAKE_TOKEN` to an API key (Organization
+Settings → API Clients), or run `arraylake auth login` once.
+
+- Variables keep their ECMWF short names. By default: `tp` (total precipitation,
+  mm), `sf` (snowfall, mm of water equivalent), `t2m` (2 m temperature, degC),
+  `swvl1` and `swvl2` (soil water, 0–7 and 7–28 cm, m³ m⁻³) and `sd` (snow depth,
+  mm of water equivalent).
+- Others worth adding with `-v`: `d2m`, `u10`, `v10`, `sp` (to compare with HRRR;
+  ERA5 winds are east/north), `ssrd` (solar radiation, for snowmelt), `stl1` (soil
+  temperature, frozen ground), `cp`/`lsp` (convective and large-scale
+  precipitation), `tcwv` (column water vapour). See `gaia stage era5 --help` for
+  all of them.
+- Not in this copy: daily `t2m` minimum and maximum (`gaia align` can derive them
+  from hourly `t2m`), deeper soil water (`swvl3`, `swvl4`), runoff, snowmelt,
+  evaporation, snow density and moisture transport (IVT).
+- Every value is **hour-ending**, like HRRR: `tp` at 13:00 fell between 12:00 and
+  13:00 UTC.
+- The free copy is updated quarterly, so the latest months are missing.
+- On glaciers ERA5 models a deep snowpack, so `sd` stays in the metres all year.
+- License: CC-BY-4.0; keep the Copernicus `acknowledgement` attribute.
 
 (stage4)=
 ## Stage IV

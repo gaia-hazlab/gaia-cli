@@ -13,6 +13,7 @@ from types import ModuleType
 from . import (
     burn_severity,
     dem,
+    era5,
     hrrr,
     nlcd,
     prism,
@@ -30,6 +31,7 @@ DATASETS: dict[str, ModuleType] = {
     "prism": prism,
     "hrrr": hrrr,
     "stage4": stage4,
+    "era5": era5,
     "nlcd": nlcd,
     "dem": dem,
     "soil": soil,

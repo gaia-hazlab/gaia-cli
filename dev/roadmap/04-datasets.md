@@ -55,7 +55,7 @@ precipitation comparison.
 | 2 | `soil --product statsgo` (K-factor) | USGS COG on S3 | landlab | CONUS only; see [../soil.md](../soil.md#statsgo-k-factor) |
 | 2 | `burn_severity` (SBS) | USFS BAER image service | landlab | Fire-specific; found by AOI (revised in step 1.4, see [burn_severity.md](../burn_severity.md)) |
 | 2 | `seismic`, `infrasound` | EarthScope FDSN | peters | Core of the landslide analysis. See [obspy-dependency.md](obspy-dependency.md). |
-| 2 | `era5` + atmosphere profiles | Open-Meteo | peters | One provider, no key |
+| 2 | `era5` (single levels; profiles later) | Earthmover (Arraylake) | peters | Free account; revised in step 2.3, see [../era5.md](../era5.md) |
 | 2 | `sentinel1-rtc`, `sentinel2` | Planetary Computer | peters | Anonymous. Peters uses PC for S1 and Earth Search for S2; PC also serves S2 L2A, so one provider covers both. |
 | defer | HLS, OPERA RTC-S1, NISAR, SMAP, Landsat, ERA5-Land, ArcticDEM, WorldCover, SoilGrids, dNBR, geology, glacier datasets, `seismic_lp` | — | none | Staged but never read. Add when a workflow reads them. |
 
@@ -85,7 +85,7 @@ datum in `gaia align` is a TODO. See [dem.md](../dem.md).
 | **Planetary Computer** | anonymous SAS signing | `sentinel1-rtc`, `sentinel2` | peters | global |
 | OpenTopography, USGS (VRTs) | none | `dem` (`cop30`, `usgs10m`) | landlab, peters | global; `usgs10m` is US |
 | **EarthScope FDSN** | none | `seismic`, `infrasound` | peters | global networks; AK network well covered |
-| **Open-Meteo** | none; usage policy, rate limits | `era5`, atmosphere profiles | peters | global |
+| **Earthmover (Arraylake)** | free account (`arraylake` login or token) | `era5` | peters | global |
 | SOLUS100 (GCS) | none | `soil --product solus100` | landlab | **CONUS** |
 | USFS BAER (GeoPlatform image service) | none | `burn_severity` | landlab | USFS fires from 2017, CONUS |
 | PRISM (gaia S3 cache / NACSE) | none | `prism` | gaia, landlab | **CONUS** |
@@ -93,7 +93,7 @@ datum in `gaia align` is a TODO. See [dem.md](../dem.md).
 | USGS (OSN, MRLC) | none | `nlcd` | gaia, landlab | **CONUS** |
 | Synoptic | `SYNOPTIC_TOKEN` | `synoptic` | gaia | US incl. Alaska, and beyond |
 
-No priority 1–2 dataset needs a new credential.
+Only `era5` needs a new credential (a free Earthmover account; revised in step 2.3).
 
 ### Later, on request
 
