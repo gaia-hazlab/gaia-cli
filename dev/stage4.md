@@ -115,7 +115,7 @@ is an error.
 
 | variable | units | `cell_methods` | `standard_name` |
 |---|---|---|---|
-| `precipitation` | mm (from kg m⁻²) | `time: sum` | `lwe_thickness_of_precipitation_amount` |
+| `apcp` (`precipitation` after `gaia align`) | mm (from kg m⁻²) | `time: sum` | `lwe_thickness_of_precipitation_amount` |
 
 - float32. No-data (9999) is NaN; about 40% of the CONUS grid, outside the RFCs'
   coverage, is always NaN.

@@ -114,6 +114,9 @@ def run(
                 for var in node.data_vars.values():
                     if {"x", "y"} <= set(var.dims):
                         var.attrs.setdefault(regrid.METHOD_ATTR, method)
+            for name, common in getattr(module, "COMMON_NAMES", {}).items():
+                if name in node.data_vars:
+                    node[name].attrs.setdefault(provenance.COMMON_NAME_ATTR, common)
             tree = xr.DataTree.from_dict({group(req): node})
             tree.attrs = dict(cfg.attrs)
             io.save_datatree(

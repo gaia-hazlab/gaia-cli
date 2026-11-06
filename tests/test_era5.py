@@ -151,3 +151,30 @@ def test_load_units_and_time(fake_repo, aoi):
 def test_load_after_the_store_ends(fake_repo, aoi):
     with pytest.raises(ValueError, match="ERA5 .* ends at 2023-09-14T23:00Z"):
         era5.load(aoi, "2023-10-01", "2023-10-02")
+
+
+def test_runner_stamps_common_names(fake_repo, tmp_path):
+    from gaia_cli.aoi import load_aoi
+    from gaia_cli.cli import stage_app
+
+    aoi = tmp_path / "aoi.geojson"
+    load_aoi({"bbox": [-151.3, 63.1, -151.1, 63.2]}).to_file(aoi)
+    out = tmp_path / "out"
+    stage_app(
+        [
+            "era5",
+            "-i",
+            str(aoi),
+            "-o",
+            str(out),
+            "-s",
+            "2023-09-13",
+            "-e",
+            "2023-09-13",
+        ],
+        result_action="return_value",
+    )
+    ds = xr.open_datatree(out / "out.zarr", engine="zarr")["rasters/era5"]
+    assert ds.tp.attrs["gaia:common-name"] == "precipitation"
+    assert ds.t2m.attrs["gaia:common-name"] == "temperature"
+    assert "gaia:common-name" not in ds.sd.attrs

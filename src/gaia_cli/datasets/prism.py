@@ -62,8 +62,8 @@ LONG_NAMES = {
     "tmax": "maximum temperature",
     "tmean": "mean temperature",
 }
-# Variables renamed on load to match the other gaia products
-RENAMES = {"ppt": "precipitation"}
+# `gaia align`'s names for quantities other datasets also have
+COMMON_NAMES = {"ppt": "precipitation", "tmean": "temperature"}
 
 
 def open_prism(
@@ -80,8 +80,7 @@ def open_prism(
     Parameters
     ----------
     variables : list of str
-        PRISM variables, e.g. ``["ppt", "tmin", "tmax"]``. ``ppt`` is renamed
-        ``precipitation``.
+        PRISM variables, e.g. ``["ppt", "tmin", "tmax"]``.
     start : str
         Start date (inclusive), e.g. '2025-12-01'.
     end : str, optional
@@ -120,7 +119,7 @@ def open_prism(
             for d in dates
         ]
 
-    return ds.rename({v: RENAMES[v] for v in variables if v in RENAMES})
+    return ds
 
 
 def load(
@@ -143,8 +142,7 @@ def load(
     end_date : str
         End date (inclusive).
     variables : list of str
-        PRISM variables (ppt, tmin, tmax, tmean). ``ppt`` is returned as
-        ``precipitation``; the others keep their names.
+        PRISM variables (ppt, tmin, tmax, tmean), staged under these names.
 
     Returns
     -------
@@ -157,7 +155,7 @@ def load(
     ds = open_prism(variables, start=start_date, end=end_date)
     parts = []
     for var in variables:
-        da = io.clip_to_aoi(ds[RENAMES.get(var, var)], aoi)
+        da = io.clip_to_aoi(ds[var], aoi)
         log.info(
             "PRISM %s: reading %d day(s) x %d x %d cells from cached COGs",
             var,

@@ -76,7 +76,7 @@ def to_grid(
     ``<variable>_report_time`` records when each was reported, so a station
     reporting at :28 lags the clock hour by 28 minutes (see
     dev/precip-timing.md). ``how="sum"`` is for running
-    totals such as ``precipitation``: the amount in each interval
+    totals such as Synoptic's ``precip_accum``: the amount in each interval
     ``(t - freq, t]``, the difference of the running total at both ends.
 
     Parameters

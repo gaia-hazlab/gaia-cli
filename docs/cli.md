@@ -88,6 +88,13 @@ each dataset uses its own default resampling (conservative for PRISM and HRRR,
 bilinear for DEMs, mode for categories), which `--method` overrides, for every dataset
 or for one (`-m dem/usgs10m=cubic`). The input store is not changed.
 
+Staged stores keep each source's variable names; the aligned store gives the same
+quantity one name in every group: `precipitation` for PRISM `ppt`, HRRR
+`precipitation_surface`, Stage IV `apcp`, ERA5 `tp` and Synoptic `precip_accum`, and
+`temperature` for PRISM `tmean` and ERA5 `t2m` (see [](datasets.md)). Each renamed
+variable keeps its staged name in `gaia:source-name`. `--keep-names` keeps the staged
+names; `--method` options name variables by their staged names.
+
 `--crs utm --res 10 --aoi $AOI` builds a grid from the AOI alone: its UTM zone, its
 bounds snapped outward to multiples of 10 m, and NaN in cells whose center is outside
 it. This is the analysis grid of the

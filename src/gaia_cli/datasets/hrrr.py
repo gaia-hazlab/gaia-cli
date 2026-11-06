@@ -1,7 +1,7 @@
 """HRRR hourly analysis, clipped to an AOI.
 
-Precipitation rate (kg m-2 s-1) is staged as hourly accumulation (mm). See
-dev/hrrr.md.
+precipitation_surface, a rate (kg m-2 s-1), is staged as the hourly amount (mm),
+under its own name. See dev/hrrr.md.
 
 Examples
 --------
@@ -34,6 +34,9 @@ EXTENT = {
 KIND = "raster"
 # `gaia align` default: area-weighted, so totals and means are preserved
 REGRID_METHOD = "conservative"
+# `gaia align`'s names for quantities other datasets also have. temperature_2m is
+# in K, unlike the others' degC, so it keeps its name
+COMMON_NAMES = {"precipitation_surface": "precipitation"}
 
 
 class HRRRVariable(str, Enum):
@@ -180,7 +183,6 @@ def load(
 
     # Convert precipitation rate (kg m⁻² s⁻¹ ≡ mm/s) → hourly accumulation (mm)
     if variable == HRRRVariable.precipitation_surface:
-        clipped = clipped.rename("precipitation")
         clipped = clipped * 3600
         clipped.attrs = {
             "long_name": "Precipitation",  # period given by time_bounds

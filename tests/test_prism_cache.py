@@ -341,13 +341,11 @@ def test_prism_load_temperatures(store_dir, fake_upstream, monkeypatch):
     aoi = gpd.GeoDataFrame(geometry=[box(-125.0, 48.5, -123.0, 50.0)], crs="EPSG:4326")
     ds = prism.load(aoi, "2025-12-01", "2025-12-02", ("ppt", "tmin", "tmax"))
 
-    assert set(ds.data_vars) == {"precipitation", "tmin", "tmax", "time_bounds"}
+    assert set(ds.data_vars) == {"ppt", "tmin", "tmax", "time_bounds"}
     assert ds.sizes["time"] == 2
-    methods = {
-        v: ds[v].attrs["cell_methods"] for v in ("precipitation", "tmin", "tmax")
-    }
+    methods = {v: ds[v].attrs["cell_methods"] for v in ("ppt", "tmin", "tmax")}
     assert methods == {
-        "precipitation": "time: sum",
+        "ppt": "time: sum",
         "tmin": "time: minimum",
         "tmax": "time: maximum",
     }

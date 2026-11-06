@@ -81,6 +81,8 @@ KIND = "raster"
 VARIANT = "accumulation"
 # `gaia align` default: area-weighted, so totals are preserved
 REGRID_METHOD = "conservative"
+# `gaia align`'s names for quantities other datasets also have
+COMMON_NAMES = {"apcp": "precipitation"}
 
 
 class Accumulation(str, Enum):
@@ -319,7 +321,7 @@ def grid(domain: str) -> tuple[np.ndarray, np.ndarray]:
 
 
 def read_grib(path: Path, label: dt.datetime, domain: str) -> xr.DataArray:
-    """One grid as ``precipitation`` (mm), at time *label*, on *domain*'s grid."""
+    """One grid as ``apcp`` (mm), at time *label*, on *domain*'s grid."""
     da = rioxarray.open_rasterio(path, masked=True)
     assert isinstance(da, xr.DataArray)
     da = da.squeeze("band", drop=True).load()
@@ -330,7 +332,7 @@ def read_grib(path: Path, label: dt.datetime, domain: str) -> xr.DataArray:
 
 
 def empty_grid(label: dt.datetime, domain: str, values=None) -> xr.DataArray:
-    """*values* (NaN if None) as one time step of ``precipitation`` on *domain*'s grid."""
+    """*values* (NaN if None) as one time step of ``apcp`` on *domain*'s grid."""
     x, y = grid(domain)
     if values is None:
         values = np.full((y.size, x.size), np.nan)
@@ -338,7 +340,7 @@ def empty_grid(label: dt.datetime, domain: str, values=None) -> xr.DataArray:
         np.asarray(values, dtype="float32")[np.newaxis],
         dims=("time", "y", "x"),
         coords={"time": [pd.Timestamp(label)], "y": y, "x": x},
-        name="precipitation",
+        name="apcp",  # the GRIB abbreviation, APCP: total precipitation
         attrs={
             "units": "mm",
             "standard_name": "lwe_thickness_of_precipitation_amount",
@@ -413,7 +415,7 @@ def load(
     Returns
     -------
     xarray.Dataset
-        ``precipitation`` (mm) plus CF ``time_bounds``, with provenance
+        ``apcp`` (precipitation, mm) plus CF ``time_bounds``, with provenance
         attributes.
     """
     dom = domain(aoi)

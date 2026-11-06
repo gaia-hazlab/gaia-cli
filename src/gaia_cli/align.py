@@ -320,6 +320,34 @@ def _same_grid(a: xr.DataArray, b: xr.DataArray) -> bool:
     )
 
 
+def common_names(ds: xr.Dataset, path: str = "") -> xr.Dataset:
+    """*ds* with each variable renamed to its ``gaia:common-name``, if it has one.
+
+    The staged name is kept in ``gaia:source-name``. A variable keeps its name if
+    the group already has one with its common name.
+    """
+    renames: dict[str, str] = {}
+    for name, var in ds.data_vars.items():
+        common = var.attrs.get(provenance.COMMON_NAME_ATTR)
+        if not common or common == name:
+            continue
+        if common in ds.variables or common in renames.values():
+            log.warning("%s: %s keeps its name; %s is taken", path, name, common)
+            continue
+        renames[str(name)] = common
+    if not renames:
+        return ds
+    log.info(
+        "%s: renamed %s",
+        path,
+        ", ".join(f"{old} → {new}" for old, new in renames.items()),
+    )
+    out = ds.rename(renames)
+    for old, new in renames.items():
+        out[new].attrs[provenance.SOURCE_NAME_ATTR] = old
+    return out
+
+
 def align(
     dt: xr.DataTree,
     *,
@@ -329,6 +357,7 @@ def align(
     res: float | None = None,
     method: regrid.Method | Mapping[str, regrid.Method] | None = None,
     aoi=None,
+    keep_names: bool = False,
 ) -> xr.DataTree:
     """Aggregate in time, then regrid once, every raster group in *dt*.
 
@@ -360,6 +389,11 @@ def align(
     aoi : geopandas.GeoDataFrame, optional
         If given, cells whose center is outside it in the target CRS are NaN.
         The grid keeps its extent.
+    keep_names : bool
+        Keep the staged variable names. By default variables with a
+        ``gaia:common-name`` (e.g. ERA5 ``tp``, PRISM ``ppt``) take it
+        (``precipitation``), so the same quantity has one name in every group;
+        see :func:`common_names`. Methods given per variable use the staged names.
     """
     nodes = {path: node.to_dataset() for path, node in dt.subtree_with_keys}
     rasters = {p: ds for p, ds in nodes.items() if _is_raster(ds)}
@@ -431,11 +465,14 @@ def align(
         rasters[p] = out
 
     nodes.update(rasters)
+    if not keep_names:
+        nodes = {p: common_names(ds, p) for p, ds in nodes.items()}
     aligned = xr.DataTree.from_dict(nodes)
     aligned.attrs = {
         **dt.attrs,
         "gaia_align": f"grid={target_desc}; time={time_like}; "
-        f"method={method or 'per variable'}",
+        f"method={method or 'per variable'}; "
+        f"names={'staged' if keep_names else 'common'}",
     }
     # A title that tells it from its input in a catalog
     title = dt.attrs.get("title")
@@ -467,6 +504,7 @@ def run(
     method: Annotated[list[str] | None, Parameter(name=["--method", "-m"])] = None,
     aoi_path: Annotated[str | None, Parameter(name=["--aoi"])] = None,
     overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
+    keep_names: Annotated[bool, Parameter(name=["--keep-names"], negative="")] = False,
 ):
     """Align staged rasters onto one grid and time step, writing a new store.
 
@@ -504,6 +542,9 @@ def run(
     overwrite : bool
         Write into an output folder that isn't empty, replacing its store.
         Default False.
+    keep_names : bool
+        Keep the staged variable names (ERA5 ``tp``, PRISM ``ppt``) instead of
+        the common ones (``precipitation``, ``temperature``). Default False.
 
     Examples
     --------
@@ -527,7 +568,14 @@ def run(
     dt = io.open_datatree(input_path)
     aoi = load_aoi(aoi_path) if aoi_path else None
     aligned = align(
-        dt, like=like, time_like=time_like, crs=crs, res=res, method=methods, aoi=aoi
+        dt,
+        like=like,
+        time_like=time_like,
+        crs=crs,
+        res=res,
+        method=methods,
+        aoi=aoi,
+        keep_names=keep_names,
     )
     aligned.attrs = provenance.derived_from(aligned.attrs, input_path)
     io.save_datatree(aligned, store, overwrite=overwrite)

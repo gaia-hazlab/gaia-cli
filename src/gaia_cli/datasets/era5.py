@@ -53,6 +53,8 @@ TO_MM = {"tp", "cp", "lsp", "sf", "sd"}
 # Static fields stored as coordinates of every variable; z_sfc is staged as orography
 STATIC = ("lsm", "z_sfc", "sdor", "slor")
 G = 9.80665  # m s-2, ECMWF's standard gravity
+# `gaia align`'s names for quantities other datasets also have
+COMMON_NAMES = {"tp": "precipitation", "t2m": "temperature"}
 # GRIB_stepType -> how an hour-ending value combines over time
 CELL_METHODS = {"accum": "time: sum", "max": "time: maximum", "instant": "time: point"}
 
