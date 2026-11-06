@@ -57,6 +57,7 @@ src/gaia_cli/
     hrrr.py       # HRRR analysis (Icechunk)
     stage4.py     # NCEP Stage IV daily/6-hourly/hourly precipitation (GDEX archive, local cache)
     sentinel1_rtc.py  # Sentinel-1 RTC gamma0 per pass (Planetary Computer, via stac.py)
+    sentinel2.py  # Sentinel-2 L2A reflectance and SCL per pass (Planetary Computer, via stac.py)
     nlcd.py, dem.py, soil.py, burn_severity.py   # static layers
 
 tests/          # pytest suite; test_online.py needs network

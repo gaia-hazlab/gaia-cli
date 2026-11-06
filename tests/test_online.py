@@ -229,3 +229,22 @@ def test_sentinel1_rtc_pre_and_post_passes_on_each_track(tmp_path):
     ]
     assert ds.window.values.tolist() == ["pre", "pre", "post", "post"]
     assert ds.relative_orbit.values.tolist() == [102, 131, 102, 131]
+
+
+def test_sentinel2_after_the_event_is_snow_covered():
+    # The paper notes snowfall right after the event; the clear 2023-09-24 pass
+    # over the source is mostly snow: bright in the visible, dark at 1.6 um
+    from gaia_cli.aoi import load_aoi
+    from gaia_cli.datasets import sentinel2
+
+    aoi = load_aoi({"latitude": 63.1455, "longitude": -151.1904, "radius_km": 5})
+    ds = sentinel2.load(aoi, "2023-09-24T00:00:00", "2023-09-24T23:59:59")
+    assert ds.sizes["time"] == 1
+    assert ds.mgrs_tiles.values[0].split() == [
+        "05VNK",
+        "05VNL",
+    ]  # the AOI spans two tiles
+    scene = ds.isel(time=0).load()
+    inside = scene.scl.values > 0
+    assert (scene.scl.values[inside] == 11).mean() > 0.5  # snow_or_ice
+    assert float(scene.blue.median()) > 0.5 > float(scene.swir16.median())

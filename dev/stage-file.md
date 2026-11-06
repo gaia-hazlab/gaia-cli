@@ -92,6 +92,7 @@ and `dem/usgs10m`. `--only dem` selects every variant, and `--only dem/usgs10m` 
 | `soil` | none; the key names the product: `soil/solus100` or `soil/statsgo` (a bare `soil` is `soil/solus100`; see [soil.md](soil.md)); static, no window |
 | `burn-severity` | `fire` (part of the fire's name) and `year`, needed only when several fires intersect the AOI (see [burn-severity.md](burn-severity.md)); static, no window |
 | `sentinel1-rtc` | `polarizations` (list of `vv`, `vh`, `hh`, `hv`; default `[vv, vh]`), `orbit_state` (`any`, `ascending`, `descending`; default `any`), `relative_orbit` (default `0`, every track), `match` (`none`, `relative_orbit`; see [Choosing scenes](#choosing-scenes)); see [sentinel1-rtc.md](sentinel1-rtc.md) |
+| `sentinel2` | `bands` (list of common names, default `[blue, green, red, nir, swir16, scl]`), `max_cloud_cover` (percent of the tile, default `100`, no filter); see [sentinel2.md](sentinel2.md) |
 
 ## Output folder
 
@@ -185,7 +186,7 @@ inside the window; see the dataset's doc.
 
 ### Choosing scenes
 
-Scene datasets (`sentinel1-rtc`; `SCENES = True` in the module) take `pre`/`post`
+Scene datasets (`sentinel1-rtc`, `sentinel2`; `SCENES = True` in the module) take `pre`/`post`
 windows and `select`/`count`, and are read over exactly the span of their windows, with
 no padding. Each window keeps the scenes in `[start, end)` that its `select` picks:
 `all` (the default), `first`, `last`, or `nearest` to `time`, `count` of them
