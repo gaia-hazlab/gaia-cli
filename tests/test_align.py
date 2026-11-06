@@ -437,3 +437,25 @@ def test_expected_counts_for_points_and_intervals():
     points = hourly.drop_vars("time_bounds")
     del points.time.attrs["bounds"]
     assert align._expected_counts(points, starts, ends).tolist() == [24, 12]
+
+
+def test_aligned_groups_keep_names_and_select_by_common_name():
+    import cf_xarray as cfxr
+
+    from gaia_cli.datasets import cf_criteria
+
+    def staged(ds, name):
+        ds = ds.rename(precipitation=name)
+        ds[name].attrs["gaia:common-name"] = "precipitation"
+        return ds
+
+    tree = xr.DataTree.from_dict(
+        {
+            "rasters/era5": staged(_hourly(), "tp"),
+            "rasters/prism": staged(_daily(), "ppt"),
+        }
+    )
+    aligned = align.align(tree)
+    with cfxr.set_options(custom_criteria=cf_criteria()):
+        for group, name in (("rasters/era5", "tp"), ("rasters/prism", "ppt")):
+            assert aligned[group].to_dataset().cf["precipitation"].name == name

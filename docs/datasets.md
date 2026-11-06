@@ -20,13 +20,27 @@ A dataset that the AOI or window misses (for example `prism` in Alaska) is skipp
 with a warning. Licenses differ: check each group's `license` attribute before sharing
 a store.
 
-Staged variables keep their source's names (PRISM `ppt`, ERA5 `tp`), in SI units.
-[`gaia align`](cli.md#align) gives the same quantity one name in every group:
+Variables keep their source's names (PRISM `ppt`, ERA5 `tp`), in SI units, in staged
+and aligned stores. Quantities that several datasets have also carry a common name in
+`gaia:common-name`:
 
-| common name | staged as |
+| common name | variables |
 |---|---|
 | `precipitation` (mm) | `prism` `ppt`, `hrrr` `precipitation_surface`, `stage4` `apcp`, `era5` `tp`, `synoptic` `precip_accum` (a running total) |
-| `temperature` (degC, 2 m air) | `prism` `tmean`, `era5` `t2m` |
+| `temperature` (degC, 2 m air) | `prism` `tmean`, `hrrr` `temperature_2m`, `era5` `t2m` |
+
+To select by common name, use [cf-xarray](https://cf-xarray.readthedocs.io) with
+gaia's criteria:
+
+```python
+import cf_xarray as cfxr
+from gaia_cli.datasets import cf_criteria
+
+cfxr.set_options(custom_criteria=cf_criteria())
+ds.cf["precipitation"]   # ppt in a PRISM group, tp in an ERA5 group
+```
+
+`ds.cf[...]` also takes CF standard names, e.g. `lwe_thickness_of_precipitation_amount`.
 
 (synoptic)=
 ## Synoptic stations

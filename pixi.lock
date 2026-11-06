@@ -9540,6 +9540,7 @@ packages:
   requires_dist:
   - arraylake>=1.8
   - boto3
+  - cf-xarray>=0.10
   - cyclopts>=5.2.0,<6
   - exactextract
   - geopandas>=1.2.0,<2

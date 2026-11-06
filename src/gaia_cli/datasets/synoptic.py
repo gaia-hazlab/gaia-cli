@@ -314,6 +314,7 @@ def construct_ragged(data: dict, variables: Sequence[str] = (PRECIP,)) -> xr.Dat
         )
     if PRECIP in ds:
         ds[PRECIP].attrs = {
+            "standard_name": "lwe_thickness_of_precipitation_amount",
             "long_name": "precipitation accumulated since the first report",
             "units": "mm",
         }

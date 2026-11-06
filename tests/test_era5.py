@@ -40,7 +40,12 @@ def fake_store(hours=48):
         v: xr.DataArray(
             np.full(shape, 0.001 if v != "t2m" else 273.15, "float32"),
             dims=("valid_time", "latitude", "longitude"),
-            attrs={"units": UNITS[v], "GRIB_stepType": STEP_TYPES[v], "long_name": v},
+            attrs={
+                "units": UNITS[v],
+                "GRIB_stepType": STEP_TYPES[v],
+                "long_name": v,
+                "standard_name": "unknown",  # as stored for tp, t2m, swvl1/2
+            },
         )
         for v in STEP_TYPES
     }
@@ -154,8 +159,11 @@ def test_load_after_the_store_ends(fake_repo, aoi):
 
 
 def test_runner_stamps_common_names(fake_repo, tmp_path):
+    import cf_xarray as cfxr
+
     from gaia_cli.aoi import load_aoi
     from gaia_cli.cli import stage_app
+    from gaia_cli.datasets import cf_criteria
 
     aoi = tmp_path / "aoi.geojson"
     load_aoi({"bbox": [-151.3, 63.1, -151.1, 63.2]}).to_file(aoi)
@@ -178,3 +186,8 @@ def test_runner_stamps_common_names(fake_repo, tmp_path):
     assert ds.tp.attrs["gaia:common-name"] == "precipitation"
     assert ds.t2m.attrs["gaia:common-name"] == "temperature"
     assert "gaia:common-name" not in ds.sd.attrs
+    # Selected by common name, or by CF standard name instead of the store's "unknown"
+    with cfxr.set_options(custom_criteria=cf_criteria()):
+        assert ds.to_dataset().cf["precipitation"].name == "tp"
+    assert ds.to_dataset().cf["air_temperature"].name == "t2m"
+    assert "standard_name" not in ds.sd.attrs

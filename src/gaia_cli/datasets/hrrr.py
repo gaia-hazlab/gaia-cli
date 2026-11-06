@@ -34,9 +34,11 @@ EXTENT = {
 KIND = "raster"
 # `gaia align` default: area-weighted, so totals and means are preserved
 REGRID_METHOD = "conservative"
-# `gaia align`'s names for quantities other datasets also have. temperature_2m is
-# in K, unlike the others' degC, so it keeps its name
-COMMON_NAMES = {"precipitation_surface": "precipitation"}
+# Common names (gaia:common-name) for quantities other datasets also have
+COMMON_NAMES = {
+    "precipitation_surface": "precipitation",
+    "temperature_2m": "temperature",
+}
 
 
 class HRRRVariable(str, Enum):
@@ -185,6 +187,7 @@ def load(
     if variable == HRRRVariable.precipitation_surface:
         clipped = clipped * 3600
         clipped.attrs = {
+            "standard_name": "lwe_thickness_of_precipitation_amount",
             "long_name": "Precipitation",  # period given by time_bounds
             "units": "mm",
             "comment": "Converted from precipitation_surface (kg m-2 s-1) × 3600 s",
