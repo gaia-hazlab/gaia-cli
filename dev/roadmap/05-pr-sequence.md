@@ -40,7 +40,7 @@ Ordered by the priorities in [04](04-datasets.md#prioritized-new-datasets).
 |---|---|---|---|
 | 2.1 | `seismic` (EarthScope FDSN) | 0.3 | **No obspy.** FDSN text station metadata + dataselect via `requests`, miniSEED decoding with `pymseed`, counts ÷ sensitivity ([obspy-dependency.md](obspy-dependency.md)). Store at native rate grouped by sample rate, with an optional common grid. Channel metadata as 1-D arrays on a `channel` dimension. Distance and back-azimuth from `origin`. Size guard. Skip `seismic_lp`, which nothing reads. |
 | 2.2 | `infrasound` | 2.1 | Same module, counts ÷ sensitivity to Pa, no component dimension |
-| 2.3 | `era5` + atmosphere profiles (Open-Meteo) | 0.2 | Document the usage policy and rate limits. Skip ERA5-Land, which nothing reads. |
+| 2.3 | `era5` (Earthmover Arraylake) | 0.2 | Revised: Earthmover's ERA5 Icechunk repo instead of Open-Meteo; needs a free Earthmover account and the `arraylake` client. Single-level fields first (`tp`, `sf`, `t2m`, `swvl1`, `swvl2`, `sd`); pressure-level profiles are a follow-up. Skip ERA5-Land, which nothing reads ([../era5.md](../era5.md)). |
 | 2.4a | `sentinel1-rtc` | 0.1 | Adds the Planetary Computer STAC helper (`stac.py`). Every pass in one closed window, its frames mosaicked; the scene index (platform, orbit state, relative and absolute orbit, item ids) as coordinates along `time` ([../sentinel1-rtc.md](../sentinel1-rtc.md)). |
 | 2.4b | scene selection | 2.4a | `pre`/`post` windows with `select`/`count`, and `match: relative_orbit`: the closest scene before and after the event on each track that has both. Chosen from the STAC items before any pixels are read. |
 | 2.4c | `sentinel2` | 2.4b | Same helper and selection. Skip Landsat, which nothing reads. |

@@ -81,9 +81,10 @@ def common_window(tree: xr.DataTree, start, end) -> tuple[pd.Timestamp, pd.Times
     # Edges that are a step edge in every product
     s = functools.reduce(pd.DatetimeIndex.intersection, starts)
     e = functools.reduce(pd.DatetimeIndex.intersection, ends)
-    if s.empty or e.empty or s.min() >= e.max():
+    first, last = cast(pd.Timestamp, s.min()), cast(pd.Timestamp, e.max())
+    if s.empty or e.empty or first >= last:
         raise ValueError(f"no whole time steps of every product lie in {start}/{end}")
-    return s.min(), e.max()
+    return first, last
 
 
 def select_window(ds: xr.Dataset, t0, t1) -> xr.Dataset:

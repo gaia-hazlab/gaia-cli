@@ -49,6 +49,16 @@ def check_hrrr(ds):
     assert float(ds.precipitation.min()) >= 0
 
 
+def check_era5(ds):
+    # Hourly, hour-ending; three December days in the Cascades
+    assert ds.sizes["time"] == 72
+    assert float(ds.tp.min()) >= 0 and ds.tp.attrs["units"] == "mm"
+    assert bool((ds.sf <= ds.tp + 1e-3).all())  # snowfall is part of the total
+    assert -30 < float(ds.t2m.min()) < float(ds.t2m.max()) < 20  # degC
+    assert 0 < float(ds.swvl1.min()) and float(ds.swvl2.max()) < 1
+    assert ds.attrs["gaia:icechunk-snapshot"]
+
+
 def check_stage4(ds):
     # Read from GDEX into a fresh cache: the 24 h totals ending 12 UTC on each day
     assert ds.sizes["time"] == 3
@@ -111,6 +121,14 @@ def check_statsgo(ds):
         ),
         ("hrrr", check_hrrr, {}),
         ("stage4/daily", check_stage4, {}),
+        pytest.param(
+            "era5",
+            check_era5,
+            {},
+            marks=pytest.mark.skipif(
+                not os.environ.get("ARRAYLAKE_TOKEN"), reason="needs ARRAYLAKE_TOKEN"
+            ),
+        ),
         ("nlcd", check_nlcd, {}),
         ("dem/cop30", check_dem, {}),
         ("dem/usgs10m", check_dem, {}),

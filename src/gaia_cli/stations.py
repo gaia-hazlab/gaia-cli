@@ -13,7 +13,7 @@ the first ``row_size[0]`` reports belong to the first station, and so on
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -104,7 +104,10 @@ def to_grid(
     times = pd.DatetimeIndex(ds.time.values)
     if len(times):
         grid = pd.date_range(
-            times.min().ceil(freq), times.max().ceil(freq), freq=freq, name="time"
+            cast(pd.Timestamp, times.min()).ceil(freq),
+            cast(pd.Timestamp, times.max()).ceil(freq),
+            freq=freq,
+            name="time",
         )
     else:
         grid = pd.DatetimeIndex([], name="time")
