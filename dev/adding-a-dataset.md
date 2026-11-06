@@ -28,6 +28,10 @@ and optionally:
   `load()` then also takes `windows: list[Window] | None = None`, which the runner sets
   (it is not an option), and `start_date`/`end_date` span the windows exactly. Use
   `stac.select` to pick the scenes before loading them (see `sentinel1_rtc.py`).
+- **`TOKENS`**: environment variables `load()` needs, each with what it is, e.g.
+  `{"SYNOPTIC_TOKEN": "a Synoptic API token, https://docs.synopticdata.com"}`.
+  `gaia stage` (and `--dry-run`) warns about any that aren't set before loading
+  anything; the dataset still raises its own error when it runs.
 - **`REGRID_METHOD`**: `gaia align`'s default spatial method for the dataset's
   raster variables, one of `regrid.Method` (`conservative`, `average`,
   `bilinear`, `cubic`, `nearest`). The runner stores it as each variable's

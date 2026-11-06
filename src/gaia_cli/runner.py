@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 import inspect
 import logging
+import os
 import re
 import sys
 import typing
@@ -64,6 +65,16 @@ def size(nbytes: float) -> str:
             return f"{nbytes:.0f} {unit}" if unit == "B" else f"{nbytes:.1f} {unit}"
         nbytes /= 1024
     raise AssertionError  # unreachable
+
+
+def warn_missing_tokens(requests) -> None:
+    """Warn, before anything loads, for each dataset whose token isn't set."""
+    for req in requests:
+        for var, what in getattr(DATASETS[req.dataset], "TOKENS", {}).items():
+            if not os.environ.get(var):
+                log.warning(
+                    "%s: %s is not set (%s); it will likely fail", req.name, var, what
+                )
 
 
 def run(
@@ -182,6 +193,7 @@ def execute(
         if (reason := outside_extent(req, aois[aoi_key(req.aoi)]))
     }
     if dry_run:
+        warn_missing_tokens(r for r in cfg.requests if r.name not in skipped)
         print(
             yaml.safe_dump(
                 resolved(cfg, output, aois, skipped),
@@ -219,6 +231,7 @@ def execute(
         if not requests:
             log.info("Done: every group already exists")
             return
+    warn_missing_tokens(requests)
     failures = run(
         dataclasses.replace(cfg, requests=requests),
         aois,
