@@ -109,7 +109,7 @@ Settings → API Clients), or run `arraylake auth login` once.
 - On glaciers ERA5 models a deep snowpack, so `sd` stays in the metres all year.
 - `orography` (m) is the height of ERA5's smoothed terrain in each cell, the level
   `t2m` is valid at. In the mountains it can be far below the real terrain; use it
-  to correct temperatures for height. `gaia align` drops it.
+  to correct temperatures for height.
 - License: CC-BY-4.0; keep the Copernicus `acknowledgement` attribute.
 
 (stage4)=

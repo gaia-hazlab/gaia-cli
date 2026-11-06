@@ -199,6 +199,8 @@ def test_run_writes_a_folder_named_store(tmp_path):
     assert native_props["description"].startswith("gaia store with groups: ")
     with pytest.raises(SystemExit, match="drop the .zarr"):
         align.run(native, str(tmp_path / "daily.zarr"))
+    with pytest.raises(SystemExit, match="Error: time_like 'rasters/x'"):
+        align.run(native, str(tmp_path / "x"), time_like="rasters/x")
 
 
 def test_common_window_snaps_to_every_products_steps():
@@ -459,3 +461,79 @@ def test_aligned_groups_keep_names_and_select_by_common_name():
     with cfxr.set_options(custom_criteria=cf_criteria()):
         for group, name in (("rasters/era5", "tp"), ("rasters/prism", "ppt")):
             assert aligned[group].to_dataset().cf["precipitation"].name == name
+
+
+def _scenes():
+    s1 = _passes()
+    s1.attrs["gaia:scenes"] = True  # as gaia stage writes it for Sentinel-1/2
+    return s1
+
+
+def test_scene_groups_keep_their_acquisition_times():
+    s1 = _scenes()
+    tree = xr.DataTree.from_dict(
+        {
+            "rasters/sentinel1-rtc": s1,
+            "rasters/era5": _hours("2023-09-01", "2023-09-30"),
+        }
+    )
+    aligned = align.align(tree, crs="EPSG:32610", res=25_000)
+    out = aligned["rasters/sentinel1-rtc"].to_dataset()
+    np.testing.assert_array_equal(out.time, s1.time)
+    assert out.relative_orbit.values.tolist() == [102, 131, 102, 131]
+    # ERA5 is the time target, so it keeps its hours
+    assert aligned["rasters/era5"].sizes["time"] == 30 * 24 - 23
+    assert "scenes=kept" in aligned.attrs["gaia_align"]
+
+    # As before: every timed group on the coarsest, here Sentinel-1's passes
+    together = align.align(tree, crs="EPSG:32610", res=25_000, align_scenes=True)
+    assert together["rasters/era5"].sizes["time"] == 4
+    assert "scenes=aligned" in together.attrs["gaia_align"]
+
+
+def test_weather_sums_between_passes_when_the_scenes_are_the_target():
+    s1 = _scenes()
+    hourly = _hours("2023-09-01", "2023-09-30")
+    tree = xr.DataTree.from_dict({"rasters/sentinel1-rtc": s1, "rasters/era5": hourly})
+    aligned = align.align(
+        tree, crs="EPSG:32610", res=25_000, time_like="rasters/sentinel1-rtc"
+    )
+    np.testing.assert_array_equal(aligned["rasters/sentinel1-rtc"].time, s1.time)
+    era5 = aligned["rasters/era5"].to_dataset()
+    np.testing.assert_array_equal(era5.time, s1.time)
+    # Each interval runs from the previous pass to this one, with its whole hours
+    passes = s1.time.values
+    np.testing.assert_array_equal(era5.time_bounds.values[1:, 0], passes[:-1])
+    ends = hourly.time.values
+    whole = [
+        int(((ends - np.timedelta64(1, "h") >= lo) & (ends <= hi)).sum())
+        for lo, hi in era5.time_bounds.values
+    ]
+    assert era5.precipitation.isel(y=0, x=0).values.tolist() == whole
+    assert whole[1:] == [47, 239, 47]
+
+
+def test_variables_without_time_pass_through_a_timed_group():
+    era5 = _hours("2023-09-01", "2023-09-03")
+    era5["orography"] = era5.precipitation.isel(time=0, drop=True) * 0 + 1500.0
+    era5.orography.attrs = {"units": "m", "gaia:regrid-method": "bilinear"}
+    tree = xr.DataTree.from_dict({"rasters/era5": era5, "rasters/prism": _daily()})
+    aligned = align.align(tree, like="rasters/prism")
+    out = aligned["rasters/era5"].to_dataset()
+    assert out.orography.dims == ("y", "x")
+    assert out.orography.attrs["regrid_method"] == "bilinear"
+    assert float(out.orography.max()) == 1500.0
+
+
+def test_an_aligned_store_over_the_limit_stops_before_regridding(monkeypatch):
+    # 696 hours on a 10 m grid over 50 km: far over the limit once regridded
+    tree = xr.DataTree.from_dict(
+        {"rasters/era5": _hours("2023-09-01", "2023-09-30"), "dem/x": _elevation(10, 2)}
+    )
+    monkeypatch.setattr(io, "MAX_BYTES", 10 * 1024**2)
+    with pytest.raises(
+        ValueError, match=r"over the 10\.0 MB limit; rasters/era5 alone"
+    ):
+        align.align(tree, crs="EPSG:32610", res=10)
+    # A coarser grid fits
+    align.align(tree, crs="EPSG:32610", res=5_000)

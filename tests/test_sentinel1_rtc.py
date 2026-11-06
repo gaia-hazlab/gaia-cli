@@ -421,3 +421,6 @@ def test_runner_passes_the_windows_and_their_exact_span(tmp_path, monkeypatch):
             ["pre", "post"],
         )
     ]
+    store = next((tmp_path / "out").glob("*.zarr"))
+    group = xr.open_datatree(store, engine="zarr")["rasters/sentinel1-rtc"]
+    assert group.attrs["gaia:scenes"] is True  # gaia align keeps its pass times

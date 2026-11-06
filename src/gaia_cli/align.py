@@ -170,7 +170,8 @@ def aggregate_time(
     target_start: np.ndarray,
     target_end: np.ndarray,
 ) -> xr.Dataset:
-    """Aggregate *ds* into the target intervals ``(start, end]``.
+    """Aggregate *ds* into the target intervals ``(start, end]``; variables
+    without time pass through.
 
     A source interval contributes to the target interval that fully contains
     it (point values: ``start < t <= end``). Values combine according to the
@@ -232,6 +233,10 @@ def aggregate_time(
         }
         out[name] = agg
 
+    # Variables without time (e.g. ERA5's orography) pass through unchanged
+    for name in ds.data_vars:
+        if "time" not in ds[name].dims and name not in out:
+            out[str(name)] = ds[name]
     result = xr.Dataset(out, attrs=ds.attrs).assign_coords(time=labels)
     steps = np.flatnonzero(inside)
     result = result.assign_coords(_time_coords(ds, steps, jj[steps], len(labels)))
@@ -329,10 +334,13 @@ def align(
     res: float | None = None,
     method: regrid.Method | Mapping[str, regrid.Method] | None = None,
     aoi=None,
+    align_scenes: bool = False,
 ) -> xr.DataTree:
     """Aggregate in time, then regrid once, every raster group in *dt*.
 
-    Non-raster groups (e.g. station data) pass through unchanged.
+    Non-raster groups (e.g. station data) pass through unchanged. Scene groups
+    (``gaia:scenes``, e.g. Sentinel-1/2) keep their acquisition times and are
+    only regridded, unless *align_scenes*.
 
     Parameters
     ----------
@@ -341,7 +349,9 @@ def align(
     like : str, optional
         Group whose grid is the target. Default: the coarsest raster.
     time_like : str, optional
-        Group whose time intervals are the target. Default: the coarsest.
+        Group whose time intervals are the target, a scene group included (its
+        intervals run from one acquisition to the next). Default: the coarsest
+        group that isn't scenes.
     crs, res : optional
         Explicit target grid instead of ``like``: *res* spacing in *crs*, over
         *aoi*'s bounds (else every raster's), snapped outward to multiples of
@@ -360,6 +370,8 @@ def align(
     aoi : geopandas.GeoDataFrame, optional
         If given, cells whose center is outside it in the target CRS are NaN.
         The grid keeps its extent.
+    align_scenes : bool
+        Aggregate scene groups in time too, like every other group.
     """
     nodes = {path: node.to_dataset() for path, node in dt.subtree_with_keys}
     rasters = {p: ds for p, ds in nodes.items() if _is_raster(ds)}
@@ -368,15 +380,25 @@ def align(
 
     # ---- time ----------------------------------------------------------------
     timed = {p: ds for p, ds in rasters.items() if "time" in ds.dims}
-    if timed:
-        time_like = time_like or max(timed, key=lambda p: _step(timed[p]))
+    if time_like is not None and time_like not in timed:
+        raise ValueError(f"time_like {time_like!r}: no raster group with time")
+    scenes = [
+        p
+        for p, ds in timed.items()
+        if ds.attrs.get(provenance.SCENES_ATTR) and not align_scenes
+    ]
+    for p in scenes:
+        log.info("%s: keeping its acquisition times (scenes)", p)
+    aggregated = {p: ds for p, ds in timed.items() if p not in scenes}
+    if aggregated:
+        time_like = time_like or max(aggregated, key=lambda p: _step(aggregated[p]))
         ref = timed[time_like]
         start, end, is_point = _intervals(ref)
-        if is_point:  # label each point as the end of a (t - step, t] interval
-            start = end - _step(ref)
+        if is_point:  # each point ends the interval from the previous one
+            start = np.r_[end[0] - _step(ref), end[:-1]]
         labels = ref.time.values
         log.info("time target %s (%d step(s))", time_like, len(labels))
-        for p, ds in timed.items():
+        for p, ds in aggregated.items():
             rasters[p] = aggregate_time(ds, labels, start, end)
 
     # ---- space ---------------------------------------------------------------
@@ -398,6 +420,8 @@ def align(
         template.sizes["y"],
         template.sizes["x"],
     )
+
+    _check_size(rasters, template)
 
     # TODO: convert heights to a common vertical datum. DEMs keep their geoid
     # (``vertical_datum``: cop30 EGM2008, usgs10m NAVD88), so differences
@@ -435,13 +459,41 @@ def align(
     aligned.attrs = {
         **dt.attrs,
         "gaia_align": f"grid={target_desc}; time={time_like}; "
-        f"method={method or 'per variable'}",
+        f"method={method or 'per variable'}; "
+        f"scenes={'aligned' if align_scenes else 'kept'}",
     }
     # A title that tells it from its input in a catalog
     title = dt.attrs.get("title")
     if title and not title.endswith(" (aligned)"):
         aligned.attrs["title"] = f"{title} (aligned)"
     return aligned
+
+
+def _check_size(rasters: dict[str, xr.Dataset], template: xr.DataArray) -> None:
+    """Stop before regridding if the rasters on *template* would exceed
+    ``io.MAX_BYTES``, naming the largest group."""
+    cells = template.sizes["y"] * template.sizes["x"]
+    per_group = {
+        p: sum(
+            float(np.prod([n for d, n in ds[v].sizes.items() if d not in ("x", "y")]))
+            * cells
+            * ds[v].dtype.itemsize
+            for v in _raster_vars(ds)
+        )
+        for p, ds in rasters.items()
+    }
+    total = sum(per_group.values())
+    if total <= io.MAX_BYTES:
+        return
+    big = max(per_group, key=lambda p: per_group[p])
+    steps = rasters[big].sizes.get("time", 1)
+    raise ValueError(
+        f"the aligned rasters would be {io.size(total)}, over the "
+        f"{io.size(io.MAX_BYTES)} limit; {big} alone is {io.size(per_group[big])} "
+        f"({steps} time step(s) on {template.sizes['y']} x {template.sizes['x']} "
+        "cells). Use a coarser grid (--like, --res) or time step (--time-like, "
+        "e.g. a scene dataset for totals between its passes)."
+    )
 
 
 def _parse_methods(specs: list[str]) -> dict[str, regrid.Method] | None:
@@ -467,12 +519,16 @@ def run(
     method: Annotated[list[str] | None, Parameter(name=["--method", "-m"])] = None,
     aoi_path: Annotated[str | None, Parameter(name=["--aoi"])] = None,
     overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
+    align_scenes: Annotated[
+        bool, Parameter(name=["--align-scenes"], negative="")
+    ] = False,
 ):
     """Align staged rasters onto one grid and time step, writing a new store.
 
     Each raster is first aggregated in time to the coarsest product's
     intervals (using its ``time_bounds`` and ``cell_methods``), then regridded
-    once from its native grid onto the coarsest product's grid.
+    once from its native grid onto the coarsest product's grid. Scene datasets
+    (Sentinel-1/2) keep their acquisition times and are only regridded.
 
     Parameters
     ----------
@@ -484,7 +540,9 @@ def run(
     like : str
         Group whose grid is the target, e.g. ``rasters/hrrr``. Default: coarsest.
     time_like : str
-        Group whose time intervals are the target, e.g. ``rasters/prism``. Default: coarsest.
+        Group whose time intervals are the target, e.g. ``rasters/prism``, or a
+        scene group such as ``rasters/sentinel1-rtc`` for totals between its
+        passes. Default: the coarsest that isn't scenes.
     crs : str
         Target CRS for an explicit grid (use with ``--res``), or ``utm`` for
         the UTM zone of the AOI. The grid covers ``--aoi`` (else every raster),
@@ -504,6 +562,9 @@ def run(
     overwrite : bool
         Write into an output folder that isn't empty, replacing its store.
         Default False.
+    align_scenes : bool
+        Aggregate scene datasets (Sentinel-1/2) in time too, onto the same
+        intervals as the rest. Default False: they keep their acquisition times.
 
     Examples
     --------
@@ -526,9 +587,19 @@ def run(
     store = io.store_path(output_path, io.folder_name(output_path))
     dt = io.open_datatree(input_path)
     aoi = load_aoi(aoi_path) if aoi_path else None
-    aligned = align(
-        dt, like=like, time_like=time_like, crs=crs, res=res, method=methods, aoi=aoi
-    )
+    try:
+        aligned = align(
+            dt,
+            like=like,
+            time_like=time_like,
+            crs=crs,
+            res=res,
+            method=methods,
+            aoi=aoi,
+            align_scenes=align_scenes,
+        )
+    except ValueError as e:
+        sys.exit(f"Error: {e}")
     aligned.attrs = provenance.derived_from(aligned.attrs, input_path)
     io.save_datatree(aligned, store, overwrite=overwrite)
     log.info("Done")
