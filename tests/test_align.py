@@ -374,3 +374,66 @@ def test_numeric_scene_coordinates_with_empty_steps_become_float():
     labels = pd.to_datetime(["2023-09-10", "2023-09-16", "2023-09-22"]).values
     out = align.aggregate_time(s1, labels, labels - np.timedelta64(6, "D"), labels)
     np.testing.assert_array_equal(out.relative_orbit.values, [131.0, np.nan, 131.0])
+
+
+def _hours(start, end):
+    # hour-ending hourly sums of 1 mm, e.g. ERA5 precipitation
+    times = pd.date_range(start, end, freq="h")
+    da = _raster(times, 25_000, 2, 2, np.ones((len(times), 2, 2)))
+    return io.with_time_bounds(da, -1, 0, "time: sum")
+
+
+# Sentinel-1-like bins: edges at acquisition times, off the hour; the last one spans a
+# missed pass (24 days)
+EDGES = pd.to_datetime(
+    [
+        "2023-08-04T16:29:38",
+        "2023-08-16T16:29:38",
+        "2023-08-28T16:29:38",
+        "2023-09-21T16:29:38",
+    ]
+).values
+
+
+def test_bins_off_the_hour_count_the_whole_hours_inside():
+    hourly = _hours("2023-08-01T01:00", "2023-09-30T00:00")
+    out = align.aggregate_time(hourly, EDGES[1:], EDGES[:-1], EDGES[1:])
+
+    # 12 days hold 287 whole hours between edges at hh:29:38; 24 days hold 575
+    assert out.precipitation.isel(y=0, x=0).values.tolist() == [287, 287, 575]
+    assert (
+        out.precipitation.attrs["aggregated_from"] == "287 to 575 values of 60 minutes"
+    )
+
+
+def test_a_longer_bin_missing_hours_is_nan_not_an_undercount():
+    hourly = _hours("2023-08-01T01:00", "2023-09-30T00:00")
+    gap = (hourly.time > np.datetime64("2023-09-05")) & (
+        hourly.time < np.datetime64("2023-09-07")
+    )
+    out = align.aggregate_time(
+        hourly.isel(time=~gap.values), EDGES[1:], EDGES[:-1], EDGES[1:]
+    )
+
+    values = out.precipitation.isel(y=0, x=0).values
+    assert values[:2].tolist() == [287, 287]
+    assert np.isnan(values[2])
+
+
+def test_source_ending_inside_a_bin_leaves_it_nan():
+    hourly = _hours("2023-08-01T01:00", "2023-08-20T00:00")
+    out = align.aggregate_time(hourly, EDGES[1:], EDGES[:-1], EDGES[1:])
+    assert out.precipitation.isel(y=0, x=0).values[0] == 287
+    assert np.isnan(out.precipitation.isel(y=0, x=0).values[1:]).all()
+
+
+def test_expected_counts_for_points_and_intervals():
+    hourly = _hours("2023-08-01T01:00", "2023-08-03T00:00")
+    days = pd.to_datetime(
+        ["2023-08-01T00:00", "2023-08-02T00:00", "2023-08-02T12:30"]
+    ).values
+    starts, ends = days[:-1], days[1:]
+    assert align._expected_counts(hourly, starts, ends).tolist() == [24, 12]
+    points = hourly.drop_vars("time_bounds")
+    del points.time.attrs["bounds"]
+    assert align._expected_counts(points, starts, ends).tolist() == [24, 12]

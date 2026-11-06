@@ -80,7 +80,10 @@ gaia align -i skagit/skagit.zarr -o skagit-10m --crs EPSG:32610 --res 10
 
 Writes a new store with every raster on one grid and time step. By default it uses
 the coarsest of each: for PRISM and HRRR, HRRR's 3 km grid and PRISM's days. Values are
-combined in time according to their `cell_methods` (precipitation is summed). In space
+combined in time according to their `cell_methods` (precipitation is summed). Each
+target step takes the source steps that fit wholly inside it, and is NaN if any of
+them is missing rather than undercounting; the steps need not line up (hourly ERA5
+into 12-day Sentinel-1 steps between passes at 16:29:38: 287 whole hours each). In space
 each dataset uses its own default resampling (conservative for PRISM and HRRR,
 bilinear for DEMs, mode for categories), which `--method` overrides, for every dataset
 or for one (`-m dem/usgs10m=cubic`). The input store is not changed.
