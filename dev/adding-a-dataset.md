@@ -30,6 +30,10 @@ and optionally:
   `stac.select` to pick the scenes before loading them (see `sentinel1_rtc.py`). The
   runner stamps the group `gaia:scenes`, so `gaia align` keeps its acquisition times
   rather than combining them into the other datasets' time steps.
+- **`TOKENS`**: environment variables `load()` needs, each with what it is, e.g.
+  `{"SYNOPTIC_TOKEN": "a Synoptic API token, https://docs.synopticdata.com"}`.
+  `gaia stage` (and `--dry-run`) warns about any that aren't set before loading
+  anything; the dataset still raises its own error when it runs.
 - **`REGRID_METHOD`**: `gaia align`'s default spatial method for the dataset's
   raster variables, one of `regrid.Method` (`conservative`, `average`,
   `bilinear`, `cubic`, `nearest`). The runner stores it as each variable's

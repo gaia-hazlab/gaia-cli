@@ -5,7 +5,8 @@ and optionally ``VARIANT``: a ``load()`` option named by the key
 (``dem/usgs10m``), each value its own top-level group; and ``REGRID_METHOD``:
 ``gaia align``'s default for its raster variables (else nearest); and ``SCENES``:
 it takes ``pre``/``post`` windows and ``select`` to choose scenes, and ``gaia
-align`` keeps its acquisition times. See
+align`` keeps its acquisition times; and ``TOKENS``: environment variables it
+needs, which ``gaia stage`` warns about up front. See
 dev/adding-a-dataset.md.
 """
 

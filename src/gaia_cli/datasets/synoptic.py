@@ -26,6 +26,8 @@ from .. import provenance, stations
 log = logging.getLogger(__name__)
 
 TOKEN = os.environ.get("SYNOPTIC_TOKEN")
+# Environment variables load() needs, checked before a run starts
+TOKENS = {"SYNOPTIC_TOKEN": "a Synoptic API token, https://docs.synopticdata.com"}
 SYNOPTIC_API = "https://api.synopticdata.com/v2"
 RESET_MM = 10  # drops in raw gauge accumulation larger than this are treated as resets
 PRECIP = "precip_accum"  # staged under this name as a running total

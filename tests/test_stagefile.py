@@ -613,3 +613,33 @@ def test_output_and_name_must_make_a_folder_layout(tmp_path, name, output, messa
     config = write(tmp_path, CONUS.replace("bolt-creek", name) + "  prism: {}\n")
     with pytest.raises(SystemExit, match=message):
         runner.stage(config=config, output_path=output, dry_run=True)
+
+
+TOKENS = """
+name: tokens
+aoi: {bbox: [-151.3, 63.1, -151.1, 63.2]}
+window: 2023-09-13/2023-09-14
+datasets:
+  synoptic: {}
+  era5: {}
+  dem/cop30: {}
+"""
+
+
+def test_missing_tokens_are_warned_about_before_anything_loads(
+    tmp_path, monkeypatch, caplog
+):
+    monkeypatch.delenv("SYNOPTIC_TOKEN", raising=False)
+    monkeypatch.delenv("ARRAYLAKE_TOKEN", raising=False)
+    with caplog.at_level("WARNING", logger="gaia_cli.runner"):
+        runner.stage(config=write(tmp_path, TOKENS), dry_run=True)
+    assert "synoptic: SYNOPTIC_TOKEN is not set" in caplog.text
+    assert "era5: ARRAYLAKE_TOKEN is not set" in caplog.text
+    assert "dem" not in caplog.text
+
+    caplog.clear()
+    monkeypatch.setenv("SYNOPTIC_TOKEN", "x")
+    monkeypatch.setenv("ARRAYLAKE_TOKEN", "x")
+    with caplog.at_level("WARNING", logger="gaia_cli.runner"):
+        runner.stage(config=write(tmp_path, TOKENS), dry_run=True)
+    assert "not set" not in caplog.text
