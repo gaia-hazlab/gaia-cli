@@ -29,6 +29,9 @@ from .window import parse_time
 
 log = logging.getLogger(__name__)
 
+# degC per km: the ICAO standard atmosphere's, for --elevation
+LAPSE_RATE = 6.5
+
 
 def _is_raster(ds: xr.Dataset) -> bool:
     return {"x", "y"} <= set(ds.dims) and "spatial_ref" in ds.coords
@@ -344,6 +347,8 @@ def align(
     method: regrid.Method | Mapping[str, regrid.Method] | None = None,
     aoi=None,
     align_scenes: bool = False,
+    elevation: str | None = None,
+    lapse_rate: float = LAPSE_RATE,
 ) -> xr.DataTree:
     """Aggregate in time, then regrid once, every raster group in *dt*.
 
@@ -381,11 +386,27 @@ def align(
         The grid keeps its extent.
     align_scenes : bool
         Aggregate scene groups in time too, like every other group.
+    elevation : str, optional
+        A DEM group (its ``elevation``) or ``group/variable``. Every air
+        temperature in a group with ``orography`` (ERA5's ``t2m``) gets a
+        ``<name>_adjusted`` copy, moved from the source's terrain height to the
+        DEM's on the target grid with a constant *lapse_rate*. ``orography`` is
+        regridded with the temperature's own method for this, so the result is
+        the regridded sea-level temperature lapsed down to the DEM.
+    lapse_rate : float
+        degC per km, for *elevation*. Default 6.5, the standard atmosphere's.
     """
     nodes = {path: node.to_dataset() for path, node in dt.subtree_with_keys}
     rasters = {p: ds for p, ds in nodes.items() if _is_raster(ds)}
     if not rasters:
         raise ValueError("No raster groups (with x, y and spatial_ref) found.")
+    if elevation is not None:
+        dem_group, dem_name = _elevation(rasters, elevation)
+        if not any(_to_adjust(ds) for ds in rasters.values()):
+            raise ValueError(
+                f"elevation {elevation!r}: no group has an air temperature and "
+                "orography (e.g. ERA5's t2m) to adjust"
+            )
 
     # ---- time ----------------------------------------------------------------
     timed = {p: ds for p, ds in rasters.items() if "time" in ds.dims}
@@ -430,7 +451,7 @@ def align(
         template.sizes["x"],
     )
 
-    _check_size(rasters, template)
+    _check_size(rasters, template, adjust=elevation is not None)
 
     # TODO: convert heights to a common vertical datum. DEMs keep their geoid
     # (``vertical_datum``: cop30 EGM2008, usgs10m NAVD88), so differences
@@ -463,13 +484,29 @@ def align(
             out = clipped.assign(out.drop_dims(["x", "y"]).data_vars)
         rasters[p] = out
 
+    if elevation is not None:
+        dem = rasters[dem_group][dem_name]
+        for p, ds in rasters.items():
+            for name in _to_adjust(ds):
+                m = ds[name].attrs.get("regrid_method")
+                orography = (
+                    ds["orography"]
+                    if m is None  # already on the target grid
+                    else regrid.regrid(nodes[p]["orography"], template, m)
+                )
+                log.info("adjusting %s/%s to %s", p, name, elevation)
+                ds[f"{name}_adjusted"] = lapse_rate_adjust(
+                    ds[name], orography, dem, lapse_rate
+                )
+
     nodes.update(rasters)
     aligned = xr.DataTree.from_dict(nodes)
     aligned.attrs = {
         **dt.attrs,
         "gaia_align": f"grid={target_desc}; time={time_like}; "
         f"method={method or 'per variable'}; "
-        f"scenes={'aligned' if align_scenes else 'kept'}",
+        f"scenes={'aligned' if align_scenes else 'kept'}"
+        + (f"; elevation={elevation} at {lapse_rate:g} degC/km" if elevation else ""),
     }
     # A title that tells it from its input in a catalog
     title = dt.attrs.get("title")
@@ -478,15 +515,72 @@ def align(
     return aligned
 
 
-def _check_size(rasters: dict[str, xr.Dataset], template: xr.DataArray) -> None:
+def _to_adjust(ds: xr.Dataset) -> list[str]:
+    """Air temperatures in a group that has its source's terrain height
+    (``orography``, e.g. ERA5's), which ``--elevation`` adjusts."""
+    if "orography" not in ds:
+        return []
+    return [
+        v
+        for v in _raster_vars(ds)
+        if ds[v].attrs.get("standard_name") == "air_temperature"
+    ]
+
+
+def _elevation(rasters: dict[str, xr.Dataset], spec: str) -> tuple[str, str]:
+    """(group, variable) of ``GROUP`` (its ``elevation``) or ``GROUP/VARIABLE``."""
+    if spec in rasters:
+        group, name = spec, "elevation"
+    else:
+        group, _, name = spec.rpartition("/")
+    if group not in rasters or name not in rasters[group]:
+        raise ValueError(
+            f"elevation {spec!r}: no raster group with that variable "
+            "(e.g. dem/cop30, or GROUP/VARIABLE)"
+        )
+    return group, name
+
+
+def lapse_rate_adjust(
+    temperature: xr.DataArray,
+    orography: xr.DataArray,
+    elevation: xr.DataArray,
+    lapse_rate: float = LAPSE_RATE,
+) -> xr.DataArray:
+    """*temperature*, valid at its source's terrain height *orography*, moved to
+    *elevation* (both m) with a constant *lapse_rate* (degC per km)."""
+    out = temperature - lapse_rate / 1000 * (elevation - orography)
+    # not regridded itself, and one variable per store answers to the common name
+    drop = {provenance.COMMON_NAME_ATTR, "regrid_method"}
+    attrs = {k: v for k, v in temperature.attrs.items() if k not in drop}
+    attrs["long_name"] = (
+        f"{temperature.attrs.get('long_name', temperature.name)}, adjusted to elevation"
+    )
+    attrs["comment"] = (
+        f"{temperature.name} - {lapse_rate:g} degC/km x ({elevation.name} - "
+        f"{orography.name}): moved from the source's terrain height to the "
+        "elevation with a constant lapse rate. An estimate: real lapse rates vary, "
+        "and inversions reverse them."
+    )
+    attrs["gaia:lapse-rate"] = f"{lapse_rate:g} degC/km"
+    out = out.rename(f"{temperature.name}_adjusted")
+    out.attrs = attrs  # arithmetic keeps all of temperature's
+    return out
+
+
+def _check_size(
+    rasters: dict[str, xr.Dataset], template: xr.DataArray, adjust: bool = False
+) -> None:
     """Stop before regridding if the rasters on *template* would exceed
-    ``io.MAX_BYTES``, naming the largest group."""
+    ``io.MAX_BYTES``, naming the largest group. With *adjust*, temperatures
+    that ``--elevation`` adjusts count twice."""
     cells = template.sizes["y"] * template.sizes["x"]
     per_group = {
         p: sum(
             float(np.prod([n for d, n in ds[v].sizes.items() if d not in ("x", "y")]))
             * cells
             * ds[v].dtype.itemsize
+            * (2 if adjust and v in _to_adjust(ds) else 1)
             for v in _raster_vars(ds)
         )
         for p, ds in rasters.items()
@@ -531,6 +625,8 @@ def run(
     align_scenes: Annotated[
         bool, Parameter(name=["--align-scenes"], negative="")
     ] = False,
+    elevation: Annotated[str | None, Parameter(name=["--elevation"])] = None,
+    lapse_rate: Annotated[float, Parameter(name=["--lapse-rate"])] = LAPSE_RATE,
 ):
     """Align staged rasters onto one grid and time step, writing a new store.
 
@@ -574,6 +670,14 @@ def run(
     align_scenes : bool
         Aggregate scene datasets (Sentinel-1/2) in time too, onto the same
         intervals as the rest. Default False: they keep their acquisition times.
+    elevation : str
+        Experimental. A DEM group, e.g. ``dem/cop30`` (or ``GROUP/VARIABLE``):
+        adds ``t2m_adjusted``, ERA5's 2 m temperature moved from its smoothed
+        terrain (``orography``) to the DEM's elevation on the target grid with
+        ``--lapse-rate``. Onto a grid coarser than the DEM, use
+        ``-m dem/cop30=average``.
+    lapse_rate : float
+        degC per km, for ``--elevation``. Default 6.5 (standard atmosphere).
 
     Examples
     --------
@@ -583,6 +687,9 @@ def run(
 
     A 10 m UTM grid over the AOI, with a cubic DEM:
         $ gaia align -i pioneer/pioneer.zarr -o pioneer-10m --aoi $AOI --crs utm --res 10 -m dem/usgs10m=cubic
+
+    ERA5 temperature at the DEM's elevation on a 100 m grid:
+        $ gaia align -i peters/peters.zarr -o peters-100m --aoi $AOI --crs utm --res 100 --elevation dem/cop30
     """
     if (crs is None) != (res is None):
         raise ValueError("--crs and --res must be given together.")
@@ -606,6 +713,8 @@ def run(
             method=methods,
             aoi=aoi,
             align_scenes=align_scenes,
+            elevation=elevation,
+            lapse_rate=lapse_rate,
         )
     except ValueError as e:
         sys.exit(f"Error: {e}")

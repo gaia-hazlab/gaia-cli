@@ -592,3 +592,88 @@ def test_a_missing_value_inside_the_span_is_skipped_but_the_edge_is_nan():
     assert total("2023-08-01T00:30", "2023-08-01T03:30") == 2.5
     # Starts before the data does (00:00)
     assert np.isnan(total("2023-07-31T23:30", "2023-08-01T02:30"))
+
+
+def _era5_t2m(orography):
+    # hour-ending 2 m temperature on 25 km cells that lie on a 6.5 degC/km lapse
+    # from 20 degC at sea level, over terrain *orography* (2 x 2)
+    times = pd.date_range("2023-09-01", periods=3, freq="h")
+    t2m = 20.0 - 6.5e-3 * np.broadcast_to(orography, (3, 2, 2))
+    da = _raster(times, 25_000, 2, 2, t2m).rename("t2m")
+    da.attrs = {
+        "standard_name": "air_temperature",
+        "units": "degC",
+        "gaia:common-name": "temperature",
+        regrid.METHOD_ATTR: "conservative",
+    }
+    ds = io.with_time_bounds(da, -1, 0, "time: point")
+    ds["orography"] = da.isel(time=0, drop=True).copy(data=orography)
+    ds.orography.attrs = {"units": "m", regrid.METHOD_ATTR: "bilinear"}
+    return ds
+
+
+def _dem():
+    # a 1 km DEM over the same 50 km, rising 50 m per km eastward
+    da = _raster(
+        pd.date_range("2023-09-01", periods=1), 1_000, 50, 50, np.zeros((1, 50, 50))
+    )
+    dem = da.isel(time=0, drop=True).rename("elevation")
+    dem = dem + 50.0 * np.arange(50)
+    dem.attrs = {"units": "m", regrid.METHOD_ATTR: "bilinear"}
+    return dem.rename("elevation").to_dataset()
+
+
+def test_lapse_rate_adjust_moves_a_temperature_to_the_elevation():
+    t2m = xr.DataArray(10.0, name="t2m", attrs={"gaia:common-name": "temperature"})
+    orography = xr.DataArray(1_000.0, name="orography")
+    elevation = xr.DataArray(2_000.0, name="elevation")
+    out = align.lapse_rate_adjust(t2m, orography, elevation)
+    assert float(out) == pytest.approx(3.5)
+    assert out.name == "t2m_adjusted"
+    assert out.attrs["gaia:lapse-rate"] == "6.5 degC/km"
+    # one variable per store answers to the common name
+    assert "gaia:common-name" not in out.attrs
+
+
+def test_elevation_adjusts_temperature_onto_the_dem():
+    orography = np.array([[1_200.0, 2_100.0], [600.0, 1_500.0]])
+    tree = xr.DataTree.from_dict(
+        {"rasters/era5": _era5_t2m(orography), "dem/cop30": _dem()}
+    )
+    out = align.align(tree, crs="EPSG:32610", res=5_000.0, elevation="dem/cop30")
+    era5 = out["rasters/era5"].to_dataset()
+    dem = out["dem/cop30"].elevation
+    # t2m is blocky (conservative becomes nearest onto the finer grid), but each
+    # cell's lapse is undone with its own orography, so the adjusted temperature
+    # is the sea-level 20 degC lapsed down to the DEM everywhere
+    assert era5.t2m.attrs["regrid_method"] == "nearest"
+    expected = (20.0 - 6.5e-3 * dem).broadcast_like(era5.t2m)
+    xr.testing.assert_allclose(
+        era5.t2m_adjusted.drop_vars("spatial_ref"),
+        expected.transpose(*era5.t2m.dims).drop_vars("spatial_ref"),
+    )
+    assert "elevation=dem/cop30 at 6.5 degC/km" in out.attrs["gaia_align"]
+    # another lapse rate
+    out = align.align(
+        tree,
+        crs="EPSG:32610",
+        res=5_000.0,
+        elevation="dem/cop30/elevation",
+        lapse_rate=0,
+    )
+    np.testing.assert_allclose(
+        out["rasters/era5"].t2m_adjusted.values, out["rasters/era5"].t2m.values
+    )
+
+
+def test_elevation_needs_a_dem_and_a_temperature_with_orography():
+    tree = xr.DataTree.from_dict(
+        {"rasters/era5": _era5_t2m(np.ones((2, 2))), "dem/cop30": _dem()}
+    )
+    with pytest.raises(ValueError, match="no raster group"):
+        align.align(tree, elevation="dem/missing")
+    tree = xr.DataTree.from_dict(
+        {"rasters/prism": _daily().rename(precipitation="t2m"), "dem/cop30": _dem()}
+    )
+    with pytest.raises(ValueError, match="orography"):
+        align.align(tree, elevation="dem/cop30")

@@ -121,6 +121,19 @@ gaia align -i pioneer/pioneer.zarr -o pioneer-10m --aoi $AOI --crs utm --res 10 
   -m dem/usgs10m=cubic -m rasters/burn-severity=nearest -m rasters/nlcd=nearest
 ```
 
+**Experimental:** `--elevation dem/cop30` adds `t2m_adjusted`, ERA5's 2 m temperature
+moved from its smoothed terrain (`orography`, see [](datasets.md#era5)) to the DEM's
+elevation in each target cell, at `--lapse-rate` (default 6.5 °C/km). Real lapse rates
+vary, so it is an estimate. It is cheap to compute, but the result is as large as `t2m`
+on the target grid. Aggregate in time first (`--time-like`) to keep it small; that
+gives the same answer, because the adjustment is linear. Onto a grid coarser than the
+DEM, average the DEM (`-m dem/cop30=average`):
+
+```bash
+gaia align -i peters/peters.zarr -o peters-100m --aoi $AOI --crs utm --res 100 \
+  -m dem/cop30=average --elevation dem/cop30
+```
+
 To write GeoTIFF or ESRI ASCII files from the result, use GDAL ([](gdal.md)).
 
 (catalog)=

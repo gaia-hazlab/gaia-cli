@@ -154,3 +154,29 @@ Not in this store, though ERA5 has them:
    cf-xarray.
 3. The hour-ending convention for `accum` variables is the CDS's; check it against a
    CDS download for one hour.
+
+## Experimental: lapse-rate adjustment (`gaia align --elevation`)
+
+Branch `experimental/lapse-rate`. ERA5's `t2m` is valid at `orography`, around Peters
+Dome 0.6–1.5 km below the summit. `--elevation dem/cop30` adds `t2m_adjusted =
+t2m − Γ (elevation − orography)` on the target grid, with `orography` regridded by
+`t2m`'s own method. That is the same as regridding the sea-level temperature
+`t2m + Γ·orography` and lapsing it down to the DEM, so a blocky (nearest) `t2m` gives a
+smooth result that follows the terrain.
+
+Cost, Peters Dome (15 km radius, 720 hours, 100 m UTM grid of 301 × 300 cells, DEM
+averaged to 100 m): `gaia align` 5 s, 1.3 GB peak memory, 233 MB on disk. The
+arithmetic is one broadcast subtraction; the price is a second `t2m`-sized variable on
+the fine grid, so hourly over a large AOI hits `io.MAX_BYTES`, which counts it. The
+adjustment is linear, so aggregating in time first (`--time-like`) gives the same daily
+or per-pass means at a fraction of the size.
+
+Open:
+
+- A constant 6.5 °C/km is the textbook default. ERA5's own `t` on pressure levels gives
+  the lapse rate of each hour and place (TopoSCALE, Fiddes & Gruber 2014), which handles
+  inversions; that needs `pressure/temporal` (see [Open](#open), profiles).
+- Other variables: dewpoint (~2 °C/km), surface pressure (hypsometric). Precipitation
+  and the rain/snow split have no simple height correction.
+- Heights: the DEM's geoid (EGM2008 for cop30) and ERA5's geopotential height differ by
+  little next to the 0.6–1.5 km gap, so they are ignored.
