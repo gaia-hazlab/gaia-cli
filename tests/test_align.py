@@ -419,14 +419,13 @@ def test_missing_hours_are_skipped_in_a_sum():
     np.testing.assert_allclose(out.precipitation.isel(y=0, x=0), [288, 288, 529])
 
 
-def test_a_source_ending_inside_a_bin_counts_what_it_has():
+def test_bins_beyond_the_sources_time_span_are_nan():
+    # The source ends on the 20th, inside the second bin: no partial total
     hourly = _hours("2023-08-01T01:00", "2023-08-20T00:00")
     out = align.aggregate_time(hourly, EDGES[1:], EDGES[:-1], EDGES[1:])
     values = out.precipitation.isel(y=0, x=0).values
-    # The second bin has data from 16:29:38 on the 16th to the source's end
-    covered = (np.datetime64("2023-08-20T00:00") - EDGES[1]) / np.timedelta64(1, "h")
-    np.testing.assert_allclose(values[:2], [288, covered])
-    assert np.isnan(values[2])  # no data at all
+    np.testing.assert_allclose(values[0], 288)
+    assert np.isnan(values[1:]).all()
 
 
 def test_overlap_splits_straddling_steps_and_spreads_longer_ones():
@@ -571,9 +570,25 @@ def test_a_mean_weights_a_split_step_by_its_overlap():
     np.testing.assert_allclose(
         one("2023-08-01T00:00", "2023-08-01T01:30").t2m.squeeze(), (60 + 3 * 30) / 90
     )
-    # 23:30-00:30 starts before the source: the mean of the half hour it has
-    np.testing.assert_allclose(
-        one("2023-07-31T23:30", "2023-08-01T00:30").t2m.squeeze(), 1.0
+    # 23:30-00:30 starts before the source does
+    assert np.isnan(one("2023-07-31T23:30", "2023-08-01T00:30").t2m.squeeze())
+
+
+def test_a_missing_value_inside_the_span_is_skipped_but_the_edge_is_nan():
+    hours = pd.date_range("2023-08-01T01:00", periods=6, freq="h")
+    ds = io.with_time_bounds(
+        _raster(hours, 3_000, 1, 1, np.ones((6, 1, 1))), -1, 0, "time: sum"
     )
-    # 22:00-23:00 has no data at all
-    assert np.isnan(one("2023-07-31T22:00", "2023-07-31T23:00").t2m.squeeze())
+    ds["precipitation"] = ds.precipitation.where(
+        ds.time != np.datetime64("2023-08-01T04:00")
+    )
+
+    def total(t0, t1):
+        t0, t1 = np.datetime64(t0), np.datetime64(t1)
+        out = align.aggregate_time(ds, np.array([t1]), np.array([t0]), np.array([t1]))
+        return float(out.precipitation.squeeze())
+
+    # Half of 00-01, 01-02, 02-03; the 03-04 value is missing
+    assert total("2023-08-01T00:30", "2023-08-01T03:30") == 2.5
+    # Starts before the data does (00:00)
+    assert np.isnan(total("2023-07-31T23:30", "2023-08-01T02:30"))

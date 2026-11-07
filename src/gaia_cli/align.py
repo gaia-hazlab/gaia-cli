@@ -180,9 +180,10 @@ def aggregate_time(
     shorter targets it covers. Point values stand for the step ending at them.
     Values combine according to the variable's ``cell_methods``: ``time: sum``
     as a weighted sum, ``time: minimum``/``maximum`` over every overlapping
-    step, otherwise a mean weighted by overlap. Missing source values are
-    skipped: a sum counts only the data present, and a target is NaN only when
-    no data overlaps it.
+    step, otherwise a mean weighted by overlap. Missing values within the
+    source's time span are skipped, so a sum counts the data present; a target
+    that reaches beyond the span (e.g. a day starting before an hourly source
+    does), or that has no data, is NaN.
     """
     start, end, is_point = _intervals(ds)
     step = _step(ds)
@@ -198,6 +199,11 @@ def aggregate_time(
         covers = ((ts < t) & (t <= te)).astype(float)
         seconds = xr.ones_like(seconds)
 
+    # Targets that reach beyond the source's time span are NaN, not partial
+    inside_span = xr.DataArray(
+        (target_start >= start.min()) & (target_end <= end.max()), dims="step"
+    )
+
     # A source step's coordinates go to the target holding its end
     j = np.searchsorted(target_end, end, side="left")
     jj = np.minimum(j, len(target_end) - 1)
@@ -212,7 +218,7 @@ def aggregate_time(
         if not np.issubdtype(da.dtype, np.floating):
             da = da.astype(np.float32)
         present = da.notnull()
-        has_data = xr.dot(covers, present, dim="time") > 0
+        has_data = inside_span & (xr.dot(covers, present, dim="time") > 0)
         if "minimum" in method or "maximum" in method:
             # extremes can't be spread: each target takes them over every
             # source step it overlaps
