@@ -175,7 +175,10 @@ Open:
 
 - A constant 6.5 °C/km is the textbook default. ERA5's own `t` on pressure levels gives
   the lapse rate of each hour and place (TopoSCALE, Fiddes & Gruber 2014), which handles
-  inversions; that needs `pressure/temporal` (see [Open](#open), profiles).
+  inversions; that needs `pressure/temporal` (see [Open](#open), profiles). Libraries
+  checked 2026-11-06: TopoPyScale implements it but is a pipeline with a heavy stack
+  (cdsapi, CDO, pvlib); xsdba does statistical bias adjustment only. Neither is worth a
+  dependency yet.
 - Other variables: dewpoint (~2 °C/km), surface pressure (hypsometric). Precipitation
   and the rain/snow split have no simple height correction.
 - Heights: the DEM's geoid (EGM2008 for cop30) and ERA5's geopotential height differ by
