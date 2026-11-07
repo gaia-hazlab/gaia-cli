@@ -55,16 +55,8 @@ log = logging.getLogger(__name__)
 
 # The largest group a run writes. load() returns lazy arrays where it can, so the
 # check usually comes before any data is read
-MAX_BYTES = 10 * 1024**3
-
-
-def size(nbytes: float) -> str:
-    """*nbytes* in human units, e.g. ``1.3 GB`` (powers of 1024)."""
-    for unit in ("B", "kB", "MB", "GB"):
-        if nbytes < 1024 or unit == "GB":
-            return f"{nbytes:.0f} {unit}" if unit == "B" else f"{nbytes:.1f} {unit}"
-        nbytes /= 1024
-    raise AssertionError  # unreachable
+MAX_BYTES = io.MAX_BYTES
+size = io.size
 
 
 def warn_missing_tokens(requests) -> None:
@@ -128,6 +120,8 @@ def run(
             for name, common in getattr(module, "COMMON_NAMES", {}).items():
                 if name in node.data_vars:
                     node[name].attrs.setdefault(provenance.COMMON_NAME_ATTR, common)
+            if scenes(module):
+                node.attrs[provenance.SCENES_ATTR] = True
             tree = xr.DataTree.from_dict({group(req): node})
             tree.attrs = dict(cfg.attrs)
             io.save_datatree(

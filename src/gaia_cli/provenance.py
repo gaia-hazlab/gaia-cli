@@ -52,6 +52,9 @@ RUN_KEYS = ("created", "gaia:cli-version", "gaia:command", "stac_extensions")
 # Stamped on staged variables from the dataset module's COMMON_NAMES: one name for
 # the same quantity across datasets, selectable with cf-xarray (datasets.cf_criteria)
 COMMON_NAME_ATTR = "gaia:common-name"
+# Stamped on the groups of scene datasets (SCENES = True, e.g. Sentinel-1/2): times
+# are acquisitions, which `gaia align` keeps rather than aggregating
+SCENES_ATTR = "gaia:scenes"
 MULTIPLE_LICENSES_NOTE = (
     "Products in this store have different licenses; check each group's "
     "`license` and `links` before sharing."

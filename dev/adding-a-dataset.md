@@ -27,7 +27,9 @@ and optionally:
   `pre`/`post` windows with `select` and `count` ([stage-file.md](stage-file.md#choosing-scenes)).
   `load()` then also takes `windows: list[Window] | None = None`, which the runner sets
   (it is not an option), and `start_date`/`end_date` span the windows exactly. Use
-  `stac.select` to pick the scenes before loading them (see `sentinel1_rtc.py`).
+  `stac.select` to pick the scenes before loading them (see `sentinel1_rtc.py`). The
+  runner stamps the group `gaia:scenes`, so `gaia align` keeps its acquisition times
+  rather than combining them into the other datasets' time steps.
 - **`TOKENS`**: environment variables `load()` needs, each with what it is, e.g.
   `{"SYNOPTIC_TOKEN": "a Synoptic API token, https://docs.synopticdata.com"}`.
   `gaia stage` (and `--dry-run`) warns about any that aren't set before loading

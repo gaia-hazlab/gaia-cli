@@ -22,6 +22,18 @@ from . import provenance
 
 log = logging.getLogger(__name__)
 
+# The most `gaia stage` writes in one group, and `gaia align` in one store
+MAX_BYTES = 10 * 1024**3
+
+
+def size(nbytes: float) -> str:
+    """*nbytes* in human units, e.g. ``1.3 GB`` (powers of 1024)."""
+    for unit in ("B", "kB", "MB", "GB"):
+        if nbytes < 1024 or unit == "GB":
+            return f"{nbytes:.0f} {unit}" if unit == "B" else f"{nbytes:.1f} {unit}"
+        nbytes /= 1024
+    raise AssertionError  # unreachable
+
 
 def clip_to_aoi(
     da: xr.DataArray,

@@ -97,8 +97,8 @@ chunks).
   with no time dimension and `bilinear` regridding. ERA5's terrain is smooth: around
   Peters Dome the cells are 1,200–2,100 m against ~2,760 m at the source, so `t2m`
   is valid well below the summit; `orography` gives the height difference for a
-  lapse-rate correction. `gaia align` drops it, as it does any variable without
-  time in a timed group. `lsm`, `sdor` and `slor` are dropped.
+  lapse-rate correction. `gaia align` regrids it without a time step. `lsm`,
+  `sdor` and `slor` are dropped.
 - `variables` defaults to `tp`, `sf`, `t2m`, `swvl1`, `swvl2`, `sd`, and takes any
   of the 39 (see [Variables](#variables)). Names stay ECMWF's; `tp` and `t2m` carry the
   common names `precipitation` and `temperature` (`COMMON_NAMES`), and CF standard

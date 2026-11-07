@@ -84,11 +84,24 @@ Writes a new store with every raster on one grid and time step. By default it us
 the coarsest of each: for PRISM and HRRR, HRRR's 3 km grid and PRISM's days. Values are
 combined in time according to their `cell_methods` (precipitation is summed). Each
 target step takes the source steps that fit wholly inside it, and is NaN if any of
-them is missing rather than undercounting; the steps need not line up (hourly ERA5
-into 12-day Sentinel-1 steps between passes at 16:29:38: 287 whole hours each). In space
-each dataset uses its own default resampling (conservative for PRISM and HRRR,
-bilinear for DEMs, mode for categories), which `--method` overrides, for every dataset
-or for one (`-m dem/usgs10m=cubic`). The input store is not changed.
+them is missing rather than undercounting. In space each dataset uses its own default
+resampling (conservative for PRISM and HRRR, bilinear for DEMs, mode for categories),
+which `--method` overrides, for every dataset or for one (`-m dem/usgs10m=cubic`).
+Variables without time, such as ERA5's `orography`, are only regridded. The input
+store is not changed.
+
+Scene datasets (`sentinel1-rtc`, `sentinel2`) keep their acquisition times: they are
+put on the grid, but not combined in time, and the default time step is the coarsest
+of the other datasets. To total weather between passes, make a scene dataset the
+target. Each step then runs from one pass to the next; hourly ERA5 between passes at
+16:29:38 twelve days apart gives 287 whole hours:
+
+```bash
+gaia align -i peters-dome/peters-dome.zarr -o peters-dome-aligned \
+  --like rasters/sentinel1-rtc --time-like rasters/sentinel1-rtc
+```
+
+`--align-scenes` combines scene datasets in time too, onto the same steps as the rest.
 
 Variables keep their staged names. To select the same quantity in every group
 (`ds.cf["precipitation"]`), see [](datasets.md).
