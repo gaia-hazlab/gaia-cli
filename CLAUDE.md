@@ -28,6 +28,9 @@ This project uses [ruff](https://docs.astral.sh/ruff/) for linting and formattin
 - Run `pixi run typecheck` to check type annotations
 - Do not add type annotations, docstrings, or comments to code you did not change
 - Keep changes minimal and focused — avoid refactoring unrelated code
+- Prefer xarray operations (`sel`, `where`, `groupby` with grouper objects such as
+  `BinGrouper`, `resample`, broadcasting over named dims) to converting to NumPy arrays
+  with `.values` and indexing by hand, in code and notebooks alike
 
 ## Project Structure
 
