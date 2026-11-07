@@ -180,8 +180,9 @@ def aggregate_time(
     shorter targets it covers. Point values stand for the step ending at them.
     Values combine according to the variable's ``cell_methods``: ``time: sum``
     as a weighted sum, ``time: minimum``/``maximum`` over every overlapping
-    step, otherwise a mean weighted by overlap. A target is NaN unless source
-    values cover all of it, rather than a silent undercount.
+    step, otherwise a mean weighted by overlap. Missing source values are
+    skipped: a sum counts only the data present, and a target is NaN only when
+    no data overlaps it.
     """
     start, end, is_point = _intervals(ds)
     step = _step(ds)
@@ -190,16 +191,12 @@ def aggregate_time(
     seconds = xr.DataArray((end - start) / np.timedelta64(1, "s"), dims="time")
     if step > np.timedelta64(0, "ns"):
         covers = _overlap(start, end, target_start, target_end)
-        needed = xr.DataArray(
-            (target_end - target_start) / np.timedelta64(1, "s"), dims="step"
-        )
     else:  # one time step: it counts wholly for the target it falls in
         ts = xr.DataArray(target_start, dims="step")
         te = xr.DataArray(target_end, dims="step")
         t = xr.DataArray(end, dims="time")
         covers = ((ts < t) & (t <= te)).astype(float)
         seconds = xr.ones_like(seconds)
-        needed = xr.ones_like(covers.isel(time=0, drop=True))
 
     # A source step's coordinates go to the target holding its end
     j = np.searchsorted(target_end, end, side="left")
@@ -215,7 +212,7 @@ def aggregate_time(
         if not np.issubdtype(da.dtype, np.floating):
             da = da.astype(np.float32)
         present = da.notnull()
-        complete = xr.dot(covers, present, dim="time") >= needed - 1e-6
+        has_data = xr.dot(covers, present, dim="time") > 0
         if "minimum" in method or "maximum" in method:
             # extremes can't be spread: each target takes them over every
             # source step it overlaps
@@ -231,7 +228,7 @@ def aggregate_time(
             agg = xr.dot(covers, da.fillna(0), dim="time") / xr.dot(
                 weight, xr.ones_like(da), dim="time"
             )
-        agg = agg.where(complete).rename(step="time").transpose(*da.dims)
+        agg = agg.where(has_data).rename(step="time").transpose(*da.dims)
         agg.attrs = {
             **ds[name].attrs,
             "cell_methods": method.replace("point", "mean"),

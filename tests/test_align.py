@@ -406,7 +406,7 @@ def test_bins_off_the_hour_count_the_whole_hours_inside():
     assert "weighted by their overlap" in out.precipitation.attrs["aggregated_from"]
 
 
-def test_a_longer_bin_missing_hours_is_nan_not_an_undercount():
+def test_missing_hours_are_skipped_in_a_sum():
     hourly = _hours("2023-08-01T01:00", "2023-09-30T00:00")
     gap = (hourly.time > np.datetime64("2023-09-05")) & (
         hourly.time < np.datetime64("2023-09-07")
@@ -415,16 +415,18 @@ def test_a_longer_bin_missing_hours_is_nan_not_an_undercount():
         hourly.isel(time=~gap.values), EDGES[1:], EDGES[:-1], EDGES[1:]
     )
 
-    values = out.precipitation.isel(y=0, x=0).values
-    np.testing.assert_allclose(values[:2], [288, 288])
-    assert np.isnan(values[2])
+    # The 24-day bin counts the 576 - 47 hours it has data for
+    np.testing.assert_allclose(out.precipitation.isel(y=0, x=0), [288, 288, 529])
 
 
-def test_source_ending_inside_a_bin_leaves_it_nan():
+def test_a_source_ending_inside_a_bin_counts_what_it_has():
     hourly = _hours("2023-08-01T01:00", "2023-08-20T00:00")
     out = align.aggregate_time(hourly, EDGES[1:], EDGES[:-1], EDGES[1:])
-    np.testing.assert_allclose(out.precipitation.isel(y=0, x=0).values[0], 288)
-    assert np.isnan(out.precipitation.isel(y=0, x=0).values[1:]).all()
+    values = out.precipitation.isel(y=0, x=0).values
+    # The second bin has data from 16:29:38 on the 16th to the source's end
+    covered = (np.datetime64("2023-08-20T00:00") - EDGES[1]) / np.timedelta64(1, "h")
+    np.testing.assert_allclose(values[:2], [288, covered])
+    assert np.isnan(values[2])  # no data at all
 
 
 def test_overlap_splits_straddling_steps_and_spreads_longer_ones():
@@ -569,5 +571,9 @@ def test_a_mean_weights_a_split_step_by_its_overlap():
     np.testing.assert_allclose(
         one("2023-08-01T00:00", "2023-08-01T01:30").t2m.squeeze(), (60 + 3 * 30) / 90
     )
-    # 23:30-00:30 starts before the source does
-    assert np.isnan(one("2023-07-31T23:30", "2023-08-01T00:30").t2m.squeeze())
+    # 23:30-00:30 starts before the source: the mean of the half hour it has
+    np.testing.assert_allclose(
+        one("2023-07-31T23:30", "2023-08-01T00:30").t2m.squeeze(), 1.0
+    )
+    # 22:00-23:00 has no data at all
+    assert np.isnan(one("2023-07-31T22:00", "2023-07-31T23:00").t2m.squeeze())

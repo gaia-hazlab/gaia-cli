@@ -86,8 +86,8 @@ combined in time according to their `cell_methods` (precipitation is summed,
 temperature averaged), each source step weighted by how much of it lies inside each
 target step: a step that straddles a target edge is split between the two by time,
 and a longer step (a PRISM day aligned onto hours) is spread evenly over the shorter
-ones. A target step is NaN unless source values cover all of it, rather than
-undercounting. `gaia_cli.align.overlap()` gives the same weights for analysis code. In space each dataset uses its own default
+ones. Missing values are skipped: a total counts only the data present, and a step
+is NaN only when no data overlaps it. `gaia_cli.align.overlap()` gives the same weights for analysis code. In space each dataset uses its own default
 resampling (conservative for PRISM and HRRR, bilinear for DEMs, mode for categories),
 which `--method` overrides, for every dataset or for one (`-m dem/usgs10m=cubic`).
 Variables without time, such as ERA5's `orography`, are only regridded. The input
