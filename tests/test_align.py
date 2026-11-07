@@ -401,14 +401,12 @@ def test_bins_off_the_hour_count_the_whole_hours_inside():
     hourly = _hours("2023-08-01T01:00", "2023-09-30T00:00")
     out = align.aggregate_time(hourly, EDGES[1:], EDGES[:-1], EDGES[1:])
 
-    # 12 days hold 287 whole hours between edges at hh:29:38; 24 days hold 575
-    assert out.precipitation.isel(y=0, x=0).values.tolist() == [287, 287, 575]
-    assert (
-        out.precipitation.attrs["aggregated_from"] == "287 to 575 values of 60 minutes"
-    )
+    # 12 days are 288 hours, the two split at the edges (hh:29:38) shared by time
+    np.testing.assert_allclose(out.precipitation.isel(y=0, x=0), [288, 288, 576])
+    assert "weighted by their overlap" in out.precipitation.attrs["aggregated_from"]
 
 
-def test_a_longer_bin_missing_hours_is_nan_not_an_undercount():
+def test_missing_hours_are_skipped_in_a_sum():
     hourly = _hours("2023-08-01T01:00", "2023-09-30T00:00")
     gap = (hourly.time > np.datetime64("2023-09-05")) & (
         hourly.time < np.datetime64("2023-09-07")
@@ -417,28 +415,37 @@ def test_a_longer_bin_missing_hours_is_nan_not_an_undercount():
         hourly.isel(time=~gap.values), EDGES[1:], EDGES[:-1], EDGES[1:]
     )
 
-    values = out.precipitation.isel(y=0, x=0).values
-    assert values[:2].tolist() == [287, 287]
-    assert np.isnan(values[2])
+    # The 24-day bin counts the 576 - 47 hours it has data for
+    np.testing.assert_allclose(out.precipitation.isel(y=0, x=0), [288, 288, 529])
 
 
-def test_source_ending_inside_a_bin_leaves_it_nan():
+def test_bins_beyond_the_sources_time_span_are_nan():
+    # The source ends on the 20th, inside the second bin: no partial total
     hourly = _hours("2023-08-01T01:00", "2023-08-20T00:00")
     out = align.aggregate_time(hourly, EDGES[1:], EDGES[:-1], EDGES[1:])
-    assert out.precipitation.isel(y=0, x=0).values[0] == 287
-    assert np.isnan(out.precipitation.isel(y=0, x=0).values[1:]).all()
+    values = out.precipitation.isel(y=0, x=0).values
+    np.testing.assert_allclose(values[0], 288)
+    assert np.isnan(values[1:]).all()
 
 
-def test_expected_counts_for_points_and_intervals():
+def test_overlap_splits_straddling_steps_and_spreads_longer_ones():
     hourly = _hours("2023-08-01T01:00", "2023-08-03T00:00")
-    days = pd.to_datetime(
+    # A day from 00:00 and a half day ending 12:30: the 12-13 hour is split
+    edges = pd.to_datetime(
         ["2023-08-01T00:00", "2023-08-02T00:00", "2023-08-02T12:30"]
     ).values
-    starts, ends = days[:-1], days[1:]
-    assert align._expected_counts(hourly, starts, ends).tolist() == [24, 12]
-    points = hourly.drop_vars("time_bounds")
-    del points.time.attrs["bounds"]
-    assert align._expected_counts(points, starts, ends).tolist() == [24, 12]
+    w = align.overlap(hourly.time_bounds, edges[:-1], edges[1:])
+    assert w.dims == ("step", "time")
+    np.testing.assert_allclose(w.sum("time"), [24, 12.5])
+    # A 24 mm day spread evenly over its hours
+    day = _daily().isel(time=[1], x=0, y=0)
+    hours = pd.date_range(day.time_bounds.values[0, 0], periods=25, freq="h").values
+    spread = xr.dot(
+        align.overlap(day.time_bounds, hours[:-1], hours[1:]),
+        day.precipitation * 2.4,
+        dim="time",
+    )
+    np.testing.assert_allclose(spread, 1.0)
 
 
 def test_aligned_groups_keep_names_and_select_by_common_name():
@@ -501,16 +508,13 @@ def test_weather_sums_between_passes_when_the_scenes_are_the_target():
     np.testing.assert_array_equal(aligned["rasters/sentinel1-rtc"].time, s1.time)
     era5 = aligned["rasters/era5"].to_dataset()
     np.testing.assert_array_equal(era5.time, s1.time)
-    # Each interval runs from the previous pass to this one, with its whole hours
+    # Each interval runs from the previous pass to this one; with 1 mm every hour,
+    # its total is its length in hours
     passes = s1.time.values
     np.testing.assert_array_equal(era5.time_bounds.values[1:, 0], passes[:-1])
-    ends = hourly.time.values
-    whole = [
-        int(((ends - np.timedelta64(1, "h") >= lo) & (ends <= hi)).sum())
-        for lo, hi in era5.time_bounds.values
-    ]
-    assert era5.precipitation.isel(y=0, x=0).values.tolist() == whole
-    assert whole[1:] == [47, 239, 47]
+    hours = np.diff(era5.time_bounds.values, axis=1)[:, 0] / np.timedelta64(1, "h")
+    np.testing.assert_allclose(era5.precipitation.isel(y=0, x=0), hours)
+    np.testing.assert_allclose(hours[1:], [47.73, 240.27, 47.73], atol=0.01)
 
 
 def test_variables_without_time_pass_through_a_timed_group():
@@ -537,3 +541,54 @@ def test_an_aligned_store_over_the_limit_stops_before_regridding(monkeypatch):
         align.align(tree, crs="EPSG:32610", res=10)
     # A coarser grid fits
     align.align(tree, crs="EPSG:32610", res=5_000)
+
+
+def test_a_longer_step_is_spread_over_shorter_targets():
+    # PRISM's 10 mm days onto HRRR's hours: each hour gets 10/24 mm, and a
+    # mean (temperature) gets the day's value
+    daily = _daily()
+    daily["tmean"] = daily.precipitation.assign_attrs(cell_methods="time: mean")
+    hourly = _hourly()
+    b = hourly.time_bounds.values
+    out = align.aggregate_time(daily, hourly.time.values, b[:, 0], b[:, 1])
+    np.testing.assert_allclose(out.precipitation.isel(y=0, x=0), 10 / 24)
+    np.testing.assert_allclose(out.tmean.isel(y=0, x=0), 10.0)
+    np.testing.assert_allclose(out.precipitation.sum("time").isel(y=0, x=0), 20.0)
+
+
+def test_a_mean_weights_a_split_step_by_its_overlap():
+    # 1 mm then 3 mm in the hours ending 01:00 and 02:00
+    times = pd.to_datetime(["2023-08-01T01:00", "2023-08-01T02:00"])
+    da = _raster(times, 3_000, 1, 1, np.array([1.0, 3.0]).reshape(2, 1, 1))
+    ds = io.with_time_bounds(da.rename("t2m"), -1, 0, "time: mean")
+
+    def one(t0, t1):
+        t0, t1 = np.datetime64(t0), np.datetime64(t1)
+        return align.aggregate_time(ds, np.array([t1]), np.array([t0]), np.array([t1]))
+
+    # 00:00-01:30 holds all of the first hour and half the second
+    np.testing.assert_allclose(
+        one("2023-08-01T00:00", "2023-08-01T01:30").t2m.squeeze(), (60 + 3 * 30) / 90
+    )
+    # 23:30-00:30 starts before the source does
+    assert np.isnan(one("2023-07-31T23:30", "2023-08-01T00:30").t2m.squeeze())
+
+
+def test_a_missing_value_inside_the_span_is_skipped_but_the_edge_is_nan():
+    hours = pd.date_range("2023-08-01T01:00", periods=6, freq="h")
+    ds = io.with_time_bounds(
+        _raster(hours, 3_000, 1, 1, np.ones((6, 1, 1))), -1, 0, "time: sum"
+    )
+    ds["precipitation"] = ds.precipitation.where(
+        ds.time != np.datetime64("2023-08-01T04:00")
+    )
+
+    def total(t0, t1):
+        t0, t1 = np.datetime64(t0), np.datetime64(t1)
+        out = align.aggregate_time(ds, np.array([t1]), np.array([t0]), np.array([t1]))
+        return float(out.precipitation.squeeze())
+
+    # Half of 00-01, 01-02, 02-03; the 03-04 value is missing
+    assert total("2023-08-01T00:30", "2023-08-01T03:30") == 2.5
+    # Starts before the data does (00:00)
+    assert np.isnan(total("2023-07-31T23:30", "2023-08-01T02:30"))

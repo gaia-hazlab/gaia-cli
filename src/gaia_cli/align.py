@@ -136,32 +136,33 @@ def _time_coords(ds: xr.Dataset, steps: np.ndarray, bins: np.ndarray, n: int) ->
     return out
 
 
-def _expected_counts(
-    ds: xr.Dataset, target_start: np.ndarray, target_end: np.ndarray
-) -> np.ndarray:
-    """How many of *ds*'s time steps fit wholly in each target interval
-    ``(start, end]``, had none been missing.
+def _overlap(
+    start: np.ndarray, end: np.ndarray, target_start, target_end
+) -> xr.DataArray:
+    """Overlap of each source interval with each target interval, in seconds
+    (dims ``step``, ``time``)."""
+    s = xr.DataArray(start, dims="time")
+    e = xr.DataArray(end, dims="time")
+    ts = xr.DataArray(np.asarray(target_start), dims="step")
+    te = xr.DataArray(np.asarray(target_end), dims="step")
+    inside = np.minimum(e, te) - np.maximum(s, ts)
+    return (inside / np.timedelta64(1, "s")).clip(min=0).transpose("step", "time")
 
-    Counts the steps of *ds*'s regular grid (its first step plus multiples of its
-    step), so a bin whose edges fall between source steps, or a bin longer or
-    shorter than the rest, gets its own count.
+
+def overlap(bounds: xr.DataArray, target_start, target_end) -> xr.DataArray:
+    """The fraction of each source interval that lies inside each target interval.
+
+    *bounds* are the source's ``time_bounds`` (``time``, ``nv``); the targets are
+    ``(start, end]`` intervals. Gives weights (``step``, ``time``): a source sum
+    spread over the targets is ``xr.dot(overlap(...), da, dim="time")``, e.g.
+    hourly precipitation between satellite passes, or a daily total spread
+    evenly over its hours.
     """
-    start, end, is_point = _intervals(ds)
-    step = _step(ds)
-    ns = np.dtype("datetime64[ns]")
-    if step <= np.timedelta64(0, "ns"):  # one time step: any value will do
-        return np.ones(len(target_end), dtype=int)
-    s = np.timedelta64(step, "ns").astype(np.int64)
-    origin = end[0].astype(ns).astype(np.int64)
-    lo = (target_start.astype(ns).astype(np.int64) - origin).astype(float)
-    hi = (target_end.astype(ns).astype(np.int64) - origin).astype(float)
-    last = np.floor(hi / s)  # source steps k with origin + k * s <= end
-    if is_point:  # points in (start, end]
-        first = np.floor(lo / s) + 1
-    else:  # intervals (t - length, t] with start <= t - length
-        length = np.timedelta64(np.median(end - start), "ns").astype(np.int64)
-        first = np.ceil((lo + length) / s)
-    return np.maximum(last - first + 1, 0).astype(int)
+    start, end = bounds.isel(nv=0).values, bounds.isel(nv=1).values
+    seconds = (end - start) / np.timedelta64(1, "s")
+    return _overlap(start, end, target_start, target_end) / xr.DataArray(
+        seconds, dims="time"
+    )
 
 
 def aggregate_time(
@@ -173,73 +174,81 @@ def aggregate_time(
     """Aggregate *ds* into the target intervals ``(start, end]``; variables
     without time pass through.
 
-    A source interval contributes to the target interval that fully contains
-    it (point values: ``start < t <= end``). Values combine according to the
-    variable's ``cell_methods`` (``time: sum`` → sum, ``time: minimum`` → min,
-    ``time: maximum`` → max, otherwise mean). Bins
-    missing any expected source step become NaN instead of a silent undercount;
-    each bin expects the source steps that fit wholly inside it
-    (:func:`_expected_counts`), so bins need not be whole multiples of the step.
+    Each source interval is weighted by how much of it lies inside each target
+    (:func:`overlap`): a source step that straddles a target edge is split
+    between the two by time, and a longer source step is spread evenly over the
+    shorter targets it covers. Point values stand for the step ending at them.
+    Values combine according to the variable's ``cell_methods``: ``time: sum``
+    as a weighted sum, ``time: minimum``/``maximum`` over every overlapping
+    step, otherwise a mean weighted by overlap. Missing values within the
+    source's time span are skipped, so a sum counts the data present; a target
+    that reaches beyond the span (e.g. a day starting before an hourly source
+    does), or that has no data, is NaN.
     """
     start, end, is_point = _intervals(ds)
     step = _step(ds)
+    if is_point:  # each point stands for the step ending at it
+        start = end - step
+    seconds = xr.DataArray((end - start) / np.timedelta64(1, "s"), dims="time")
+    if step > np.timedelta64(0, "ns"):
+        covers = _overlap(start, end, target_start, target_end)
+    else:  # one time step: it counts wholly for the target it falls in
+        ts = xr.DataArray(target_start, dims="step")
+        te = xr.DataArray(target_end, dims="step")
+        t = xr.DataArray(end, dims="time")
+        covers = ((ts < t) & (t <= te)).astype(float)
+        seconds = xr.ones_like(seconds)
+
+    # Targets that reach beyond the source's time span are NaN, not partial
+    inside_span = xr.DataArray(
+        (target_start >= start.min()) & (target_end <= end.max()), dims="step"
+    )
+
+    # A source step's coordinates go to the target holding its end
     j = np.searchsorted(target_end, end, side="left")
     jj = np.minimum(j, len(target_end) - 1)
-    inside = (j < len(target_end)) & (
-        (target_start[jj] < start) if is_point else (target_start[jj] <= start)
-    )
-    expected = _expected_counts(ds, target_start, target_end)
-    counts = np.unique(expected[expected > 0])
-    per_bin = (
-        f"{counts.min()} to {counts.max()}"
-        if len(counts) > 1
-        else counts.max(initial=0)
-    )
+    held = np.flatnonzero((j < len(target_end)) & (target_start[jj] < end))
 
     bounds = _bounds_name(ds)
     timed = [str(v) for v in ds.data_vars if "time" in ds[v].dims and v != bounds]
-    sub = ds[timed].isel(time=np.flatnonzero(inside))
-    sub = sub.assign_coords(_bin=("time", jj[inside]))
-
-    any_inside = inside.any()
     out = {}
     for name in timed:
-        da = sub[name]
+        da = ds[name]
         method = da.attrs.get("cell_methods", "time: mean")
-        if any_inside:
-            grouped = da.groupby("_bin")
-            if "sum" in method:
-                agg = grouped.sum()
-            elif "minimum" in method:
-                agg = grouped.min()
-            elif "maximum" in method:
-                agg = grouped.max()
-            else:
-                agg = grouped.mean()
-            count = grouped.count()
-            need = xr.DataArray(expected, dims="_bin").isel(_bin=count["_bin"].values)
-            agg = agg.where(count >= need.assign_coords(_bin=count["_bin"]))
-            agg = agg.reindex(_bin=np.arange(len(labels))).rename(_bin="time")
+        if not np.issubdtype(da.dtype, np.floating):
+            da = da.astype(np.float32)
+        present = da.notnull()
+        has_data = inside_span & (xr.dot(covers, present, dim="time") > 0)
+        if "minimum" in method or "maximum" in method:
+            # extremes can't be spread: each target takes them over every
+            # source step it overlaps
+            reduce = "min" if "minimum" in method else "max"
+            agg = xr.concat(
+                [getattr(da.where(row > 0), reduce)("time") for row in covers],
+                dim="step",
+            )
+        elif "sum" in method:
+            agg = xr.dot(covers / seconds, da.fillna(0), dim="time")
         else:
-            # nothing inside the target window (e.g. 2012-2020 DEM strips next to a
-            # 2023 event): every bin is missing, so all NaN rather than an error
-            dtype = da.dtype if np.issubdtype(da.dtype, np.floating) else np.float32
-            empty = xr.full_like(ds[name].isel(time=0, drop=True), np.nan, dtype=dtype)
-            agg = empty.expand_dims(time=len(labels)).transpose(*ds[name].dims)
+            weight = covers * present
+            agg = xr.dot(covers, da.fillna(0), dim="time") / xr.dot(
+                weight, xr.ones_like(da), dim="time"
+            )
+        agg = agg.where(has_data).rename(step="time").transpose(*da.dims)
         agg.attrs = {
-            **da.attrs,
+            **ds[name].attrs,
             "cell_methods": method.replace("point", "mean"),
-            "aggregated_from": f"{per_bin} values of {np.timedelta64(step, 'm')}",
+            "aggregated_from": f"steps of {np.timedelta64(step, 'm')}, "
+            "weighted by their overlap with each target step",
         }
-        out[name] = agg
+        out[name] = agg.astype(da.dtype, copy=False)
 
     # Variables without time (e.g. ERA5's orography) pass through unchanged
     for name in ds.data_vars:
         if "time" not in ds[name].dims and name not in out:
             out[str(name)] = ds[name]
     result = xr.Dataset(out, attrs=ds.attrs).assign_coords(time=labels)
-    steps = np.flatnonzero(inside)
-    result = result.assign_coords(_time_coords(ds, steps, jj[steps], len(labels)))
+    result = result.assign_coords(_time_coords(ds, held, jj[held], len(labels)))
     result["time_bounds"] = (("time", "nv"), np.stack([target_start, target_end], -1))
     result.time.attrs["bounds"] = "time_bounds"
     if "spatial_ref" in ds.coords:
