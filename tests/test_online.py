@@ -11,7 +11,7 @@ import pytest
 import xarray as xr
 from shapely.geometry import box
 
-from gaia_cli import align, io, runner, stations
+from gaia_cli import align, io, runner, stations, waveforms
 
 pytestmark = pytest.mark.online
 
@@ -304,3 +304,35 @@ def test_seismic_bpaw(tmp_path):
     assert sites.site.values.tolist() == ["AK.BPAW"]
     assert sites.distance_km.values == pytest.approx([106.8], abs=0.1)
     assert node.attrs["networks"] == ["AK"]
+
+
+# The AV.KENI infrasound array, 279 km from Peters Dome: its six elements are
+# location codes 01 to 06, each at its own position
+KENI = """
+name: keni
+time: 2023-09-14T02:06:49Z
+origin: {latitude: 63.1455, longitude: -151.1904}
+aoi: {latitude: 60.6409, longitude: -151.0713, radius_km: 1}
+datasets:
+  infrasound: {window: {before: 49s, after: 71s}}
+"""
+
+
+def test_infrasound_keni_array(tmp_path):
+    config = tmp_path / "stage.yaml"
+    config.write_text(KENI)
+    out = tmp_path / "out"
+    runner.stage(config=str(config), output_path=str(out))
+
+    node = io.open_datatree(str(out / "keni.zarr"))["waveforms/infrasound"]
+    assert set(node.children) == {"sites", "channels", "100hz"}
+    ds = node["100hz"].to_dataset()
+    assert ds.channel.values.tolist() == [f"AV.KENI.0{i}.HDF" for i in range(1, 7)]
+    assert ds.sizes["time"] == 120 * 100
+    assert not ds.counts.isnull().any()
+    channels = node["channels"].to_dataset()
+    assert channels.sensitivity.values == pytest.approx([11541.508] * 6)
+    assert channels.sensitivity_units.values.tolist() == ["Pa"] * 6
+    sites = node["sites"].to_dataset().xvec.decode_cf()
+    assert sites.distance_km.values == pytest.approx([279.2] * 6, abs=0.2)
+    assert waveforms.to_physical(node, "100hz").name == "pressure"

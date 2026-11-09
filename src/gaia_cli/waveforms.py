@@ -20,6 +20,7 @@ shift: sample *i* was recorded at ``time[i] + time_offset``.
 
 from __future__ import annotations
 
+import datetime as dt
 import fnmatch
 import logging
 import time as clock
@@ -37,6 +38,8 @@ import xarray as xr
 from scipy import signal
 from shapely.geometry import Point
 
+from . import provenance
+
 log = logging.getLogger(__name__)
 
 FDSN_URL = "https://service.earthscope.org/fdsnws"
@@ -48,6 +51,9 @@ STATIONS_PER_REQUEST = 50  # stations per dataselect POST
 RETRIES = 3  # attempts per request, on 5xx errors and timeouts
 TIMEOUT = 300  # seconds
 CHUNK_SECONDS = 3600  # Zarr chunks: one channel by up to an hour of samples
+# Fetched with a second's margin, so samples near the window's edges have a
+# grid step to snap to
+MARGIN = dt.timedelta(seconds=1)
 SEED_ID = "SEED id NET.STA.LOC.CHA"
 SITE_ID = "site id NET.STA.LOC (NET.STA for an empty location)"
 # Text station columns (level=channel) -> channel table columns
@@ -235,7 +241,9 @@ def select_epochs(
     return pd.concat([r.iloc[:1] for r in rows]).drop(columns="covers")
 
 
-def prefer_bands(table: pd.DataFrame, channel: str) -> pd.DataFrame:
+def prefer_bands(
+    table: pd.DataFrame, channel: str, arrays: bool = False
+) -> pd.DataFrame:
     """Per station, the channels of its preferred band and location.
 
     *channel* is the comma-separated FDSN list in order of preference
@@ -244,6 +252,13 @@ def prefer_bands(table: pd.DataFrame, channel: str) -> pd.DataFrame:
     location code, like peters-dome's ``_pick_channels``. So a station with
     both HH and BH channels keeps HHZ, HHN and HHE only, unlike FDSN's own
     union of every pattern.
+
+    With *arrays*, the choice is made per position (to about a metre) rather
+    than per station, so the elements of an array coded by location (AV.KENI
+    ``01`` to ``06``) are each kept; and of the streams of one sensor at one
+    position, the fastest (AK ``EP`` at 40 Hz rather than ``20``, a
+    decimated copy at 20 Hz that EarthScope often has no data for), then the
+    lowest location.
     """
     patterns = [p.strip() for p in channel.split(",") if p.strip()]
 
@@ -254,9 +269,19 @@ def prefer_bands(table: pd.DataFrame, channel: str) -> pd.DataFrame:
         )
 
     table = table.assign(_rank=table.code.map(rank), _band=table.code.str[:2])
+    keys, order = ["network", "station"], ["_rank", "location", "_band"]
+    if arrays:
+        table = table.assign(
+            _lat=table.latitude.round(5),
+            _lon=table.longitude.round(5),
+            _slower=-table.sample_rate,
+        )
+        keys += ["_lat", "_lon"]
+        order.insert(1, "_slower")
+    helpers = [c for c in table.columns if c.startswith("_")]
     keep = []
-    for _, chans in table.groupby(["network", "station"], sort=False):
-        best = chans.sort_values(["_rank", "location", "_band"]).iloc[0]
+    for _, chans in table.groupby(keys, sort=False):
+        best = chans.sort_values(order).iloc[0]
         keep.append(
             chans[
                 (chans._rank == best._rank)
@@ -265,8 +290,8 @@ def prefer_bands(table: pd.DataFrame, channel: str) -> pd.DataFrame:
             ]
         )
     if not keep:
-        return table.drop(columns=["_rank", "_band"])
-    return pd.concat(keep).drop(columns=["_rank", "_band"]).reset_index(drop=True)
+        return table.drop(columns=helpers)
+    return pd.concat(keep).drop(columns=helpers).reset_index(drop=True)
 
 
 def estimated_bytes(
@@ -588,6 +613,98 @@ def to_dataset(ds: xr.Dataset) -> xr.Dataset:
     encoded = ds.xvec.encode_cf()
     encoded.attrs = dict(ds.attrs)
     return encoded
+
+
+# ---- load ----------------------------------------------------------------------
+
+
+def parse_time(value: str) -> pd.Timestamp:
+    t = pd.Timestamp(value)
+    if isinstance(t, pd.Timestamp):  # not NaT
+        return t
+    raise ValueError(f"{value!r} is not a time")
+
+
+def used_origin(aoi: gpd.GeoDataFrame, origin: dict | None) -> dict:
+    """The origin used for distances: the stage file's, else the AOI centroid."""
+    if origin is not None:
+        return {**origin, "source": "stage file origin"}
+    centroid = aoi.to_crs(aoi.estimate_utm_crs()).centroid.to_crs(4326).iloc[0]
+    return {
+        "latitude": round(centroid.y, 6),
+        "longitude": round(centroid.x, 6),
+        "source": "AOI centroid",
+    }
+
+
+def load(
+    aoi: gpd.GeoDataFrame,
+    start_date: str,
+    end_date: str,
+    network: str,
+    station: str,
+    location: str,
+    channel: str,
+    origin: dict | None,
+    attrs: dict,
+    arrays: bool = False,
+) -> xr.DataTree:
+    """A waveform dataset's ``load()``: the channels in *aoi* chosen by
+    :func:`prefer_bands` (with *arrays*), as a tree of their raw counts.
+
+    The arguments are those of ``seismic.load``; *attrs* are the dataset's
+    provenance attributes, completed with its links, time extent,
+    ``networks``, ``gaia:origin`` and ``gaia:query``.
+    """
+    start, end = parse_time(start_date), parse_time(end_date)
+    url = FDSN_URL
+    log.info("querying channels from %s", url)
+    table = query_channels(aoi, start, end, network, station, location, channel, url)
+    table = prefer_bands(select_epochs(table, start, end), channel, arrays)
+    if table.empty:
+        raise ValueError(f"no {channel} channels at stations in the AOI")
+    check_size(table, start, end)
+    log.info(
+        "requesting %d channel(s) at %d station(s), about %.0f MB of counts",
+        len(table),
+        table.groupby(["network", "station"]).ngroups,
+        estimated_bytes(table, start, end) / 1e6,
+    )
+    buffers = dataselect(table, start - MARGIN, end + MARGIN, url)
+    segments = decode(buffers)
+    if not segments:
+        raise RuntimeError("no waveform data returned")
+    used = used_origin(aoi, origin)
+    groups = to_tree(table, segments, start, end, (used["longitude"], used["latitude"]))
+    query = {
+        "url": url,
+        "network": network,
+        "station": station,
+        "location": location,
+        "channel": channel,
+    }
+    links = [
+        provenance.link("via", f"{url}/station/1/", title="FDSN station service"),
+        provenance.link("via", f"{url}/dataselect/1/", title="FDSN dataselect service"),
+    ]
+    rates = {k: g for k, g in groups.items() if k not in TABLES}
+    if not rates:
+        raise RuntimeError("no waveform data returned for the channels requested")
+    for name, ds in rates.items():
+        log.info("%s: %d channel(s), %d samples each", name, *ds.counts.shape)
+    times = np.concatenate([g.time.values[[0, -1]] for g in rates.values()])
+    # The networks to cite: those with data
+    networks = {s.split(".")[0] for g in rates.values() for s in g.site.values}
+    tree = xr.DataTree.from_dict(groups)
+    tree.attrs = {
+        **attrs,
+        "links": links,
+        **provenance.time_extent(xr.Dataset(coords={"time": times})),
+        "networks": sorted(networks),
+        "gaia:origin": used,
+        "gaia:query": query,
+    }
+    return tree
 
 
 # ---- derived views ---------------------------------------------------------------
