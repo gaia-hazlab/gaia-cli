@@ -11,7 +11,6 @@ from enum import Enum
 import geopandas as gpd
 import numpy as np
 import rasterio
-import rioxarray
 import xarray as xr
 
 from .. import io, provenance, regrid
@@ -208,10 +207,8 @@ def _statsgo_attrs() -> dict:
 def open_layer(layer: str) -> xr.DataArray:
     url = _url(layer)
     log.info("SOLUS: opening %s", url)
-    # Lazy but not dask: a clip then reads one window of the COG, instead of every
-    # whole dask chunk it touches. masked: nodata (255 or 65535) becomes NaN
-    da = rioxarray.open_rasterio(url, cache=False, masked=True)
-    return da.squeeze("band", drop=True).rename(layer)  # ty: ignore[unresolved-attribute, invalid-argument-type, invalid-return-type]
+    # masked: nodata (255 or 65535) becomes NaN
+    return io.open_raster(url, layer, masked=True)
 
 
 def _decode(raw: xr.DataArray, layer: str) -> xr.DataArray:
@@ -236,8 +233,8 @@ def _decode(raw: xr.DataArray, layer: str) -> xr.DataArray:
 def _load_statsgo(aoi: gpd.GeoDataFrame) -> xr.DataArray:
     log.info("STATSGO: opening %s", STATSGO_URL)
     with rasterio.Env(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR"):
-        raw = rioxarray.open_rasterio(STATSGO_URL, cache=False, masked=True)
-        raw = io.clip_to_aoi(raw.squeeze("band", drop=True), aoi).load()  # ty: ignore[unresolved-attribute, invalid-argument-type]
+        raw = io.open_raster(STATSGO_URL, "kffact", masked=True)
+        raw = io.clip_to_aoi(raw, aoi).load()
     # float32, as the source; the code is float32 -0.1 too
     da = raw.where(raw != raw.dtype.type(STATSGO_MISSING)).rename("kffact")
     da.attrs = {

@@ -11,7 +11,7 @@ import geopandas as gpd
 import numpy as np
 import obstore
 import odc.stac
-import rioxarray  # noqa: F401  registers the .rio accessor
+import rioxarray
 import xarray as xr
 import xvec  # noqa: F401  registers the .xvec accessor
 import zarr
@@ -76,6 +76,16 @@ def clip_to_aoi(
     rx, ry = (abs(r) for r in da.rio.resolution())
     da = da.rio.clip_box(minx - rx, miny - ry, maxx + rx, maxy + ry)
     return da.rio.clip(aoi_native.geometry, all_touched=all_touched)
+
+
+def open_raster(url: str, name: str, masked: bool = False) -> xr.DataArray:
+    """The single band of the raster (COG or VRT) at *url* as *name*, lazily.
+
+    Lazy but not dask: a clip then reads one window of the file, instead of
+    every whole dask chunk it touches. *masked* makes nodata NaN.
+    """
+    da = rioxarray.open_rasterio(url, cache=False, masked=masked)
+    return da.squeeze("band", drop=True).rename(name)  # ty: ignore[unresolved-attribute, invalid-argument-type, invalid-return-type]
 
 
 def with_time_bounds(
@@ -299,6 +309,20 @@ def _geozarr_attrs(ds: xr.Dataset) -> dict:
     return attrs
 
 
+def encode_cf(ds: xr.Dataset) -> xr.Dataset:
+    """*ds* with its xvec geometries (station and waveform sites) CF-encoded,
+    which Zarr can store, keeping ``attrs``; unchanged without any."""
+    if not ds.xvec.geom_coords:
+        return ds
+    return ds.xvec.encode_cf().assign_attrs(ds.attrs)
+
+
+def decode_cf(ds: xr.Dataset) -> xr.Dataset:
+    """*ds* with CF-encoded geometries (as read from a store) decoded to an
+    xvec index; unchanged without any."""
+    return ds.xvec.decode_cf() if "geometry_container" in ds else ds
+
+
 def _prepare_for_zarr(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
     """Load datasets up to ~10 MB into memory and store each variable as one chunk.
 
@@ -310,6 +334,7 @@ def _prepare_for_zarr(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
     their encoding sets (waveform counts: one channel by up to an hour), else
     get Zarr's default chunking.
     """
+    ds = encode_cf(ds)
     # Fixed-width numpy strings (<U*) have no Zarr v3 spec; store as variable-length UTF-8
     ds = ds.assign_coords(
         {k: v.astype(object) for k, v in ds.coords.items() if v.dtype.kind == "U"}

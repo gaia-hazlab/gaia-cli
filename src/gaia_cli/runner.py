@@ -54,11 +54,6 @@ from .window import unknown
 
 log = logging.getLogger(__name__)
 
-# The largest group a run writes. load() returns lazy arrays where it can, so the
-# check usually comes before any data is read
-MAX_BYTES = io.MAX_BYTES
-size = io.size
-
 
 def warn_missing_tokens(requests) -> None:
     """Warn, before anything loads, for each dataset whose token isn't set."""
@@ -110,12 +105,14 @@ def run(
         )
         try:
             obj = module.load(aois[aoi_key(req.aoi)], **kwargs)
-            nodes = _nodes(module, group(req), obj)
+            nodes = _nodes(group(req), obj)
             nbytes = sum(node.nbytes for node in nodes.values())
-            log.info("%s: %s to write", req.name, size(nbytes))
-            if nbytes > MAX_BYTES:
+            log.info("%s: %s to write", req.name, io.size(nbytes))
+            # load() returns lazy arrays where it can, so this usually comes
+            # before any data is read
+            if nbytes > io.MAX_BYTES:
                 raise ValueError(
-                    f"{size(nbytes)} is over the {size(MAX_BYTES)} limit; "
+                    f"{io.size(nbytes)} is over the {io.size(io.MAX_BYTES)} limit; "
                     "use a smaller AOI or window"
                 )
             method = getattr(module, "REGRID_METHOD", None)
@@ -145,20 +142,14 @@ def run(
     return failures
 
 
-def _nodes(module, path: str, obj: xr.Dataset | xr.DataTree) -> dict[str, xr.Dataset]:
-    """The store groups for what *module*'s ``load()`` returned: a Dataset at
+def _nodes(path: str, obj: xr.Dataset | xr.DataTree) -> dict[str, xr.Dataset]:
+    """The store groups for what a dataset's ``load()`` returned: a Dataset at
     the dataset's group *path*, or each child of a DataTree under it (e.g.
-    ``waveforms/seismic/50hz``), with the tree's own attrs on *path*.
-
-    Station and waveform data is CF-encoded for the store with the module's
-    ``to_dataset``.
-    """
-    encode = getattr(module, "to_dataset", lambda ds: ds)
+    ``waveforms/seismic/50hz``), with the tree's own attrs on *path*."""
     if not isinstance(obj, xr.DataTree):
-        return {path: encode(obj)}
+        return {path: obj}
     nodes = {
-        f"{path}/{name}": encode(child.to_dataset())
-        for name, child in obj.children.items()
+        f"{path}/{name}": child.to_dataset() for name, child in obj.children.items()
     }
     if obj.attrs:
         nodes[path] = xr.Dataset(attrs=obj.attrs)

@@ -1,12 +1,13 @@
 import numpy as np
 import xarray as xr
 
+from gaia_cli import io
 from gaia_cli.datasets import nlcd
 
 
 def test_nlcd_classes_are_cf_flags(monkeypatch):
     da = xr.DataArray(np.full((1, 2, 2), 42, "uint8"), dims=("band", "y", "x"))
-    monkeypatch.setattr(nlcd.rioxarray, "open_rasterio", lambda *a, **k: da)
+    monkeypatch.setattr(io.rioxarray, "open_rasterio", lambda *a, **k: da)
     attrs = nlcd.open_nlcd(2021).attrs
     n = len(attrs["flag_values"])
     assert (

@@ -8,7 +8,7 @@ import pytest
 import requests
 import xarray as xr
 
-from gaia_cli import fetch, regrid, runner, stagefile
+from gaia_cli import fetch, io, regrid, runner, stagefile
 from gaia_cli.aoi import load_aoi, parse_aoi
 from gaia_cli.cli import stage_app
 from gaia_cli.datasets import hrrr, prism, synoptic
@@ -325,7 +325,7 @@ def test_groups_over_the_size_limit_fail_before_writing(tmp_path, monkeypatch, c
     calls = []
     monkeypatch.setattr(prism, "load", fake_load("prism", calls))
     monkeypatch.setattr(hrrr, "load", fake_load("hrrr", calls))
-    monkeypatch.setattr(runner, "MAX_BYTES", 4)  # each fake group is 8 bytes
+    monkeypatch.setattr(io, "MAX_BYTES", 4)  # each fake group is 8 bytes
     config = write(tmp_path, CONUS + "  prism: {}\n  hrrr: {}\n")
     caplog.set_level("INFO", logger="gaia_cli.runner")
     with pytest.raises(SystemExit, match=r"2 of 2 dataset\(s\) failed") as e:
@@ -345,7 +345,7 @@ def test_groups_over_the_size_limit_fail_before_writing(tmp_path, monkeypatch, c
     ],
 )
 def test_size(nbytes, text):
-    assert runner.size(nbytes) == text
+    assert io.size(nbytes) == text
 
 
 def test_module_pad_and_origin_reach_load(tmp_path, monkeypatch, capsys):
@@ -389,16 +389,12 @@ def test_a_datatree_from_load_is_mounted_under_the_group(tmp_path, monkeypatch):
         return tree
 
     monkeypatch.setattr(prism, "load", load)
-    monkeypatch.setattr(
-        prism, "to_dataset", lambda ds: ds.assign(w=ds.v), raising=False
-    )
     out = tmp_path / "out"
     runner.stage(config=write(tmp_path, CONUS + "  prism: {}\n"), output_path=str(out))
     tree = xr.open_datatree(out / "bolt-creek.zarr", engine="zarr")
     assert set(tree["rasters/prism"].children) == {"50hz", "100hz"}
     assert tree["rasters/prism"].attrs["note"] == "parent"
-    # Each child goes through the module's to_dataset
-    assert set(tree["rasters/prism/50hz"].data_vars) == {"v", "w"}
+    assert set(tree["rasters/prism/50hz"].data_vars) == {"v"}
     assert tree["rasters/prism/100hz"].attrs["title"] == "child"
     # --skip-existing sees the group as written
     runner.stage(
@@ -478,7 +474,6 @@ def test_datasets_outside_their_extent_are_skipped(tmp_path, monkeypatch, caplog
     calls = []
     monkeypatch.setattr(prism, "load", fake_load("prism", calls))
     monkeypatch.setattr(synoptic, "load", fake_load("synoptic", calls))
-    monkeypatch.setattr(synoptic, "to_dataset", lambda ds: ds)
     text = CONUS.replace(
         "[-121.6, 47.6, -121.0, 47.9]", "[-152.2, 62.75, -150.2, 63.55]"
     )

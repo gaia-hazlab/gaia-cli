@@ -11,15 +11,16 @@ module has:
   (inclusive); static layers take neither. The runner passes the window's end less one
   microsecond as `end_date`. `load()` may instead return an `xr.DataTree`, whose
   children are written under the dataset's group (`seismic`: `sites`, `channels`
-  and one per sample rate, `waveforms/seismic/50hz`), each through the module's
-  `to_dataset` if it has one, and the tree's own attrs on the group.
+  and one per sample rate, `waveforms/seismic/50hz`), with the tree's own attrs on
+  the group. Any xvec geometry (stations, waveform sites) is CF-encoded for Zarr
+  when the store is written (`io.encode_cf`); readers decode it with `io.decode_cf`.
 - **`EXTENT`**: a STAC Collection `extent` (`{"spatial": {"bbox": [[w, s, e, n]]},
   "temporal": {"interval": [[start, end]]}}`, `None` for an open end). Copy it from
   the provider's STAC Collection when there is one, otherwise write it by hand,
   with a comment saying where the values come from. Runs skip datasets whose
   extent the AOI or window misses ([stage-file.md](stage-file.md#coverage)).
 - **`KIND`**: `"raster"` (group `rasters/<name>`), `"stations"` (group
-  `stations/<name>`, xvec CF-encoded with the module's `to_dataset`) or
+  `stations/<name>`) or
   `"waveforms"` (group `waveforms/<name>`, with `sites` and `channels` tables and one
   child per sample rate; see [seismic.md](seismic.md)).
 
@@ -116,10 +117,8 @@ Example: `synoptic.py`.
 2. **Build a CF ragged array** with `stations.ragged(stations, reports)` (see
    `synoptic.construct_ragged` and [stations.md](stations.md)). Don't resample
    onto a grid; readers use `stations.to_grid`.
-3. **Return it from `load()`** with provenance attributes, and write a
-   `to_dataset(ds)` that CF-encodes it (`xvec.encode_cf()`, keeping `attrs`) so
-   geometries round-trip through Zarr (see `synoptic.to_dataset`). With
-   `KIND = "stations"` the runner calls it before writing.
+3. **Return it from `load()`** with provenance attributes and its xvec geometry
+   index; the store CF-encodes the geometries when it writes them.
 
 ## Registering
 

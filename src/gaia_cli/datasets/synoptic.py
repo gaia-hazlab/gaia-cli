@@ -328,13 +328,6 @@ def construct_ragged(data: dict, variables: Sequence[str] = (PRECIP,)) -> xr.Dat
 # CLI entrypoint
 
 
-def to_dataset(ds: xr.Dataset) -> xr.Dataset:
-    """*ds* from :func:`load`, xvec CF-encoded for a DataTree group."""
-    encoded = ds.xvec.encode_cf()
-    encoded.attrs = dict(ds.attrs)
-    return encoded
-
-
 def load(
     aoi: gpd.GeoDataFrame,
     start_date: str,

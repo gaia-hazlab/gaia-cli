@@ -37,7 +37,7 @@ import xarray as xr
 from scipy import signal
 from shapely.geometry import Point
 
-from . import fetch, provenance
+from . import fetch, io, provenance
 
 log = logging.getLogger(__name__)
 
@@ -594,14 +594,6 @@ def to_tree(
     return groups
 
 
-def to_dataset(ds: xr.Dataset) -> xr.Dataset:
-    """A group of a waveform dataset, xvec CF-encoded for the store (``sites``;
-    the others have no geometry), keeping ``attrs``."""
-    encoded = ds.xvec.encode_cf()
-    encoded.attrs = dict(ds.attrs)
-    return encoded
-
-
 # ---- load ----------------------------------------------------------------------
 
 
@@ -705,10 +697,6 @@ QUANTITIES = {
 }
 COMPONENTS = ("Z", "N", "E", "1", "2")
 TABLES = ("sites", "channels")
-
-
-def _decoded(ds: xr.Dataset) -> xr.Dataset:
-    return ds.xvec.decode_cf() if "geometry_container" in ds else ds
 
 
 def rate_groups(node: xr.DataTree) -> list[str]:
@@ -839,7 +827,7 @@ def to_grid(node: xr.DataTree, rate: float = 20.0, physical: bool = True) -> xr.
         time=start + np.round(grid * 1e9).astype("int64").astype("timedelta64[ns]")
     )
     channels = meta.sel(channel=ds.channel)
-    sites = _decoded(node["sites"].to_dataset())
+    sites = io.decode_cf(node["sites"].to_dataset())
     sites = sites.drop_vars("geometry").swap_dims(geometry="site")
     sites = sites.sel(site=channels.site)
     ds = ds.assign_coords(
@@ -880,7 +868,7 @@ def by_component(ds: xr.Dataset, sites: xr.Dataset | xr.DataTree) -> xr.Dataset:
     """
     if isinstance(sites, xr.DataTree):
         sites = sites.to_dataset()
-    sites = _decoded(sites)
+    sites = io.decode_cf(sites)
     (name,) = ds.data_vars
     comps = [
         component(c, a) for c, a in zip(ds.code.values, ds.azimuth.values, strict=True)

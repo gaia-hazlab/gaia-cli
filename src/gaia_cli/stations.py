@@ -20,6 +20,8 @@ import pandas as pd
 import xarray as xr
 import xvec  # noqa: F401  registers the .xvec accessor
 
+from . import io
+
 
 def ragged(
     stations: xr.Dataset, reports: list[pd.DataFrame], crs: str = "EPSG:4326"
@@ -46,17 +48,13 @@ def ragged(
     return ds.xvec.set_geom_indexes("geometry", crs=crs)
 
 
-def _decoded(ds: xr.Dataset) -> xr.Dataset:
-    return ds.xvec.decode_cf() if "geometry_container" in ds else ds
-
-
 def _report_vars(ds: xr.Dataset) -> list[str]:
     return [str(v) for v in ds.data_vars if ds[v].dims == ("obs",)]
 
 
 def to_dataframe(ds: xr.Dataset) -> pd.DataFrame:
     """Every report as a row: ``station``, ``time`` and one column per variable."""
-    ds = _decoded(ds)
+    ds = io.decode_cf(ds)
     df = ds[["time", *_report_vars(ds)]].reset_coords().to_dataframe()
     df.insert(0, "station", np.repeat(ds.station.values, ds.row_size.values))
     return df.reset_index(drop=True)
@@ -95,7 +93,7 @@ def to_grid(
         Station variables as coordinates along ``geometry``, which keeps its
         xvec index.
     """
-    ds = _decoded(ds)
+    ds = io.decode_cf(ds)
     names = list(variables or _report_vars(ds))
     step = pd.Timedelta(freq)
     # Just under one step, so a step with no report of its own is NaN rather
