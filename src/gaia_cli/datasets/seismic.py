@@ -8,23 +8,17 @@ velocity is counts / sensitivity. See dev/seismic.md.
 Examples
 --------
 Peters Dome, 2023-09-14: every HH or BH station within 250 km:
-    $ gaia stage --config examples/peters-dome-seismic.yaml -o peters-dome-seismic
+    $ gaia stage --config examples/peters-dome-waveforms.yaml -o peters-dome-waveforms
 
 One station, two minutes:
     $ gaia stage seismic -i aoi.geojson -s 2023-09-14T02:06 -e 2023-09-14T02:08 -n AK --station BPAW -o bpaw
 """
 
-import datetime as dt
-import logging
-
 import geopandas as gpd
-import numpy as np
 import pandas as pd
 import xarray as xr
 
-from .. import provenance, waveforms
-
-log = logging.getLogger(__name__)
+from .. import waveforms
 
 KIND = "waveforms"
 # Read exactly the window: waveforms have no periods straddling its edges
@@ -35,9 +29,6 @@ EXTENT = {
     "spatial": {"bbox": [[-180.0, -90.0, 180.0, 90.0]]},
     "temporal": {"interval": [[None, None]]},
 }
-# Fetched with a second's margin, so samples near the window's edges have a
-# grid step to snap to
-MARGIN = dt.timedelta(seconds=1)
 PROVENANCE = {
     "title": "Seismic waveforms from EarthScope FDSN web services",
     "description": "Raw digitizer counts of seismic channels at stations in "
@@ -58,25 +49,6 @@ PROVENANCE = {
     "(the shift is time_offset); physical units = counts / sensitivity "
     "(gaia_cli.waveforms.to_physical), flat-response approximation",
 }
-
-
-def _time(value: str) -> pd.Timestamp:
-    t = pd.Timestamp(value)
-    if isinstance(t, pd.Timestamp):  # not NaT
-        return t
-    raise ValueError(f"{value!r} is not a time")
-
-
-def _origin(aoi: gpd.GeoDataFrame, origin: dict | None) -> dict:
-    """The origin used for distances: the stage file's, else the AOI centroid."""
-    if origin is not None:
-        return {**origin, "source": "stage file origin"}
-    centroid = aoi.to_crs(aoi.estimate_utm_crs()).centroid.to_crs(4326).iloc[0]
-    return {
-        "latitude": round(centroid.y, 6),
-        "longitude": round(centroid.x, 6),
-        "source": "AOI centroid",
-    }
 
 
 def load(
@@ -122,59 +94,17 @@ def load(
         (``50hz``, ``100hz``, …) with ``counts`` on ``(channel, time)``; see
         :mod:`gaia_cli.waveforms`. Provenance attributes are on the tree.
     """
-    start, end = _time(start_date), _time(end_date)
-    url = waveforms.FDSN_URL
-    log.info("querying channels from %s", url)
-    table = waveforms.query_channels(
-        aoi, start, end, network, station, location, channel, url
+    return waveforms.load(
+        aoi,
+        start_date,
+        end_date,
+        network,
+        station,
+        location,
+        channel,
+        origin,
+        PROVENANCE,
     )
-    table = waveforms.prefer_bands(waveforms.select_epochs(table, start, end), channel)
-    if table.empty:
-        raise ValueError(f"no {channel} channels at stations in the AOI")
-    waveforms.check_size(table, start, end)
-    log.info(
-        "requesting %d channel(s) at %d station(s), about %.0f MB of counts",
-        len(table),
-        table.groupby(["network", "station"]).ngroups,
-        waveforms.estimated_bytes(table, start, end) / 1e6,
-    )
-    buffers = waveforms.dataselect(table, start - MARGIN, end + MARGIN, url)
-    segments = waveforms.decode(buffers)
-    if not segments:
-        raise RuntimeError("no waveform data returned")
-    used = _origin(aoi, origin)
-    groups = waveforms.to_tree(
-        table, segments, start, end, (used["longitude"], used["latitude"])
-    )
-    query = {
-        "url": url,
-        "network": network,
-        "station": station,
-        "location": location,
-        "channel": channel,
-    }
-    links = [
-        provenance.link("via", f"{url}/station/1/", title="FDSN station service"),
-        provenance.link("via", f"{url}/dataselect/1/", title="FDSN dataselect service"),
-    ]
-    rates = {k: g for k, g in groups.items() if k not in waveforms.TABLES}
-    if not rates:
-        raise RuntimeError("no waveform data returned for the channels requested")
-    for name, ds in rates.items():
-        log.info("%s: %d channel(s), %d samples each", name, *ds.counts.shape)
-    times = np.concatenate([g.time.values[[0, -1]] for g in rates.values()])
-    # The networks to cite: those with data
-    networks = {s.split(".")[0] for g in rates.values() for s in g.site.values}
-    tree = xr.DataTree.from_dict(groups)
-    tree.attrs = {
-        **PROVENANCE,
-        "links": links,
-        **provenance.time_extent(xr.Dataset(coords={"time": times})),
-        "networks": sorted(networks),
-        "gaia:origin": used,
-        "gaia:query": query,
-    }
-    return tree
 
 
 def to_dataset(ds: xr.Dataset) -> xr.Dataset:

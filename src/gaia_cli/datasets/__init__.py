@@ -17,6 +17,7 @@ from . import (
     dem,
     era5,
     hrrr,
+    infrasound,
     nlcd,
     prism,
     seismic,
@@ -42,6 +43,7 @@ DATASETS: dict[str, ModuleType] = {
     "sentinel1-rtc": sentinel1_rtc,
     "sentinel2": sentinel2,
     "seismic": seismic,
+    "infrasound": infrasound,
 }
 
 

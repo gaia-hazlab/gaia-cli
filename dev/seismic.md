@@ -7,11 +7,11 @@ physical units. Nothing is demeaned, filtered or resampled at stage time. A comm
 and physical units are read-side views (`gaia_cli.waveforms.to_grid`, `to_physical`),
 like `stations.to_grid` for station reports.
 
-Code: `src/gaia_cli/waveforms.py` (shared with `infrasound`, roadmap step 2.2) and
+Code: `src/gaia_cli/waveforms.py` (shared with [`infrasound`](infrasound.md)) and
 `src/gaia_cli/datasets/seismic.py`.
 
 ```bash
-gaia stage --config examples/peters-dome-seismic.yaml -o peters-dome-seismic
+gaia stage --config examples/peters-dome-waveforms.yaml -o peters-dome-waveforms
 gaia stage seismic -i aoi.geojson -s 2023-09-14T02:06 -e 2023-09-14T02:08 -n AK --station BPAW -o bpaw
 ```
 
@@ -73,7 +73,7 @@ counts refer to them by id:
   location, e.g. `AK.BPAW`). It is laid out like a `stations/*` group, along an xvec
   `geometry` dimension, so xvec CF-encodes and decodes it with its index, and the STAC
   Item's bbox comes from it. A station's three components share one site; an
-  infrasound array's elements (2.2) are separate sites, by location code.
+  infrasound array's elements are separate sites, by location code.
 - **`channels`** has one row per channel requested, including channels that returned
   no data (their `group` is `""`), so the request is recorded in full.
 - **One group per sample rate**, named `<rate>hz` (`%g`: `50hz`, `0.1hz`, `12.5hz`),
@@ -173,7 +173,7 @@ variables along `geometry` as `stations.to_grid` gives for station reports:
 ```python
 from gaia_cli import io, waveforms
 
-tree = io.open_datatree("peters-dome-seismic/peters-dome-seismic.zarr")
+tree = io.open_datatree("peters-dome-waveforms/peters-dome-waveforms.zarr")
 node = tree["waveforms/seismic"]
 grid = waveforms.to_grid(node, rate=20)  # velocity, m/s
 z = waveforms.by_component(grid, node["sites"]).velocity.sel(component="Z")
@@ -201,8 +201,8 @@ windows.
 
 - Channels with non-integer samples (rare for seismic data) are skipped with a warning:
   counts are int32.
-- One location per station: arrays whose elements are location codes (common for
-  infrasound) need another rule in step 2.2.
+- One location per station: an array whose elements are location codes keeps only its
+  lowest. `infrasound` chooses per position instead ([infrasound.md](infrasound.md)).
 - A whole station's request is skipped if it keeps failing after retries; the run logs
   it but doesn't fail.
 - The STAC Item's bbox covers the stations, not the AOI.

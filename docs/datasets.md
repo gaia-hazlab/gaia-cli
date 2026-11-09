@@ -16,6 +16,7 @@ title: Datasets
 | [`sentinel1-rtc`](#sentinel1-rtc) | Sentinel-1 radar backscatter | global, 2014-10 on | 10 m | each pass | `rasters/sentinel1-rtc` |
 | [`sentinel2`](#sentinel2) | Sentinel-2 surface reflectance | global, 2015-06 on | 10 m | each pass | `rasters/sentinel2` |
 | [`seismic`](#seismic) | seismic waveforms (EarthScope FDSN) | global | stations | native rate, raw counts | `waveforms/seismic/<rate>hz` |
+| [`infrasound`](#infrasound) | infrasound waveforms (EarthScope FDSN) | global | sensors | native rate, raw counts | `waveforms/infrasound/<rate>hz` |
 
 A dataset that the AOI or window misses (for example `prism` in Alaska) is skipped
 with a warning. Licenses differ: check each group's `license` attribute before sharing
@@ -259,3 +260,19 @@ distance).
   `gaia_cli.waveforms.to_grid(node, rate=20)` puts every channel on one common grid.
 - The window is read exactly, without the one-day padding of other datasets.
 - License: set by each seismic network; `waveforms/seismic` lists its `networks`.
+
+(infrasound)=
+## Infrasound
+
+Infrasound (pressure) waveforms from the same EarthScope services, stored like
+[`seismic`](#seismic), in `waveforms/infrasound/<rate>hz` with `sites` and `channels`
+tables.
+
+- `--channel` (default `BDF,HDF`) lists channel codes in order of preference, chosen
+  **per sensor position** rather than per station, so every element of an array is
+  kept, whether its elements are stations (IM.I53H1 to H8) or location codes (AV.KENI
+  01 to 06). Where one sensor has several streams (AK `EP` at 40 Hz and `20` at 20 Hz),
+  the fastest is kept.
+- `gaia_cli.waveforms.to_physical(node, "40hz")` gives pressure (Pa) as counts /
+  sensitivity, the same as obspy's `remove_sensitivity`.
+- License: set by each network; `waveforms/infrasound` lists its `networks`.

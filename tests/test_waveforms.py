@@ -64,6 +64,31 @@ def test_prefer_bands_keeps_one_band_and_location_per_station(fdsn):
     )
 
 
+def test_prefer_bands_with_arrays_keeps_one_stream_per_position(fdsn):
+    # An array by location, each element at its own position
+    for i in range(1, 4):
+        fdsn.channel(f"AV.KENI.0{i}.HDF", lat=60.6410 + i * 1e-3, rate=100.0)
+    # One sensor, two streams: the faster is kept, though its location is higher
+    fdsn.channel("AK.CUT.20.BDF", lat=62.4, rate=20.0)
+    fdsn.channel("AK.CUT.EP.BDF", lat=62.4, rate=40.0)
+    fdsn.channel("AK.CUT.EP.LDF", lat=62.4, rate=1.0)
+    # BDF preferred over HDF at one position
+    fdsn.channel("AT.DORN..BDF", lat=61.1)
+    fdsn.channel("AT.DORN..HDF", lat=61.1, rate=100.0)
+    out = waveforms.prefer_bands(table(fdsn), "BDF,HDF", arrays=True)
+    assert sorted(waveforms.seed_ids(out)) == [
+        "AK.CUT.EP.BDF",
+        "AT.DORN..BDF",
+        "AV.KENI.01.HDF",
+        "AV.KENI.02.HDF",
+        "AV.KENI.03.HDF",
+    ]
+    assert not any(c.startswith("_") for c in out.columns)
+    # Per station, as for seismic, an array keeps its lowest location only
+    out = waveforms.prefer_bands(table(fdsn), "BDF,HDF")
+    assert "AV.KENI.02.HDF" not in waveforms.seed_ids(out).tolist()
+
+
 def test_query_channels_keeps_stations_inside_the_aoi_polygon(fdsn):
     aoi = load_aoi({"latitude": 64.0, "longitude": -151.0, "radius_km": 50})
     fdsn.channel("AK.IN..BHZ", lat=64.0, lon=-151.0)

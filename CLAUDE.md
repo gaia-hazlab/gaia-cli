@@ -52,7 +52,7 @@ src/gaia_cli/
   regrid.py       # per-array spatial regridding methods
   presets/        # built-in stage files (conus-precip)
   stations.py     # ragged-array helpers for station data: to_dataframe, to_grid
-  waveforms.py    # FDSN station/dataselect, miniSEED decoding; sites/channels tables + native-rate groups; to_physical, to_grid
+  waveforms.py    # FDSN station/dataselect, miniSEED decoding; sites/channels tables + native-rate groups; the shared load(); to_physical, to_grid
   prism_cache/    # rolling S3 cache of PRISM COGs (no other gaia_cli imports)
   datasets/       # one module per data source (load(), EXTENT, KIND; see dev/adding-a-dataset.md)
     __init__.py   # DATASETS registry: name -> module
@@ -64,6 +64,7 @@ src/gaia_cli/
     sentinel1_rtc.py  # Sentinel-1 RTC gamma0 per pass (Planetary Computer, via stac.py)
     sentinel2.py  # Sentinel-2 L2A reflectance and SCL per pass (Planetary Computer, via stac.py)
     seismic.py    # EarthScope FDSN waveforms, raw counts per sample rate (uses waveforms.py)
+    infrasound.py # EarthScope FDSN pressure, the same layout; array elements kept per position
     nlcd.py, dem.py, soil.py, burn_severity.py   # static layers
 
 tests/          # pytest suite; test_online.py needs network

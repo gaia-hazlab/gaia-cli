@@ -84,7 +84,7 @@ def test_load_errors(fdsn):
     with pytest.raises(RuntimeError, match="no waveform data"):
         seismic.load(aoi, "2023-09-14T02:06", "2023-09-14T02:07")
     with pytest.raises(ValueError, match="is not a time"):
-        seismic._time("NaT")
+        waveforms.parse_time("NaT")
 
 
 def test_stage_writes_waveform_groups(fdsn, tmp_path, monkeypatch, capsys):

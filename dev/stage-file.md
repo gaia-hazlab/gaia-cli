@@ -95,8 +95,9 @@ and `dem/usgs10m`. `--only dem` selects every variant, and `--only dem/usgs10m` 
 | `sentinel1-rtc` | `polarizations` (list of `vv`, `vh`, `hh`, `hv`; default `[vv, vh]`), `orbit_state` (`any`, `ascending`, `descending`; default `any`), `relative_orbit` (default `0`, every track), `match` (`none`, `relative_orbit`; see [Choosing scenes](#choosing-scenes)); see [sentinel1-rtc.md](sentinel1-rtc.md) |
 | `sentinel2` | `bands` (list of common names, default `[blue, green, red, nir, swir16, scl]`), `max_cloud_cover` (percent of the tile, default `100`, no filter); see [sentinel2.md](sentinel2.md) |
 | `seismic` | `network`, `station`, `location` (FDSN codes, default `*`) and `channel` (default `"HH?,BH?"`, in order of preference: each station keeps the first band it has; see [seismic.md](seismic.md)); one group per sample rate, `waveforms/seismic/<rate>hz` |
+| `infrasound` | the same as `seismic`, with `channel` default `"BDF,HDF"`, chosen per sensor position so array elements are kept (see [infrasound.md](infrasound.md)); `waveforms/infrasound/<rate>hz` |
 
-`origin` isn't a dataset option: datasets that use it (`seismic`, for `distance_km` and
+`origin` isn't a dataset option: datasets that use it (`seismic` and `infrasound`, for `distance_km` and
 `back_azimuth`) take the file's `origin`, else the AOI's centroid, and record which in
 their attributes. Single-dataset commands have no origin flag, so they use the centroid.
 
@@ -160,8 +161,8 @@ UTC, and offsets (`2025-12-01T00:00-08:00`) are converted.
 | `{pre: {...}, post: {...}}` | named sub-windows (for scene-based datasets) |
 | `select: all \| first \| last \| nearest`, `count: N` | which scenes to keep (scene-based datasets) |
 
-Timed datasets are **read one day beyond each end** of their window (`seismic`, whose
-samples have no periods to complete, reads exactly its window), so a window
+Timed datasets are **read one day beyond each end** of their window (`seismic` and
+`infrasound`, whose samples have no periods to complete, read exactly their window), so a window
 `2025-12-01/2025-12-20` reads `2025-11-30` through `2025-12-21`. Periods that straddle
 the window's edges, such as PRISM's 12 UTC day, are then complete, and `gaia align`
 has every source step it needs for each period in the window. `--dry-run` shows the
@@ -239,6 +240,7 @@ the provider.
 | `soil` | CONUS | static |
 | `burn-severity` | CONUS (USFS assessments) | static; fires from 2017 on |
 | `seismic` | global (EarthScope serves networks worldwide) | open |
+| `infrasound` | global (EarthScope) | open |
 
 ## Validation
 
