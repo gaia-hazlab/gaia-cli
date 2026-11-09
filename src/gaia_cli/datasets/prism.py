@@ -27,9 +27,6 @@ from .. import io, prism_cache, provenance
 
 log = logging.getLogger(__name__)
 
-# GDAL settings for efficient remote reading
-odc.stac.configure_rio(cloud_defaults=True)
-
 # STAC Collection extent: the bbox of the gaia cache's collection (prism_cache/stac.py);
 # the archive starts in 1981 (https://prism.oregonstate.edu/documents/PRISM_datasets.pdf)
 EXTENT = {

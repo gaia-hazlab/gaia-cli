@@ -30,9 +30,6 @@ PC_SAS = "https://planetarycomputer.microsoft.com/api/sas/v1/token"
 # the store is written, after load() returns
 TOKEN_MARGIN = pd.Timedelta(hours=1)
 
-# GDAL settings for efficient remote reading
-odc.stac.configure_rio(cloud_defaults=True)
-
 # collection -> (token, expiry)
 _tokens: dict[str, tuple[str, pd.Timestamp]] = {}
 

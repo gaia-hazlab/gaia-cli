@@ -10,6 +10,7 @@ import boto3
 import geopandas as gpd
 import numpy as np
 import obstore
+import odc.stac
 import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
 import xvec  # noqa: F401  registers the .xvec accessor
@@ -21,6 +22,15 @@ from zarr.storage import ObjectStore
 from . import provenance
 
 log = logging.getLogger(__name__)
+
+# GDAL settings for odc-stac's remote reads (prism, stac.py), set only here: a
+# second call would replace them. No HEAD requests: ASF's signed URLs
+# (earthdata.py) answer GETs only. HTTP/1.1: over HTTP/2, ASF's CloudFront
+# occasionally drops a stream under parallel reads, and GDAL reads the empty
+# response (code 0, not retried) as a file in an unknown format
+odc.stac.configure_rio(
+    cloud_defaults=True, CPL_VSIL_CURL_USE_HEAD="NO", GDAL_HTTP_VERSION="1.1"
+)
 
 # The most `gaia stage` writes in one group, and `gaia align` in one store
 MAX_BYTES = 10 * 1024**3

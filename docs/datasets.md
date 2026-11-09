@@ -14,6 +14,7 @@ title: Datasets
 | [`soil`](#soil) | soil properties | CONUS | 100 m, 30 m | static | `soil/<product>` |
 | [`burn-severity`](#burn-severity) | BAER soil burn severity | CONUS, fires 2017 on | 20–30 m | static | `rasters/burn-severity` |
 | [`sentinel1-rtc`](#sentinel1-rtc) | Sentinel-1 radar backscatter | global, 2014-10 on | 10 m | each pass | `rasters/sentinel1-rtc` |
+| [`opera-rtc`](#opera-rtc) | OPERA Sentinel-1 radar backscatter (NASA Earthdata) | land north of 60° S, 2016-04 on | 30 m | each pass | `rasters/opera-rtc` |
 | [`sentinel2`](#sentinel2) | Sentinel-2 surface reflectance | global, 2015-06 on | 10 m | each pass | `rasters/sentinel2` |
 | [`seismic`](#seismic) | seismic waveforms (EarthScope FDSN) | global | stations | native rate, raw counts | `waveforms/seismic/<rate>hz` |
 | [`infrasound`](#infrasound) | infrasound waveforms (EarthScope FDSN) | global | sensors | native rate, raw counts | `waveforms/infrasound/<rate>hz` |
@@ -213,6 +214,32 @@ datasets:
 ```
 
 Each pass then has a `window` coordinate, `pre` or `post`.
+
+(opera-rtc)=
+## OPERA RTC
+
+Sentinel-1 backscatter processed by JPL's
+[OPERA](https://hyp3-docs.asf.alaska.edu/guides/opera_rtc_product_guide/) project,
+one burst at a time, from ASF DAAC: 30 m, in the bursts' UTM zone. It's an
+alternative to `sentinel1-rtc`, with the same options, coordinates and stage-file
+windows. Needs a free [Earthdata Login](https://urs.earthdata.nasa.gov) account: set
+`EARTHDATA_TOKEN` to a
+[user token](https://urs.earthdata.nasa.gov/documentation/for_users/user_token),
+which expires after 60 days.
+
+- `vv` and `vh` (default; `--polarizations` also takes `hh`, `hv`): gamma0 as
+  **linear power**.
+- `mask`: each pass's layover and shadow mask, as CF flags (`valid`, `shadow`,
+  `layover`, `layover_and_shadow`, `no_data`).
+- One time step per pass, its bursts mosaicked, with the same `platform`,
+  `orbit_state`, `relative_orbit` and `absolute_orbit` coordinates as
+  `sentinel1-rtc`, plus `burst_ids`.
+- From 2016-04-14 (OPERA's own processing from 2022), over land north of 60° S.
+- License: CC0-1.0 (NASA Earthdata data use policy).
+
+```bash
+gaia stage opera-rtc -i aoi.geojson -s 2023-09-01 -e 2023-09-30 -o out --relative-orbit 131
+```
 
 (sentinel2)=
 ## Sentinel-2

@@ -251,6 +251,32 @@ def test_sentinel1_rtc_pre_and_post_passes_on_each_track(tmp_path):
     assert ds.relative_orbit.values.tolist() == [102, 131, 102, 131]
 
 
+@pytest.mark.skipif(
+    not os.environ.get("EARTHDATA_TOKEN"), reason="needs EARTHDATA_TOKEN"
+)
+def test_opera_rtc_passes_around_peters_dome(tmp_path):
+    # The same passes as sentinel1-rtc, at 30 m, read lazily while the store is
+    # written; the token must not reach the store
+    config = tmp_path / "stage.yaml"
+    config.write_text(PETERS_S1.replace("sentinel1-rtc", "opera-rtc"))
+    runner.stage(config=str(config), output_path=str(tmp_path / "out"))
+
+    tree = xr.open_datatree(tmp_path / "out" / "peters-dome-s1.zarr", engine="zarr")
+    ds = tree["rasters/opera-rtc"].to_dataset()
+    assert [str(t)[:10] for t in ds.time.values] == ["2023-09-09", "2023-09-21"]
+    assert ds.relative_orbit.values.tolist() == [131, 131]
+    assert ds.rio.resolution() == (30.0, -30.0)
+    vv, vh = (float(ds[p].median()) for p in ("vv", "vh"))
+    assert 10**-3 < vh < vv < 10**0.5
+    assert {0, 2} <= set(np.unique(ds["mask"].values).tolist())  # valid, layover
+    token = os.environ["EARTHDATA_TOKEN"]
+    assert not any(
+        token in p.read_text(errors="ignore")
+        for p in (tmp_path / "out").rglob("*")
+        if p.is_file()
+    )
+
+
 def test_sentinel2_after_the_event_is_snow_covered():
     # The paper notes snowfall right after the event; the clear 2023-09-24 pass
     # over the source is mostly snow: bright in the visible, dark at 1.6 um
