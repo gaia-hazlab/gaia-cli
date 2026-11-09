@@ -22,7 +22,7 @@ import pystac
 import rasterio
 from shapely.geometry import box, shape
 
-from . import fetch
+from . import stac
 
 log = logging.getLogger(__name__)
 # asf_search logs each search's options, the whole AOI WKT, at INFO
@@ -154,10 +154,7 @@ def newest(
 ) -> list[pystac.Item]:
     """*items* with only the newest processing of each *key* (by default, each
     burst acquisition; a static layer's is its burst ID)."""
-    best: dict[Hashable, pystac.Item] = {}
-    for it in sorted(items, key=lambda it: it.properties["processing:datetime"]):
-        best[key(it)] = it
-    return [it for it in items if best[key(it)] is it]
+    return stac.newest(items, key, rank=lambda it: it.properties["processing:datetime"])
 
 
 def set_proj(items: Sequence[pystac.Item], asset: str) -> None:

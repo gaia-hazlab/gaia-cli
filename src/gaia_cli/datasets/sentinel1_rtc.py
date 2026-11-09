@@ -22,6 +22,7 @@ import pystac
 import xarray as xr
 
 from .. import provenance, stac
+from ..stac import Match
 from ..window import Window
 
 log = logging.getLogger(__name__)
@@ -40,13 +41,6 @@ SCENES = True
 REGRID_METHOD = "average"
 
 Polarization = Literal["vv", "vh", "hh", "hv"]
-
-
-class Match(str, Enum):
-    """What pre and post scenes must share; ``relative_orbit`` pairs them on each track."""
-
-    none = "none"
-    relative_orbit = "relative_orbit"
 
 
 class OrbitState(str, Enum):
@@ -151,26 +145,8 @@ def load(
             f"no Sentinel-1 RTC scenes with {'+'.join(polarizations)} over the AOI "
             f"from {start_date} to {end_date}"
         )
-    groups = passes(items)
-    labels = [None] * len(groups)
-    if windows:
-        key = "sat:relative_orbit" if match is Match.relative_orbit else None
-        picked = stac.select(groups, windows, key)
-        if not picked:
-            raise ValueError(
-                "no Sentinel-1 RTC passes match the windows"
-                + (" on any track with passes in every window" if key else "")
-            )
-        labels = [name for name, _ in picked]
-        groups = [list(scene) for _, scene in picked]
-        items = [it for g in groups for it in g]
-        for name, scene in picked:
-            log.info(
-                "Sentinel-1 RTC: %s %s, relative orbit %s",
-                name or "selected",
-                scene[0].datetime,
-                scene[0].properties["sat:relative_orbit"],
-            )
+    groups, labels = stac.choose(passes(items), windows, "Sentinel-1 RTC", match)
+    items = [it for g in groups for it in g]
     ds = stac.load_scenes(groups, list(polarizations), aoi)
     log.info(
         "Sentinel-1 RTC: %d pass(es) of %d scene(s), %d x %d cells",
@@ -194,7 +170,6 @@ def load(
         absolute_orbit=("time", np.array([p["sat:absolute_orbit"] for p in first])),
         scene_ids=("time", [" ".join(it.id for it in g) for g in groups]),
     )
-    if any(labels):
-        ds = ds.assign_coords(window=("time", [name or "" for name in labels]))
+    ds = stac.label_windows(ds, labels)
     ds.attrs = {**source_attrs(items), **provenance.time_extent(ds)}
     return ds

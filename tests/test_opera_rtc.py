@@ -11,7 +11,8 @@ from shapely.geometry import box, mapping
 from gaia_cli import earthdata, fetch
 from gaia_cli.cli import stage_app
 from gaia_cli.datasets import opera_rtc
-from gaia_cli.datasets.sentinel1_rtc import Match, OrbitState
+from gaia_cli.datasets.sentinel1_rtc import OrbitState
+from gaia_cli.stac import Match
 from gaia_cli.window import parse_window
 
 # 10 x 10 cells of 30 m in UTM 5N, near Peters Dome; each burst is half of it
