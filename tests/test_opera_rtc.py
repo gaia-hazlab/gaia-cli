@@ -324,5 +324,6 @@ def test_search_passes_utc_times_and_the_aoi(monkeypatch):
     assert out == ["f"]
     assert seen["start"] == "2023-09-01T00:00:00+00:00"
     assert seen["end"] == "2023-09-30T23:59:59+00:00"
-    assert seen["intersectsWith"].startswith("POLYGON")
+    # The AOI's bounds, counterclockwise
+    assert seen["intersectsWith"] == box(*AOI.total_bounds).wkt
     assert seen["dataset"] == "OPERA-S1"

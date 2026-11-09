@@ -21,7 +21,7 @@ import pandas as pd
 import pystac
 import rasterio
 import requests
-from shapely.geometry import shape
+from shapely.geometry import box, shape
 
 log = logging.getLogger(__name__)
 # asf_search logs each search's options, the whole AOI WKT, at INFO
@@ -84,12 +84,14 @@ def search(
     end: str | None = None,
     **filters: Any,
 ) -> list[dict]:
-    """asf_search results intersecting *aoi* between *start* and *end*
+    """asf_search results intersecting *aoi*'s bounds between *start* and *end*
     (inclusive, UTC unless given), as GeoJSON features; *filters* are
-    asf_search keywords (``dataset``, ``processingLevel``, ``relativeOrbit``)."""
-    kwargs: dict[str, Any] = {
-        "intersectsWith": aoi.to_crs("EPSG:4326").geometry.union_all().wkt
-    }
+    asf_search keywords (``dataset``, ``processingLevel``, ``relativeOrbit``).
+
+    The bounds are what odc-stac reads before clipping to *aoi*, and spare
+    asf_search simplifying and reorienting the polygon (with a warning)."""
+    bounds = box(*aoi.to_crs("EPSG:4326").total_bounds)
+    kwargs: dict[str, Any] = {"intersectsWith": bounds.wkt}
     if start:
         kwargs["start"] = _utc(start)
     if end:
