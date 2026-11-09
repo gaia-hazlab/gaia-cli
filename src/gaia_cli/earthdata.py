@@ -20,8 +20,9 @@ import geopandas as gpd
 import pandas as pd
 import pystac
 import rasterio
-import requests
 from shapely.geometry import box, shape
+
+from . import fetch, stac
 
 log = logging.getLogger(__name__)
 # asf_search logs each search's options, the whole AOI WKT, at INFO
@@ -55,7 +56,7 @@ def sign(items: Sequence[pystac.Item], assets: Sequence[str]) -> None:
     headers = {"Authorization": f"Bearer {token()}"}
 
     def resolve(href: str) -> str:
-        resp = requests.get(href, headers=headers, allow_redirects=False, timeout=60)
+        resp = fetch.get(href, headers=headers, allow_redirects=False)
         location = resp.headers.get("location", "")
         if resp.status_code not in (302, 303) or "urs.earthdata" in location:
             raise RuntimeError(
@@ -153,10 +154,7 @@ def newest(
 ) -> list[pystac.Item]:
     """*items* with only the newest processing of each *key* (by default, each
     burst acquisition; a static layer's is its burst ID)."""
-    best: dict[Hashable, pystac.Item] = {}
-    for it in sorted(items, key=lambda it: it.properties["processing:datetime"]):
-        best[key(it)] = it
-    return [it for it in items if best[key(it)] is it]
+    return stac.newest(items, key, rank=lambda it: it.properties["processing:datetime"])
 
 
 def set_proj(items: Sequence[pystac.Item], asset: str) -> None:

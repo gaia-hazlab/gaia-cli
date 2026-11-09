@@ -24,8 +24,9 @@ import pystac
 import xarray as xr
 
 from .. import earthdata, provenance, stac
+from ..stac import Match
 from ..window import Window
-from .sentinel1_rtc import Match, OrbitState, Polarization, pass_key
+from .sentinel1_rtc import OrbitState, Polarization, pass_key
 
 log = logging.getLogger(__name__)
 
@@ -233,26 +234,10 @@ def load(
             f"no OPERA RTC bursts with {'+'.join(polarizations)} over the AOI "
             f"from {start_date} to {end_date}"
         )
-    groups = stac.group(items, pass_key)
-    labels = [None] * len(groups)
-    if windows:
-        key = "sat:relative_orbit" if match is Match.relative_orbit else None
-        picked = stac.select(groups, windows, key)
-        if not picked:
-            raise ValueError(
-                "no OPERA RTC passes match the windows"
-                + (" on any track with passes in every window" if key else "")
-            )
-        labels = [name for name, _ in picked]
-        groups = [list(scene) for _, scene in picked]
-        items = [it for g in groups for it in g]
-        for name, scene in picked:
-            log.info(
-                "OPERA RTC: %s %s, relative orbit %s",
-                name or "selected",
-                scene[0].datetime,
-                scene[0].properties["sat:relative_orbit"],
-            )
+    groups, labels = stac.choose(
+        stac.group(items, pass_key), windows, "OPERA RTC", match
+    )
+    items = [it for g in groups for it in g]
     earthdata.sign(items, polarizations)
     earthdata.set_proj(items, polarizations[0])
     ds = stac.load_scenes(groups, polarizations, aoi)
@@ -291,7 +276,6 @@ def load(
             [" ".join(it.properties["opera:burst_id"] for it in g) for g in groups],
         ),
     )
-    if any(labels):
-        ds = ds.assign_coords(window=("time", [name or "" for name in labels]))
+    ds = stac.label_windows(ds, labels)
     ds.attrs = {**source_attrs(items, static_items), **provenance.time_extent(ds)}
     return ds

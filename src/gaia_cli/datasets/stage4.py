@@ -34,10 +34,8 @@ import requests
 import rioxarray
 import unlzw3
 import xarray as xr
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
-from .. import io, provenance, window
+from .. import fetch, io, provenance, window
 
 log = logging.getLogger(__name__)
 
@@ -142,19 +140,6 @@ def member_names(end: dt.datetime, domain: str, hours: int = 24) -> list[str]:
 
 # (connect, read) seconds; a stalled read is retried rather than waited out
 TIMEOUT = (10, 60)
-
-
-def new_session() -> requests.Session:
-    """A session that retries GDEX's transient failures."""
-    retry = Retry(
-        total=4,
-        backoff_factor=2,
-        status_forcelist=(429, 500, 502, 503, 504),
-        allowed_methods=("HEAD", "GET"),
-    )
-    session = requests.Session()
-    session.mount("https://", HTTPAdapter(max_retries=retry))
-    return session
 
 
 class _HTTPRangeFile(_io.RawIOBase):
@@ -272,7 +257,7 @@ def fetch_day(
     if len(found := cached()) == len(names):
         return found
 
-    session = session or new_session()
+    session = session or fetch.session()
     index = month_index(f"{day:%Y%m}", session)
     daily = f"ST4.{day:%Y%m%d}"
     if daily not in index:
@@ -448,7 +433,7 @@ def load(
             f"No {accumulation.value} Stage IV steps in {start_date} to {end_date}"
         )
 
-    session = new_session()
+    session = fetch.session()
     paths: dict[pd.Timestamp, Path] = {}
     for day in sorted({e.date() for e, _ in steps}):
         try:

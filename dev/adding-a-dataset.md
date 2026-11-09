@@ -33,8 +33,9 @@ and optionally:
 - **`SCENES = True`**: the dataset chooses among scenes, so a stage file may give it
   `pre`/`post` windows with `select` and `count` ([stage-file.md](stage-file.md#choosing-scenes)).
   `load()` then also takes `windows: list[Window] | None = None`, which the runner sets
-  (it is not an option), and `start_date`/`end_date` span the windows exactly. Use
-  `stac.select` to pick the scenes before loading them (see `sentinel1_rtc.py`). The
+  (it is not an option), and `start_date`/`end_date` span the windows exactly. Group
+  the items into scenes with `stac.group`, pick them with `stac.choose` before loading
+  them, and label each with `stac.label_windows` (see `sentinel1_rtc.py`). The
   runner stamps the group `gaia:scenes`, so `gaia align` keeps its acquisition times
   rather than combining them into the other datasets' time steps.
 - **`TOKENS`**: environment variables `load()` needs, each with what it is, e.g.

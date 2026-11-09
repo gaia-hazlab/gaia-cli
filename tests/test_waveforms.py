@@ -123,11 +123,11 @@ def test_dataselect_posts_in_chunks_and_skips_failed_ones(fdsn, monkeypatch, cap
     for i in range(6):
         fdsn.channel(f"AK.S{i}..BHZ")
         fdsn.trace(f"AK.S{i}..BHZ", 50.0, T0, np.arange(50))
-    # Chunk 1 succeeds after a retry, chunk 2 has no data, chunk 3 always fails
-    fdsn.statuses = [503, 200, 204, 500, 500, 500]
+    # Chunk 1 succeeds, chunk 2 has no data, chunk 3 fails (after fetch's retries)
+    fdsn.statuses = [200, 204, 500]
     caplog.set_level(logging.INFO)
     buffers = waveforms.dataselect(table(fdsn), T0, T0 + S)
-    assert len(fdsn.posts) == 6
+    assert len(fdsn.posts) == 3
     assert fdsn.posts[0].splitlines() == [
         "AK S0 -- BHZ 2023-09-14T02:06:00.000000 2023-09-14T02:06:01.000000",
         "AK S1 -- BHZ 2023-09-14T02:06:00.000000 2023-09-14T02:06:01.000000",
@@ -138,22 +138,13 @@ def test_dataselect_posts_in_chunks_and_skips_failed_ones(fdsn, monkeypatch, cap
     assert "request 3 (2 stations) failed, skipped: 500" in caplog.text
 
 
-def test_post_retries_timeouts_and_raises_client_errors(fdsn, monkeypatch):
-    calls = []
-
-    def post(url, data, timeout):
-        calls.append(url)
-        if len(calls) == 1:
-            raise requests.Timeout("slow")
-        return fdsn.post(url, data, timeout)
-
-    monkeypatch.setattr(waveforms.requests, "post", post)
-    assert waveforms._post("u", "AK S0 -- BHZ a b\n") == b""
-    assert len(calls) == 2
+def test_post_is_empty_without_data_and_raises_errors(fdsn):
+    assert waveforms._post("u", "AK S0 -- BHZ a b\n") == b""  # 204
+    fdsn.statuses = [404]
+    assert waveforms._post("u", "") == b""
     fdsn.statuses = [400]
     with pytest.raises(requests.HTTPError):
         waveforms._post("u", "")
-    assert len(calls) == 3  # no retry
 
 
 # ---- decoding and the grid -----------------------------------------------------

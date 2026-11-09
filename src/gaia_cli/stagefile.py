@@ -23,7 +23,7 @@ import requests
 import shapely
 import yaml
 
-from . import io
+from . import fetch, io
 from .aoi import aoi_key, check_lonlat, load_aoi, parse_aoi
 from .datasets import DATASETS
 from .window import Window, parse_time, parse_window, union, unknown
@@ -173,7 +173,7 @@ def read_config(path: str) -> dict:
     :class:`StageFileError` if unreadable."""
     try:
         if is_url(path):
-            r = requests.get(path, timeout=60)
+            r = fetch.get(path)
             r.raise_for_status()
             text = r.text
         else:

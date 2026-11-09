@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 from shapely.geometry import box
 
-from gaia_cli import io
+from gaia_cli import fetch, io
 from gaia_cli.datasets import synoptic
 
 OK = {"RESPONSE_CODE": 1, "RESPONSE_MESSAGE": "OK"}
@@ -55,14 +55,13 @@ def test_accumulate_raw_precip_keeps_missing_values():
 def test_get_station_timeseries_falls_back_without_derived_precip(monkeypatch):
     calls = []
 
-    def fake_get(url, params, timeout):
-        assert timeout == synoptic.TIMEOUT  # never hang on a stalled API
+    def fake_get(url, params):
         calls.append(dict(params))
         if "precip" in params:
             return FakeResponse({"SUMMARY": FORBIDDEN})
         return FakeResponse({"SUMMARY": OK, "STATION": []})
 
-    monkeypatch.setattr(synoptic.requests, "get", fake_get)
+    monkeypatch.setattr(fetch, "get", fake_get)
     data = synoptic.get_station_timeseries(["A"], "2025-12-01", "2025-12-02")
 
     assert data["STATION"] == []
@@ -73,9 +72,9 @@ def test_get_station_timeseries_falls_back_without_derived_precip(monkeypatch):
 def test_get_station_timeseries_raises_on_other_errors(monkeypatch):
     error = {"RESPONSE_CODE": 2, "RESPONSE_MESSAGE": "bad request"}
     monkeypatch.setattr(
-        synoptic.requests,
+        fetch,
         "get",
-        lambda url, params, timeout: FakeResponse({"SUMMARY": error}),
+        lambda url, params: FakeResponse({"SUMMARY": error}),
     )
     with pytest.raises(RuntimeError, match="bad request"):
         synoptic.get_station_timeseries(["A"], "2025-12-01", "2025-12-02")
@@ -84,11 +83,11 @@ def test_get_station_timeseries_raises_on_other_errors(monkeypatch):
 def test_get_station_timeseries_requests_derived_precip_only_with_precip(monkeypatch):
     calls = []
 
-    def fake_get(url, params, timeout):
+    def fake_get(url, params):
         calls.append(dict(params))
         return FakeResponse({"SUMMARY": OK, "STATION": []})
 
-    monkeypatch.setattr(synoptic.requests, "get", fake_get)
+    monkeypatch.setattr(fetch, "get", fake_get)
     synoptic.get_station_timeseries(["A"], "2025-12-01", "2025-12-02", ["air_temp"])
     synoptic.get_station_timeseries(["A"], "2025-12-01", "2025-12-02")
 
@@ -216,9 +215,9 @@ def test_load_sets_provenance_and_encodes_for_the_store(monkeypatch):
 def test_get_station_metadata_raises_on_api_error(monkeypatch):
     error = {"RESPONSE_CODE": 2, "RESPONSE_MESSAGE": "Invalid token"}
     monkeypatch.setattr(
-        synoptic.requests,
+        fetch,
         "get",
-        lambda url, params, timeout: FakeResponse({"SUMMARY": error}),
+        lambda url, params: FakeResponse({"SUMMARY": error}),
     )
     aoi = gpd.GeoDataFrame(geometry=[box(-122, 48, -121, 49)], crs="EPSG:4326")
     with pytest.raises(RuntimeError, match="Invalid token"):

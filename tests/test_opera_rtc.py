@@ -8,10 +8,11 @@ import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
 from shapely.geometry import box, mapping
 
-from gaia_cli import earthdata
+from gaia_cli import earthdata, fetch
 from gaia_cli.cli import stage_app
 from gaia_cli.datasets import opera_rtc
-from gaia_cli.datasets.sentinel1_rtc import Match, OrbitState
+from gaia_cli.datasets.sentinel1_rtc import OrbitState
+from gaia_cli.stac import Match
 from gaia_cli.window import parse_window
 
 # 10 x 10 cells of 30 m in UTM 5N, near Peters Dome; each burst is half of it
@@ -178,7 +179,7 @@ def asf(monkeypatch, tmp_path, bursts, statics):
     monkeypatch.setattr(earthdata, "HOST", str(tmp_path))
     monkeypatch.setattr(earthdata, "sign", lambda items, assets: None)
 
-    def get(url, timeout):
+    def get(url, **kwargs):
         assert url in (opera_rtc.COLLECTION_URL, opera_rtc.STATIC_URL)
         return type(
             "R",
@@ -186,7 +187,7 @@ def asf(monkeypatch, tmp_path, bursts, statics):
             {"raise_for_status": lambda self: None, "json": lambda self: COLLECTION},
         )()
 
-    monkeypatch.setattr(opera_rtc.provenance.requests, "get", get)
+    monkeypatch.setattr(fetch, "get", get)
     return searches
 
 
@@ -332,11 +333,11 @@ class Response:
 def test_sign_points_assets_at_the_signed_urls(monkeypatch, bursts):
     calls = []
 
-    def get(href, headers, allow_redirects, timeout):
+    def get(href, headers, allow_redirects):
         calls.append((href, headers))
         return Response(303, f"https://cdn.example/{href.rsplit('/', 1)[-1]}?sig=x")
 
-    monkeypatch.setattr(earthdata.requests, "get", get)
+    monkeypatch.setattr(fetch, "get", get)
     monkeypatch.setenv("EARTHDATA_TOKEN", "secret")
     item = earthdata.to_item(bursts[0])
     earthdata.sign([item], ["vv", "mask"])
@@ -352,7 +353,7 @@ def test_sign_points_assets_at_the_signed_urls(monkeypatch, bursts):
     [Response(302, "https://urs.earthdata.nasa.gov/oauth/authorize"), Response(404)],
 )
 def test_sign_errors_name_the_token(monkeypatch, bursts, response):
-    monkeypatch.setattr(earthdata.requests, "get", lambda *a, **k: response)
+    monkeypatch.setattr(fetch, "get", lambda *a, **k: response)
     monkeypatch.setenv("EARTHDATA_TOKEN", "expired")
     with pytest.raises(RuntimeError, match="is EARTHDATA_TOKEN current"):
         earthdata.sign([earthdata.to_item(bursts[0])], ["vv"])

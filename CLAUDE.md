@@ -46,8 +46,9 @@ src/gaia_cli/
   aoi.py          # AOI forms: vector file, bbox, intersects, circle
   window.py       # times, durations and window grammar
   io.py           # Shared I/O: clipping, Zarr and STAC Item writing, object stores
+  fetch.py        # HTTP get/post for every upstream request: default timeout, retries with backoff
   provenance.py   # provenance attributes and STAC Items
-  stac.py         # Planetary Computer STAC search, SAS signing, odc-stac loading
+  stac.py         # Planetary Computer STAC search, SAS signing, odc-stac loading; scene grouping and selection
   earthdata.py    # NASA Earthdata: asf_search to pystac Items, ASF-signed COG URLs (EARTHDATA_TOKEN)
   catalog.py      # "gaia catalog rebuild"
   align.py        # "gaia align": time aggregation and regridding onto one grid

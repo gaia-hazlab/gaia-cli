@@ -12,11 +12,12 @@ import xarray as xr
 import yaml
 from shapely.geometry import box, mapping
 
-from gaia_cli import runner, stac, stagefile
+from gaia_cli import fetch, runner, stac, stagefile
 from gaia_cli.aoi import load_aoi
 from gaia_cli.cli import stage_app
 from gaia_cli.datasets import sentinel1_rtc
-from gaia_cli.datasets.sentinel1_rtc import Match, OrbitState
+from gaia_cli.datasets.sentinel1_rtc import OrbitState
+from gaia_cli.stac import Match
 from gaia_cli.window import parse_window
 
 # 10 x 10 cells of 10 m in UTM 5N, near Peters Dome; each frame is half of it
@@ -98,7 +99,7 @@ def pc(monkeypatch, scenes):
     monkeypatch.setattr(stac.pystac_client.Client, "open", lambda url: Client())
     monkeypatch.setattr(stac, "token", lambda collection: "sig=x")
 
-    def get(url, timeout):
+    def get(url, **kwargs):
         assert url == sentinel1_rtc.COLLECTION_URL
         return type(
             "R",
@@ -106,7 +107,7 @@ def pc(monkeypatch, scenes):
             {"raise_for_status": lambda self: None, "json": lambda self: COLLECTION},
         )()
 
-    monkeypatch.setattr(sentinel1_rtc.provenance.requests, "get", get)
+    monkeypatch.setattr(fetch, "get", get)
     return searches
 
 
@@ -209,14 +210,14 @@ def test_token_is_cached_until_it_nears_expiry(monkeypatch):
     calls = []
     expiry = [pd.Timestamp.now(tz="UTC") + pd.Timedelta(hours=24)]
 
-    def get(url, timeout):
+    def get(url, **kwargs):
         calls.append(url)
         doc = {"token": f"sig={len(calls)}", "msft:expiry": expiry[0].isoformat()}
         return type(
             "R", (), {"raise_for_status": lambda self: None, "json": lambda self: doc}
         )()
 
-    monkeypatch.setattr(stac.requests, "get", get)
+    monkeypatch.setattr(fetch, "get", get)
     monkeypatch.setattr(stac, "_tokens", {})
     assert stac.token("sentinel-1-rtc") == stac.token("sentinel-1-rtc") == "sig=1"
     assert calls == [f"{stac.PC_SAS}/sentinel-1-rtc"]
