@@ -8,7 +8,7 @@ import pytest
 import requests
 import xarray as xr
 
-from gaia_cli import regrid, runner, stagefile
+from gaia_cli import fetch, regrid, runner, stagefile
 from gaia_cli.aoi import load_aoi, parse_aoi
 from gaia_cli.cli import stage_app
 from gaia_cli.datasets import hrrr, prism, synoptic
@@ -148,13 +148,13 @@ URL = "https://example.com/events/stage.yaml"
 def serve(monkeypatch, text, status=200):
     """Answer the download of URL with *text*."""
 
-    def get(url, timeout):
+    def get(url, **kwargs):
         assert url == URL
         r = requests.Response()
         r.status_code, r._content, r.url = status, text.encode(), url
         return r
 
-    monkeypatch.setattr(stagefile.requests, "get", get)
+    monkeypatch.setattr(fetch, "get", get)
 
 
 def test_stage_file_from_a_url(monkeypatch, capsys):

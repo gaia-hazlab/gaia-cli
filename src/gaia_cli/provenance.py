@@ -25,6 +25,8 @@ import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
 import xvec  # noqa: F401  registers the .xvec accessor
 
+from . import fetch
+
 log = logging.getLogger(__name__)
 
 # STAC extension schema -> field prefix that marks its use. An extension's
@@ -201,7 +203,7 @@ def from_stac_collection(href: str) -> dict:
     never stops a staging run.
     """
     try:
-        resp = requests.get(href, timeout=30)
+        resp = fetch.get(href)
         resp.raise_for_status()
         collection = resp.json()
     except (requests.RequestException, ValueError) as e:

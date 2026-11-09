@@ -19,12 +19,11 @@ import odc.stac
 import pandas as pd
 import pystac
 import pystac_client
-import requests
 import xarray as xr
 from odc.geo.geobox import GeoBox
 from rasterio.errors import NotGeoreferencedWarning
 
-from . import io
+from . import fetch, io
 from .window import Window
 
 log = logging.getLogger(__name__)
@@ -62,7 +61,7 @@ def token(collection: str) -> str:
     cached = _tokens.get(collection)
     if cached and cached[1] - pd.Timestamp.now(tz="UTC") > TOKEN_MARGIN:
         return cached[0]
-    resp = requests.get(f"{PC_SAS}/{collection}", timeout=30)
+    resp = fetch.get(f"{PC_SAS}/{collection}")
     resp.raise_for_status()
     doc = resp.json()
     sas, expiry = str(doc["token"]), pd.Timestamp(doc["msft:expiry"])

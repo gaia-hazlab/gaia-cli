@@ -7,7 +7,7 @@ import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
 from shapely.geometry import box
 
-from gaia_cli import io, stagefile
+from gaia_cli import fetch, io, stagefile
 from gaia_cli.datasets import burn_severity
 
 # A 10 x 10 fire raster at 20 m in UTM 10N, like the service's per-fire rasters
@@ -72,7 +72,7 @@ def service(tmp_path, monkeypatch):
     ]
     calls = []
 
-    def get(url, params, timeout):
+    def get(url, params):
         calls.append((url, params))
         if url.endswith("/query"):
             return Response(
@@ -91,7 +91,7 @@ def service(tmp_path, monkeypatch):
         assert url.endswith("/exportImage")
         return Response(content=tif.read_bytes(), content_type="image/tiff")
 
-    monkeypatch.setattr(burn_severity.requests, "get", get)
+    monkeypatch.setattr(fetch, "get", get)
     return calls
 
 
