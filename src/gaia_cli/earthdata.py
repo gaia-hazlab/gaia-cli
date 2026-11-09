@@ -20,8 +20,9 @@ import geopandas as gpd
 import pandas as pd
 import pystac
 import rasterio
-import requests
 from shapely.geometry import box, shape
+
+from . import fetch
 
 log = logging.getLogger(__name__)
 # asf_search logs each search's options, the whole AOI WKT, at INFO
@@ -55,7 +56,7 @@ def sign(items: Sequence[pystac.Item], assets: Sequence[str]) -> None:
     headers = {"Authorization": f"Bearer {token()}"}
 
     def resolve(href: str) -> str:
-        resp = requests.get(href, headers=headers, allow_redirects=False, timeout=60)
+        resp = fetch.get(href, headers=headers, allow_redirects=False)
         location = resp.headers.get("location", "")
         if resp.status_code not in (302, 303) or "urs.earthdata" in location:
             raise RuntimeError(

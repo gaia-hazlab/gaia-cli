@@ -17,7 +17,7 @@ import shapely
 import xarray as xr
 from rasterio.io import MemoryFile
 
-from .. import io, provenance
+from .. import fetch, io, provenance
 
 log = logging.getLogger(__name__)
 
@@ -36,7 +36,6 @@ SERVICE = (
     "https://imagery.geoplatform.gov/iipp/rest/services/Fire_Aviation/"
     "USFS_EDW_BAER_SoilBurnSeverityClassification/ImageServer"
 )
-TIMEOUT = 120
 # Soil burn severity classes: code -> (name, color), the BAER legend's colors
 CLASSES = {
     1: ("unburned_to_very_low", "#006400"),
@@ -50,7 +49,7 @@ FILL = 15
 
 
 def _get(url: str, **params) -> requests.Response:
-    r = requests.get(url, params=params, timeout=TIMEOUT)
+    r = fetch.get(url, params=params)
     r.raise_for_status()
     return r
 

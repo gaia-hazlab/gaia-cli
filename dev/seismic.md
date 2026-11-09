@@ -51,9 +51,10 @@ Options are FDSN codes, with `?` and `*` wildcards and commas between alternativ
    rate × duration × 4 bytes, and refuses requests over 2 GB
    (`waveforms.MAX_BYTES`). For scale: Peters Dome's 157 channels over 40 min are 82 MB.
 
-Dataselect requests go 50 stations at a time, each retried up to 3 times with backoff
-on 5xx errors and timeouts. No data (204 or 404) is fine, and a request that still
-fails is logged and skipped, so the other stations are kept (as in peters-dome).
+Dataselect requests go 50 stations at a time, each retried with backoff on 429 and 5xx
+errors, connection errors and timeouts, like every gaia request (`gaia_cli/fetch.py`).
+No data (204 or 404) is fine, and a request that still fails is logged and skipped, so
+the other stations are kept (as in peters-dome).
 
 ## Store layout
 

@@ -17,11 +17,10 @@ from collections.abc import Sequence
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import requests
 import xarray as xr
 from shapely.geometry import Point
 
-from .. import provenance, stations
+from .. import fetch, provenance, stations
 
 log = logging.getLogger(__name__)
 
@@ -31,7 +30,6 @@ TOKENS = {"SYNOPTIC_TOKEN": "a Synoptic API token, https://docs.synopticdata.com
 SYNOPTIC_API = "https://api.synopticdata.com/v2"
 RESET_MM = 10  # drops in raw gauge accumulation larger than this are treated as resets
 PRECIP = "precip_accum"  # staged under this name as a running total
-TIMEOUT = 120  # seconds per request; long station-hour queries are slow
 # Written by hand (no STAC Collection): stations are mostly in the US, Alaska
 # included, but the API serves networks worldwide
 EXTENT = {
@@ -149,7 +147,7 @@ def get_station_metadata(aoi: gpd.GeoDataFrame, variables: Sequence[str] = (PREC
         "vars": ",".join(variables),  # stations reporting any of these
         "output": "geojson",
     }
-    response = requests.get(url, params=params, timeout=TIMEOUT)
+    response = fetch.get(url, params=params)
     data = response.json()
     if "features" not in data:  # geojson output only includes SUMMARY on error
         _check_response(data)
@@ -216,7 +214,7 @@ def get_station_timeseries(
         # precip =0, (default) 'precip_accum_set_1' (Millimeters) cumulative sum of the interval values for the requested time period, in this case hourly timestamps
         params["precip"] = 1
 
-    response = requests.get(url, params=params, timeout=TIMEOUT)
+    response = fetch.get(url, params=params)
     response.raise_for_status()
     data = response.json()
 
@@ -224,7 +222,7 @@ def get_station_timeseries(
     if "precip" in params and data.get("SUMMARY", {}).get("RESPONSE_CODE") == 403:
         log.info("derived precip unavailable, computing from raw accumulation")
         params.pop("precip")
-        response = requests.get(url, params=params, timeout=TIMEOUT)
+        response = fetch.get(url, params=params)
         response.raise_for_status()
         data = response.json()
 

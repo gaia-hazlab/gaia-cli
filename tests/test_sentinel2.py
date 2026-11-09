@@ -10,7 +10,7 @@ import xarray as xr
 import zarr
 from shapely.geometry import box, mapping
 
-from gaia_cli import io, stac
+from gaia_cli import fetch, io, stac
 from gaia_cli.aoi import load_aoi
 from gaia_cli.cli import stage_app
 from gaia_cli.datasets import sentinel2
@@ -127,14 +127,14 @@ def pc(monkeypatch, tiles):
     monkeypatch.setattr(stac.pystac_client.Client, "open", lambda url: Client())
     monkeypatch.setattr(stac, "token", lambda collection: "sig=x")
 
-    def get(url, timeout):
+    def get(url, **kwargs):
         return type(
             "R",
             (),
             {"raise_for_status": lambda self: None, "json": lambda self: COLLECTION},
         )()
 
-    monkeypatch.setattr(sentinel2.provenance.requests, "get", get)
+    monkeypatch.setattr(fetch, "get", get)
     return searches
 
 

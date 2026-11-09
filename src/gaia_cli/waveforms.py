@@ -23,7 +23,6 @@ from __future__ import annotations
 import datetime as dt
 import fnmatch
 import logging
-import time as clock
 from collections import defaultdict
 from typing import NamedTuple
 
@@ -38,7 +37,7 @@ import xarray as xr
 from scipy import signal
 from shapely.geometry import Point
 
-from . import provenance
+from . import fetch, provenance
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +47,6 @@ FILL = np.int32(np.iinfo(np.int32).min)
 # Raw int32 counts allowed in memory for one load(), estimated before downloading
 MAX_BYTES = 2 * 1024**3
 STATIONS_PER_REQUEST = 50  # stations per dataselect POST
-RETRIES = 3  # attempts per request, on 5xx errors and timeouts
 TIMEOUT = 300  # seconds
 CHUNK_SECONDS = 3600  # Zarr chunks: one channel by up to an hour of samples
 # Fetched with a second's margin, so samples near the window's edges have a
@@ -201,7 +199,7 @@ def query_channels(
         "includerestricted": "false",
         "nodata": 404,
     }
-    r = requests.get(f"{url}/station/1/query", params=params, timeout=TIMEOUT)
+    r = fetch.get(f"{url}/station/1/query", params=params, timeout=TIMEOUT)
     if r.status_code == 404:
         return parse_channel_text("")
     r.raise_for_status()
@@ -321,26 +319,15 @@ def check_size(
 
 
 def _post(url: str, body: str) -> bytes:
-    """POST *body* to *url*, retrying 5xx errors and timeouts with backoff.
+    """POST *body* to *url* (retried by :mod:`gaia_cli.fetch`).
 
     No data (204 or 404) is ``b""``; other errors raise.
     """
-    error: Exception = RuntimeError("no attempts")
-    for attempt in range(RETRIES):
-        try:
-            r = requests.post(url, data=body, timeout=TIMEOUT)
-        except (requests.ConnectionError, requests.Timeout) as e:
-            error = e
-        else:
-            if r.status_code in (204, 404):
-                return b""
-            if r.status_code < 500:
-                r.raise_for_status()
-                return r.content
-            error = requests.HTTPError(f"{r.status_code} {r.reason}", response=r)
-        if attempt + 1 < RETRIES:
-            clock.sleep(2**attempt)
-    raise error
+    r = fetch.post(url, data=body, timeout=TIMEOUT)
+    if r.status_code in (204, 404):
+        return b""
+    r.raise_for_status()
+    return r.content
 
 
 def dataselect(

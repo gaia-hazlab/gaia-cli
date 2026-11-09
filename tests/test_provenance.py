@@ -5,7 +5,7 @@ import pandas as pd
 import requests
 import xarray as xr
 
-from gaia_cli import io, provenance
+from gaia_cli import fetch, io, provenance
 from gaia_cli.datasets import hrrr, nlcd, synoptic
 
 COLLECTION = {
@@ -77,7 +77,7 @@ def test_from_stac_collection_survives_fetch_failure(monkeypatch):
     def fail(*args, **kwargs):
         raise requests.ConnectionError("offline")
 
-    monkeypatch.setattr(provenance.requests, "get", fail)
+    monkeypatch.setattr(fetch, "get", fail)
     attrs = provenance.from_stac_collection("https://example.com/c.json")
     assert attrs == {
         "links": [
@@ -91,9 +91,7 @@ def test_from_stac_collection_survives_fetch_failure(monkeypatch):
 
 
 def test_hrrr_source_attrs_prefer_store_version(monkeypatch):
-    monkeypatch.setattr(
-        provenance.requests, "get", lambda *a, **k: FakeResponse(COLLECTION)
-    )
+    monkeypatch.setattr(fetch, "get", lambda *a, **k: FakeResponse(COLLECTION))
     ds = xr.Dataset(attrs={"dataset_version": "0.2.0", "license": "CC-BY-4.0"})
     ds.attrs["gaia:icechunk-snapshot"] = "SNAP"
     ds.encoding["source"] = "s3://bucket/prefix/"

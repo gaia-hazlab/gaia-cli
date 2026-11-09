@@ -4,7 +4,7 @@ import pymseed
 import pytest
 import requests
 
-from gaia_cli import waveforms
+from gaia_cli import fetch
 
 
 @pytest.fixture
@@ -111,7 +111,6 @@ class FakeFDSN:
 def fdsn(monkeypatch):
     """A :class:`FakeFDSN` in place of the FDSN web services."""
     fake = FakeFDSN()
-    monkeypatch.setattr(waveforms.requests, "get", fake.get)
-    monkeypatch.setattr(waveforms.requests, "post", fake.post)
-    monkeypatch.setattr(waveforms.clock, "sleep", lambda s: None)
+    monkeypatch.setattr(fetch, "get", fake.get)
+    monkeypatch.setattr(fetch, "post", fake.post)
     return fake
