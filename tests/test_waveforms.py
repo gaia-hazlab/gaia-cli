@@ -302,8 +302,8 @@ def tree(groups):
 
 def stored(groups, tmp_path):
     """*groups* written as a store's waveforms/x node and read back."""
-    encoded = {f"waveforms/x/{k}": waveforms.to_dataset(g) for k, g in groups.items()}
-    io.save_datatree(xr.DataTree.from_dict(encoded), str(tmp_path / "w.zarr"))
+    nodes = {f"waveforms/x/{k}": g for k, g in groups.items()}
+    io.save_datatree(xr.DataTree.from_dict(nodes), str(tmp_path / "w.zarr"))
     return io.open_datatree(str(tmp_path / "w.zarr"))["waveforms/x"]
 
 

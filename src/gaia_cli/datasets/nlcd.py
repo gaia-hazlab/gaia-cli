@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 
 import geopandas as gpd
-import rioxarray
 import xarray as xr
 
 from .. import io, provenance
@@ -85,10 +84,7 @@ def source_attrs(year: int) -> dict:
 def open_nlcd(year: int = 2021) -> xr.DataArray:
     url = _url(year)
     log.info("NLCD: opening %s", url)
-    # Lazy but not dask: a clip then reads one window of the COG, instead of every
-    # whole dask chunk it touches
-    da = rioxarray.open_rasterio(url, cache=False)
-    da = da.squeeze("band", drop=True).rename("landcover")  # ty: ignore[unresolved-attribute, invalid-argument-type]
+    da = io.open_raster(url, "landcover")
     da.attrs["long_name"] = "Annual NLCD land cover"
     da.attrs["year"] = year
     # CF flags mark it categorical (gaia align uses mode); flag_colors for legends
@@ -98,7 +94,7 @@ def open_nlcd(year: int = 2021) -> xr.DataArray:
         for name, _ in CLASSES.values()
     )
     da.attrs["flag_colors"] = " ".join(color for _, color in CLASSES.values())
-    return da  # ty: ignore[invalid-return-type]
+    return da
 
 
 def load(aoi: gpd.GeoDataFrame, year: int = 2021) -> xr.Dataset:

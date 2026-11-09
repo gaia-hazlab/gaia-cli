@@ -11,7 +11,6 @@ from typing import Any
 
 import geopandas as gpd
 import rasterio
-import rioxarray
 import xarray as xr
 
 from .. import io, provenance
@@ -120,18 +119,15 @@ def source_attrs(product: Product) -> dict:
 def open_dem(product: Product = Product.cop30) -> xr.DataArray:
     p = PRODUCTS[Product(product)]
     log.info("DEM: opening %s", p["url"])
-    # Lazy but not dask: a clip then reads one window of the VRT, instead of every
-    # whole dask chunk it touches. masked: usgs10m's -999999 nodata becomes NaN
-    # (cop30 sets none)
-    da = rioxarray.open_rasterio(p["url"], cache=False, masked=True)
-    da = da.squeeze("band", drop=True).rename("elevation")  # ty: ignore[unresolved-attribute, invalid-argument-type]
+    # masked: usgs10m's -999999 nodata becomes NaN (cop30 sets none)
+    da = io.open_raster(p["url"], "elevation", masked=True)
     da.attrs = {
         "long_name": f"{p['title']} elevation",
         "standard_name": "surface_altitude",
         "units": "m",
         "vertical_datum": p["vertical_datum"],
     }
-    return da  # ty: ignore[invalid-return-type]
+    return da
 
 
 def load(aoi: gpd.GeoDataFrame, product: Product = Product.cop30) -> xr.Dataset:

@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 from shapely.geometry import box
 
+from gaia_cli import io
 from gaia_cli.datasets import synoptic
 
 OK = {"RESPONSE_CODE": 1, "RESPONSE_MESSAGE": "OK"}
@@ -206,9 +207,10 @@ def test_load_sets_provenance_and_encodes_for_the_store(monkeypatch):
     assert ds.attrs["start_datetime"] == "2025-12-01T00:00:00Z"
     assert ds.attrs["end_datetime"] == "2025-12-01T01:00:00Z"
 
-    encoded = synoptic.to_dataset(ds)
+    encoded = io.encode_cf(ds)  # as the store writes it
     assert "geometry_container" in encoded
     assert encoded.attrs == ds.attrs
+    assert io.encode_cf(encoded) is encoded  # nothing left to encode
 
 
 def test_get_station_metadata_raises_on_api_error(monkeypatch):

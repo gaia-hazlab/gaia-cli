@@ -109,8 +109,3 @@ def load(
         PROVENANCE,
         arrays=True,
     )
-
-
-def to_dataset(ds: xr.Dataset) -> xr.Dataset:
-    """A group from :func:`load`, xvec CF-encoded for the store."""
-    return waveforms.to_dataset(ds)
