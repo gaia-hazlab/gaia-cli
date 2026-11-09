@@ -32,8 +32,6 @@ PC_SAS = "https://planetarycomputer.microsoft.com/api/sas/v1/token"
 # the store is written, after load() returns
 TOKEN_MARGIN = pd.Timedelta(hours=1)
 
-# GDAL settings for efficient remote reading
-odc.stac.configure_rio(cloud_defaults=True)
 # odc-stac reprojects scenes from another UTM zone with rasterio.warp.reproject into
 # NumPy arrays, whose temporary in-memory dataset has no geotransform until the
 # destination's is applied; the output is georeferenced correctly

@@ -8,6 +8,7 @@ dynamic = ["version"]
 # conda-forge ([tool.pixi.dependencies]).
 dependencies = [
   "arraylake>=1.8",
+  "asf-search>=14.1",
   "boto3",
   "cf-xarray>=0.10",
   "cyclopts>=5.2.0,<6",
@@ -132,3 +133,4 @@ arraylake = ">=1.8.0,<2"
 pcodec = ">=1.1.0,<2"
 pymseed = ">=1.0.1,<2"
 scipy = ">=1.18.1,<2"
+asf_search-base = ">=14.1.0,<15"

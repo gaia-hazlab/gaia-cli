@@ -97,7 +97,7 @@ which `--method` overrides, for every dataset or for one (`-m dem/usgs10m=cubic`
 Variables without time, such as ERA5's `orography`, are only regridded. The input
 store is not changed.
 
-Scene datasets (`sentinel1-rtc`, `sentinel2`) keep their acquisition times: they are
+Scene datasets (`sentinel1-rtc`, `opera-rtc`, `sentinel2`) keep their acquisition times: they are
 put on the grid, but not combined in time, and the default time step is the coarsest
 of the other datasets. To total weather between passes, make a scene dataset the
 target. Each step then runs from one pass to the next; hourly ERA5 between passes at
