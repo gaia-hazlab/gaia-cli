@@ -229,8 +229,13 @@ which expires after 60 days.
 
 - `vv` and `vh` (default; `--polarizations` also takes `hh`, `hv`): gamma0 as
   **linear power**.
-- `mask`: each pass's layover and shadow mask, as CF flags (`valid`, `shadow`,
-  `layover`, `layover_and_shadow`, `no_data`).
+- `mask` (default): the layover and shadow mask of the pass's track, from OPERA's
+  static layers, as CF flags (`valid`, `shadow`, `layover`, `layover_and_shadow`,
+  `no_data`). `--static` also takes `local_incidence_angle` (from the terrain normal)
+  and `incidence_angle` (from the ellipsoid normal), in degrees, `number_of_looks`,
+  `rtc_anf_gamma0_to_beta0` and `rtc_anf_gamma0_to_sigma0`. Each is a variable along
+  `time`: every pass gets its track's layers, read only for the tracks of the chosen
+  passes.
 - One time step per pass, its bursts mosaicked, with the same `platform`,
   `orbit_state`, `relative_orbit` and `absolute_orbit` coordinates as
   `sentinel1-rtc`, plus `burst_ids`.
@@ -239,6 +244,7 @@ which expires after 60 days.
 
 ```bash
 gaia stage opera-rtc -i aoi.geojson -s 2023-09-01 -e 2023-09-30 -o out --relative-orbit 131
+gaia stage opera-rtc -i aoi.geojson -s 2023-09-01 -e 2023-09-30 -o out --static mask --static local_incidence_angle
 ```
 
 (sentinel2)=

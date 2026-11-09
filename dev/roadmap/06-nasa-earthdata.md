@@ -2,8 +2,8 @@
 
 Plan for a second Sentinel-1 RTC source, OPERA RTC-S1 from ASF DAAC, and the shared
 NASA Earthdata access that later datasets (NISAR GCOV first; HLS and SMAP, see
-[05](05-pr-sequence.md#later-on-request)) will reuse. Status: 6.1 (`opera-rtc`) is
-built ([../opera-rtc.md](../opera-rtc.md)); 6.2 (`opera-rtc-static`) is next.
+[05](05-pr-sequence.md#later-on-request)) will reuse. Status: 6.1 (`opera-rtc`) and
+6.2 (`opera-rtc --static`) are built ([../opera-rtc.md](../opera-rtc.md)).
 
 ## Why
 
@@ -108,29 +108,22 @@ This mirrors `sentinel1_rtc.py`, so that the two are interchangeable in a stage 
   - `vv` and `vh` (or `hh` and `hv`) are linear-power gamma0, float32, `units: "1"`.
   - `mask` is per pass, uint8, stored as CF flags (`flag_values` 0–3 and 255,
     `flag_meanings` `valid shadow layover layover_and_shadow no_data`). `gaia align`
-    then uses `mode` for it. It is always included, because
-    the product guide says to use each product's own mask rather than the static one.
+    then uses `mode` for it. In 6.1 it was each burst's own mask; from 6.2 it is the
+    track's static mask (below).
 - **Coordinates along `time`.** These are the same as `sentinel1-rtc` (`platform`,
   `orbit_state`, `relative_orbit`, `absolute_orbit` and `window`), plus `burst_ids` in
   place of `scene_ids`.
 - **Size.** At 30 m, it is about one ninth of `sentinel1-rtc` per pass.
 
-### `opera-rtc-static`: viewing geometry per track (`datasets/opera_rtc_static.py`)
+### Static layers: the `static` option of `opera-rtc`
 
-This is a separate dataset rather than an option of `opera-rtc`.
-
-- It is static, so it takes no window, like `dem` and `nlcd`. `KIND = "raster"`, and
-  `REGRID_METHOD = "bilinear"` suits the smooth angles.
-- Options:
-  - `layers`: a tuple of a `Literal` of the six layers. The default is
-    `local_incidence_angle` and `incidence_angle`.
-  - `relative_orbit` and `orbit_state` filters.
-- **Output.** Values are mosaicked per track along a `relative_orbit` dimension (with
-  an `orbit_state` coordinate), because one place has a different geometry on each
-  track. With the same CRS choice as `opera-rtc`, the grids match cell for cell, so
-  pairing is `static.sel(relative_orbit=ds.relative_orbit)`.
-- **Gap.** ASF has no static layers yet for HH/HV bursts (parts of Greenland and Arctic
-  Canada).
+Revised in 6.2 from a separate `opera-rtc-static` dataset. Static granules carry no
+acquisition time (every one is dated 2014-04-03), so a separate dataset couldn't tell
+which tracks matter, and it loaded tracks with no passes. As an option, the layers are
+read only for the tracks of the chosen passes, on the passes' grid, and each pass gets
+its track's layers along `time`. The default, `["mask"]`, replaces the per-pass burst
+mask: the geometry barely changes between passes
+([../opera-rtc.md](../opera-rtc.md#static-layers)).
 
 ## PR sequence
 
@@ -139,14 +132,15 @@ Each step is its own PR, and cleanups go in follow-ups.
 | # | PR | content |
 |---|---|---|
 | 6.1 | **`earthdata.py` + `opera-rtc`** | Add `asf_search-base`. The helper (search → Items, newest generation, signing, header-filled `proj:`); the GDAL settings in `io.py`; the burst dataset. Tests: an offline fixture of asf_search GeoJSON for item building, dedup and grouping, `select` with `match`, and signing; an `online` Peters Dome case skipped without `EARTHDATA_TOKEN`; a `docs/datasets.md` entry and `dev/opera-rtc.md` (the access notes above move there). |
-| 6.2 | **`opera-rtc-static`** | Static layers per track, reusing 6.1's helper. Offline grouping test, online case, docs. |
+| 6.2 | **`opera-rtc --static`** | Static layers of the chosen passes' tracks, per pass, with the static mask by default in place of the burst mask. `stac.load`/`load_scenes` take a `geobox`; `earthdata.newest` takes a key. Offline tests, online case, docs. |
 
 Adding the datasets to the Peters Dome example is out of scope here; it is being done
 separately.
 
 ## Decided
 
-- Names: `opera-rtc` and `opera-rtc-static`.
-- Static layers are a separate dataset, along `relative_orbit`.
+- Name: `opera-rtc`, with static layers through its `static` option.
+- Static layers are an option of `opera-rtc` (revised in 6.2), given to each pass along
+  `time`; the static mask replaces the burst mask.
 - Search uses `asf_search`. Reads use GDAL with ranged requests to URLs ASF signs for
   an hour, over HTTP/1.1.

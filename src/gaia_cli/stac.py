@@ -19,6 +19,7 @@ import pystac
 import pystac_client
 import requests
 import xarray as xr
+from odc.geo.geobox import GeoBox
 from rasterio.errors import NotGeoreferencedWarning
 
 from . import io
@@ -107,26 +108,33 @@ def load(
     aoi: gpd.GeoDataFrame,
     groupby: str | Callable = "id",
     resolution: float | None = None,
+    geobox: GeoBox | None = None,
 ) -> xr.Dataset:
     """*bands* of *items*, lazily, clipped to *aoi* on the native grid.
 
     Items in another CRS than most are reprojected onto that one; *groupby*
     (an odc-stac groupby) decides which items share a time step. The pixel
     size is the items' own (``proj:transform``) unless *resolution* is given,
-    e.g. the finest of bands at several resolutions.
+    e.g. the finest of bands at several resolutions. With *geobox*, they are
+    loaded on that grid instead, e.g. another load's (``ds.odc.geobox``).
     """
-    crs = native_crs(items)
-    native = [it for it in items if item_crs(it) == crs]
-    if others := len(items) - len(native):
-        log.warning("%d of %d item(s) reprojected to %s", others, len(items), crs)
-    # The pixel size of the items already in that CRS (proj:transform's a)
-    transform = native[0].properties.get("proj:transform")
+    crs = bbox = None
+    if geobox is None:
+        crs = native_crs(items)
+        native = [it for it in items if item_crs(it) == crs]
+        if others := len(items) - len(native):
+            log.warning("%d of %d item(s) reprojected to %s", others, len(items), crs)
+        # The pixel size of the items already in that CRS (proj:transform's a)
+        transform = native[0].properties.get("proj:transform")
+        resolution = resolution or (abs(transform[0]) if transform else None)
+        bbox = tuple(aoi.to_crs("EPSG:4326").total_bounds)
     ds = odc.stac.load(
         items,
         bands=bands,
         crs=crs,
-        resolution=resolution or (abs(transform[0]) if transform else None),
-        bbox=tuple(aoi.to_crs("EPSG:4326").total_bounds),
+        resolution=resolution,
+        bbox=bbox,
+        geobox=geobox,
         groupby=groupby,
         chunks={},
     )
@@ -151,6 +159,7 @@ def load_scenes(
     bands: Sequence[str],
     aoi: gpd.GeoDataFrame,
     resolution: float | None = None,
+    geobox: GeoBox | None = None,
 ) -> xr.Dataset:
     """*bands* of *scenes* (from :func:`group`), one time step per scene at
     its first item's time, its items mosaicked (first valid value wins)."""
@@ -163,6 +172,7 @@ def load_scenes(
         aoi,
         groupby=lambda item, parsed, idx: index[item.id],
         resolution=resolution,
+        geobox=geobox,
     )
 
 

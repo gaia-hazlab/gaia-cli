@@ -277,6 +277,30 @@ def test_opera_rtc_passes_around_peters_dome(tmp_path):
     )
 
 
+@pytest.mark.skipif(
+    not os.environ.get("EARTHDATA_TOKEN"), reason="needs EARTHDATA_TOKEN"
+)
+def test_opera_rtc_static_layers_of_each_pass():
+    # The pass on track 131 gets that track's static layers, read onto its grid
+    from gaia_cli.aoi import load_aoi
+    from gaia_cli.datasets import opera_rtc
+
+    aoi = load_aoi({"latitude": 63.1455, "longitude": -151.1904, "radius_km": 2})
+    static = ("mask", "local_incidence_angle", "incidence_angle")
+    ds = opera_rtc.load(
+        aoi, "2023-09-09T00:00:00", "2023-09-09T23:59:59", static=static
+    ).load()
+    assert ds.relative_orbit.values.tolist() == [131]
+    # Steep terrain: local angles spread far around the ellipsoid's ~40 degrees
+    assert 30 < float(ds.incidence_angle.median()) < 45
+    lia = ds.local_incidence_angle
+    assert float(lia.min()) < 20 and float(lia.max()) > 60
+    # Layover on slopes facing the radar (small local angles), shadow on slopes
+    # facing away (large ones)
+    median = {code: float(lia.where(ds["mask"] == code).median()) for code in (0, 1, 2)}
+    assert median[2] < median[0] < median[1]
+
+
 def test_sentinel2_after_the_event_is_snow_covered():
     # The paper notes snowfall right after the event; the clear 2023-09-24 pass
     # over the source is mostly snow: bright in the visible, dark at 1.6 um

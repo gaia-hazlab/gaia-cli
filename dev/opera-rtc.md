@@ -93,17 +93,59 @@ cells, and so are its static layers. The headers are read from the signed URLs.
 - **Gamma0.** `vv`, `vh` (or `hh`, `hv`) are linear-power gamma0, float32,
   `units: "1"`. The COGs' nodata is NaN, and zero is set to NaN too. The default
   regrid method is `average`, the mean of linear power, as for `sentinel1-rtc`.
-- **Mask.** `mask` is each pass's own layover and shadow mask, which the product guide
-  prefers over the static one. It is uint8 CF flags: 0 `valid`, 1 `shadow`,
-  2 `layover`, 3 `layover_and_shadow` and 255 `no_data`. 255 is also outside the AOI
-  and the bursts, as Sentinel-2's SCL keeps 0 `no_data`. The assets declare
-  `raster:bands` (`uint8`, nodata 255), so odc-stac reads the mask as uint8 and
-  mosaics past the padding.
+- **Mask and other static layers.** See [Static layers](#static-layers).
 - **Coordinates along `time`.** These are `platform` (`Sentinel-1A`), `orbit_state`,
   `relative_orbit`, `absolute_orbit`, `burst_ids` (space-separated) and `window`.
 - **Size.** At 30 m a pass is about one ninth of `sentinel1-rtc`'s. The regional Peters
   Dome AOI (4 passes, 34 bursts, 3066 × 3443 cells) is 362 MB and was staged in about
   25 s.
+
+## Static layers
+
+The `static` option (default `["mask"]`) gives each pass its track's static layers,
+as variables along `time`. Each burst ID has one static granule
+(`OPERA_L2_RTC-S1-STATIC_V1`, `C2795135174-ASF`): the viewing geometry, computed once
+from a reference orbit. Its COGs are:
+
+- `mask`: layover and shadow, uint8, with the codes 0 `valid`, 1 `shadow`,
+  2 `layover`, 3 `layover_and_shadow` and 255 nodata;
+- `local_incidence_angle` and `incidence_angle` (degrees), `number_of_looks`,
+  `rtc_anf_gamma0_to_beta0` and `rtc_anf_gamma0_to_sigma0`, all float32 with NaN
+  nodata.
+
+How they're loaded (`opera_rtc.load_static`):
+
+- **Only the tracks with passes.** After passes are chosen, static granules are
+  searched for those passes' tracks only (asf_search `relativeOrbit=[...]`). The static
+  metadata can't do this on its own: every granule is dated 2014-04-03, and its only
+  real date is when it was processed. Over the Peters Dome source AOI there are static
+  layers for tracks 65, 131, 138 and 167, but in 2016–2026 track 138 has 2 passes there
+  (April 2025) and track 167 none. ASF generates static layers for every burst ID.
+- **On the passes' grid.** The static bursts of each track are mosaicked with
+  `stac.load_scenes(..., geobox=ds.odc.geobox)`, onto exactly the grid the passes were
+  loaded on. Then each pass takes its track's layers:
+  `layers.sel(relative_orbit=xr.DataArray(tracks, dims="time"))`. A burst ID's static
+  layers are on its own grid anyway (T073-155356-IW1 above).
+- **The newest processing** of each burst ID is kept (`earthdata.newest` with a burst
+  key). A track with passes but no static layers is an error. ASF has none yet for
+  HH/HV bursts (parts of Greenland and Arctic Canada).
+- **The mask is a stand-in for each pass's own.** Each RTC-S1 granule also has a burst
+  mask, computed from that acquisition's orbit, which varies by up to about 100 m from
+  pass to pass. The static mask is used instead, since the geometry barely changes.
+  The burst mask isn't read. On track 131 over the source AOI:
+  - **Agreement:** 98.8% of the cells where both are valid, on 2023-09-09.
+  - **Where they differ:** 96% of the differing cells are within one cell of a class
+    edge in the burst mask, mostly valid ↔ layover.
+  - **Footprint:** the static mask also covers the burst's full footprint, including
+    padding, so `mask` can be `valid` where `vv` is NaN. Use `vv` for data coverage.
+- **Values.** `mask` is uint8 CF flags with 255 as `no_data` (outside the AOI and the
+  bursts), as Sentinel-2's SCL keeps 0 `no_data`, so `gaia align` uses `mode` for it.
+  The layer's attributes are replaced rather than merged: odc-stac's `nodata` would
+  otherwise turn 255 into a `_FillValue`, read back as NaN. The angles use the dataset's
+  `average`. `rtc_anf_gamma0_to_beta0` reaches about 10⁶ in shadow.
+- **Physics check** (online test): layover is on slopes facing the radar, with small
+  local incidence angles (median 14° over the source AOI). Shadow is on slopes facing
+  away, with large ones. Valid cells sit between (51°).
 
 ## Peters Dome
 

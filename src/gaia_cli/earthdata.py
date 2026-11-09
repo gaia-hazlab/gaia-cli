@@ -11,7 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import os
-from collections.abc import Sequence
+from collections.abc import Callable, Hashable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -143,14 +143,20 @@ def to_item(feature: dict, bands: dict[str, dict] | None = None) -> pystac.Item:
     return item
 
 
-def newest(items: Sequence[pystac.Item]) -> list[pystac.Item]:
-    """*items* with only the newest processing of each burst acquisition."""
-    best: dict[tuple, pystac.Item] = {}
+def acquisition(item: pystac.Item) -> tuple:
+    """The burst and time an item was acquired, whatever its processing."""
+    return item.properties["opera:burst_id"], item.datetime
+
+
+def newest(
+    items: Sequence[pystac.Item], key: Callable[[pystac.Item], Hashable] = acquisition
+) -> list[pystac.Item]:
+    """*items* with only the newest processing of each *key* (by default, each
+    burst acquisition; a static layer's is its burst ID)."""
+    best: dict[Hashable, pystac.Item] = {}
     for it in sorted(items, key=lambda it: it.properties["processing:datetime"]):
-        best[it.properties["opera:burst_id"], it.datetime] = it
-    return [
-        it for it in items if best[it.properties["opera:burst_id"], it.datetime] is it
-    ]
+        best[key(it)] = it
+    return [it for it in items if best[key(it)] is it]
 
 
 def set_proj(items: Sequence[pystac.Item], asset: str) -> None:

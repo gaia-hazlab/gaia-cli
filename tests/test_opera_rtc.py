@@ -78,6 +78,47 @@ def feature(root, burst, bounds, value, when, orbit, track, processed="2025-02-1
     }
 
 
+def static(root, burst, bounds, track, mask, angle, processed="2023-12-02T03:34:45Z"):
+    """An asf_search feature for one burst ID's static layers, the COGs under *root*."""
+    name = f"OPERA_L2_RTC-S1-STATIC_{burst.replace('_', '-')}_20140403_S1A_30_v1.0"
+    layers = ("mask", "local_incidence_angle", "incidence_angle")
+    keys = {
+        layer: f"OPERA_L2_RTC-S1_STATIC/{name}/{name}_{layer}.tif" for layer in layers
+    }
+    for layer, key in keys.items():
+        if layer == "mask":
+            cog(root / "OPERA" / key, bounds, mask, "uint8", 255)
+        else:
+            cog(root / "OPERA" / key, bounds, angle)
+    footprint = gpd.GeoSeries([box(*bounds)], crs="EPSG:32605").to_crs(4326)[0]
+    return {
+        "type": "Feature",
+        "geometry": mapping(footprint),
+        "properties": {
+            "sceneName": name,
+            "startTime": None,
+            "processingDate": processed,
+            "platform": "Sentinel-1A",
+            "flightDirection": "DESCENDING" if track != 65 else "ASCENDING",
+            "pathNumber": track,
+            "orbit": 11403,
+            "operaBurstID": burst,
+            "s3Urls": [f"s3://{BUCKET}/{k}" for k in keys.values()],
+        },
+    }
+
+
+@pytest.fixture
+def statics(tmp_path):
+    """Static layers of the bursts below, and of a track with no passes (65)."""
+    return [
+        static(tmp_path, "T131_279928_IW2", NORTH, 131, mask=2, angle=40.0),
+        static(tmp_path, "T131_279929_IW2", SOUTH, 131, mask=0, angle=41.0),
+        static(tmp_path, "T102_217000_IW1", NORTH, 102, mask=1, angle=30.0),
+        static(tmp_path, "T065_137842_IW1", NORTH, 65, mask=3, angle=20.0),
+    ]
+
+
 @pytest.fixture
 def bursts(tmp_path):
     """Two bursts of one pass, a reprocessed burst, a VV-only pass and a later pass."""
@@ -122,12 +163,15 @@ def bursts(tmp_path):
 
 
 @pytest.fixture
-def asf(monkeypatch, tmp_path, bursts):
+def asf(monkeypatch, tmp_path, bursts, statics):
     """ASF stand-ins, the files local; returns the searches made."""
     searches = []
 
     def search(aoi, start=None, end=None, **filters):
         searches.append({"start": start, "end": end, **filters})
+        if filters["processingLevel"] == "RTC-STATIC":
+            tracks = filters["relativeOrbit"]
+            return [f for f in statics if f["properties"]["pathNumber"] in tracks]
         return bursts
 
     monkeypatch.setattr(earthdata, "search", search)
@@ -135,7 +179,7 @@ def asf(monkeypatch, tmp_path, bursts):
     monkeypatch.setattr(earthdata, "sign", lambda items, assets: None)
 
     def get(url, timeout):
-        assert url == opera_rtc.COLLECTION_URL
+        assert url in (opera_rtc.COLLECTION_URL, opera_rtc.STATIC_URL)
         return type(
             "R",
             (),
@@ -158,8 +202,13 @@ def test_load_mosaics_the_bursts_of_each_pass(asf, caplog):
     assert float(first.vv.sel(y=Y0 - 15, x=X0 + 15)) == 1.0  # north burst
     assert float(first.vv.sel(y=Y0 - 285, x=X0 + 15)) == 9.0  # newest south burst
     assert ds.vv.attrs["units"] == "1" and ds.vv.dtype == "float32"
+    # The mask, by default, is the static one of the pass's track
     assert ds.mask.dtype == "uint8"
     assert int(first.mask.sel(y=Y0 - 15, x=X0 + 15)) == 2  # layover
+    assert int(first.mask.sel(y=Y0 - 285, x=X0 + 15)) == 0  # valid
+    assert asf[1]["processingLevel"] == "RTC-STATIC" and asf[1]["relativeOrbit"] == [
+        131
+    ]
     assert ds.mask.attrs["flag_values"] == [0, 1, 2, 3, 255]
     assert ds.mask.attrs["flag_meanings"].split()[-1] == "no_data"
     assert ds.burst_ids.values.tolist() == [
@@ -171,15 +220,41 @@ def test_load_mosaics_the_bursts_of_each_pass(asf, caplog):
     assert ds.absolute_orbit.values.tolist() == [50253, 50428]
     assert ds.attrs["license"] == "CC0-1.0"
     derived = [ln["href"] for ln in ds.attrs["links"] if ln["rel"] == "derived_from"]
-    assert len(derived) == 1 + 3  # the collection and each burst read
+    assert len(derived) == 1 + 3 + 2  # the collection, each burst and static read
 
 
 def test_orbit_options_filter_the_search(asf):
     opera_rtc.load(AOI, "2023-09-01", "2023-09-30", ("vv",), OrbitState.descending, 131)
-    (search,) = asf
+    search = asf[0]
     assert search["flightDirection"] == "DESCENDING"
     assert search["relativeOrbit"] == 131
     assert search["dataset"] == "OPERA-S1" and search["processingLevel"] == "RTC"
+
+
+def test_each_pass_gets_its_tracks_static_layers(asf):
+    static = ("mask", "local_incidence_angle")
+    ds = opera_rtc.load(AOI, "2023-09-01", "2023-09-30", ("vv",), static=static).load()
+    assert ds.relative_orbit.values.tolist() == [131, 102, 131]
+    assert asf[1]["relativeOrbit"] == [102, 131]  # track 65 has no passes
+    north = ds.sel(y=Y0 - 15, x=X0 + 15)
+    assert north["mask"].values.tolist() == [2, 1, 2]
+    assert north.local_incidence_angle.values.tolist() == [40.0, 30.0, 40.0]
+    assert ds.local_incidence_angle.attrs["units"] == "degree"
+    assert "_FillValue" not in ds["mask"].attrs  # 255 stays a flag value
+    # Track 102's static layers cover only the north half
+    south = ds["mask"].sel(time=ds.relative_orbit == 102, y=Y0 - 285, x=X0 + 15)
+    assert south.values.tolist() == [255]
+
+
+def test_static_can_be_left_out(asf):
+    ds = opera_rtc.load(AOI, "2023-09-01", "2023-09-30", static=())
+    assert "mask" not in ds and len(asf) == 1
+
+
+def test_a_track_without_static_layers_is_an_error(asf, statics):
+    statics[:] = [f for f in statics if f["properties"]["pathNumber"] != 102]
+    with pytest.raises(ValueError, match="for relative orbit\\(s\\) 102"):
+        opera_rtc.load(AOI, "2023-09-01", "2023-09-30", ("vv",))
 
 
 def test_no_bursts_is_an_error(asf):
@@ -227,9 +302,10 @@ def test_to_item_names_assets_by_layer_on_the_cumulus_host(tmp_path, bursts):
     assert item.assets["vv"].href == (
         f"{earthdata.HOST}/OPERA/OPERA_L2_RTC-S1/{name}/{name}_VV.tif"
     )
-    assert item.assets["mask"].extra_fields["raster:bands"] == [
-        {"data_type": "uint8", "nodata": 255}
+    assert item.assets["vv"].extra_fields["raster:bands"] == [
+        {"data_type": "float32", "nodata": "nan"}
     ]
+    assert "raster:bands" not in item.assets["mask"].extra_fields  # not loaded
     assert item.properties["sat:orbit_state"] == "descending"
     assert item.properties["sat:relative_orbit"] == 131
     assert item.properties["opera:burst_id"] == "T131_279928_IW2"
