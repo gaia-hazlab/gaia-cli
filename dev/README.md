@@ -30,6 +30,11 @@ the Docs workflow gets them from the `kopah` environment and repository secrets.
 keeps each notebook's outputs in `docs/_build/execute` and reruns it only when its code
 changes; CI caches that folder. Delete it to rerun everything.
 
+Each notebook stages into a fixed folder, so don't run two copies of one at once (say
+`pixi run docs` while `docs-build` runs): their writes collide and some datasets fail
+(see `--skip-existing` in [docs/cli.md](../docs/cli.md)). A cell that runs `!gaia` checks
+`_exit_code` after it, since `!` ignores the exit code.
+
 ## Object store credentials
 
 Zarr outputs are well-suited to S3-compatible object stores (e.g. AWS S3, MinIO, etc.). The examples below write to either a University of Washington object store called [Kopah](https://hyak.uw.edu/docs/systems/kopah/overview/), [backblaze B2](https://www.backblaze.com/docs), or a [Hugging Face bucket](huggingface.md). We output to the publicly readable `gaia-scratch` bucket on Kopah, under `gaia-cli/`. It has a 30-day lifecycle policy (any uploaded file is deleted after 30 days). You must have credentials to write to this bucket, credentials can be configured by setting environment variables `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` or by using the AWS config files and settings AWS_PROFILE to the profile name. For example, to use the `kopah` profile, set `AWS_PROFILE=kopah` in your environment:

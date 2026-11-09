@@ -28,6 +28,9 @@ gaia stage dem   -i $AOI -o skagit --skip-existing               # static: no wi
   day) are complete.
 - `-o` is an output folder, local or `s3://`. The store is named after the folder.
 - `--skip-existing` adds a dataset to an existing store. `--overwrite` replaces it.
+  Run one `gaia stage` at a time per output folder: `--skip-existing` checks the store's
+  groups when it starts, so a group another run writes in the meantime fails with
+  `unexpected encoding parameters for zarr backend: ['coordinates']`.
 - `--dry-run` checks the arguments and the AOI without fetching anything.
 
 (stage-files)=
