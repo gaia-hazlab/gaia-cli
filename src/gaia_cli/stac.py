@@ -10,7 +10,9 @@ from __future__ import annotations
 import logging
 import warnings
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Hashable, Sequence
+from enum import Enum
+from typing import Any
 
 import geopandas as gpd
 import odc.stac
@@ -39,6 +41,17 @@ TOKEN_MARGIN = pd.Timedelta(hours=1)
 warnings.filterwarnings(
     "ignore", category=NotGeoreferencedWarning, module="rasterio.warp"
 )
+
+
+class Match(str, Enum):
+    """What pre and post scenes must share; ``relative_orbit`` pairs them on each track."""
+
+    none = "none"
+    relative_orbit = "relative_orbit"
+
+
+# The item property each Match compares
+MATCH_PROPERTY = {Match.relative_orbit: "sat:relative_orbit"}
 
 # collection -> (token, expiry)
 _tokens: dict[str, tuple[str, pd.Timestamp]] = {}
@@ -154,6 +167,19 @@ def group(
     return sorted(groups.values(), key=lambda g: (g[0].datetime, g[0].id))
 
 
+def newest(
+    items: Sequence[pystac.Item],
+    key: Callable[[pystac.Item], Hashable],
+    rank: Callable[[pystac.Item], Any],
+) -> list[pystac.Item]:
+    """*items* with only the newest processing of each *key*, the highest
+    *rank* (e.g. a processing time), in their order."""
+    best: dict[Hashable, pystac.Item] = {}
+    for it in sorted(items, key=rank):
+        best[key(it)] = it  # later (newer) processings replace earlier ones
+    return [it for it in items if best[key(it)] is it]
+
+
 def load_scenes(
     scenes: Sequence[Sequence[pystac.Item]],
     bands: Sequence[str],
@@ -235,3 +261,43 @@ def select(
             seen.add(scene[0].id)
             out.append((name, scene))
     return out
+
+
+def choose(
+    scenes: Sequence[Sequence[pystac.Item]],
+    windows: Sequence[Window] | None,
+    what: str,
+    match: Match = Match.none,
+) -> tuple[list[list[pystac.Item]], list[str | None]]:
+    """The scenes *windows* choose (see :func:`select`), each with its window's
+    name; every scene, unnamed, without *windows*.
+
+    *what* names the dataset in the log and the error raised when no scene
+    matches, e.g. ``"Sentinel-1 RTC"``.
+    """
+    if not windows:
+        return [list(s) for s in scenes], [None] * len(scenes)
+    prop = MATCH_PROPERTY.get(Match(match))
+    picked = select(scenes, windows, prop)
+    if not picked:
+        raise ValueError(
+            f"no {what} passes match the windows"
+            + (" on any track with passes in every window" if prop else "")
+        )
+    for name, scene in picked:
+        log.info(
+            "%s: %s %s, relative orbit %s",
+            what,
+            name or "selected",
+            scene[0].datetime,
+            scene[0].properties.get("sat:relative_orbit"),
+        )
+    return [list(scene) for _, scene in picked], [name for name, _ in picked]
+
+
+def label_windows(ds: xr.Dataset, labels: Sequence[str | None]) -> xr.Dataset:
+    """*ds* with a ``window`` coordinate along ``time`` naming each scene's
+    window (from :func:`choose`), when any window is named."""
+    if not any(labels):
+        return ds
+    return ds.assign_coords(window=("time", [name or "" for name in labels]))

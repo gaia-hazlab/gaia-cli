@@ -117,10 +117,7 @@ def newest(items: list[pystac.Item]) -> list[pystac.Item]:
             "s2:generation_time", ""
         )
 
-    best: dict[tuple, pystac.Item] = {}
-    for it in sorted(items, key=rank):
-        best[tile(it)] = it  # later (newer) processings replace earlier ones
-    return [it for it in items if best[tile(it)] is it]
+    return stac.newest(items, tile, rank)
 
 
 def pass_key(item: pystac.Item) -> str:
@@ -209,17 +206,8 @@ def load(
             f"no Sentinel-2 L2A scenes over the AOI from {start_date} to {end_date}"
             + (f" with at most {max_cloud_cover}% cloud" if query else "")
         )
-    groups = stac.group(items, pass_key)
-    labels: list[str | None] = [None] * len(groups)
-    if windows:
-        picked = stac.select(groups, windows)
-        if not picked:
-            raise ValueError("no Sentinel-2 L2A passes match the windows")
-        labels = [name for name, _ in picked]
-        groups = [list(scene) for _, scene in picked]
-        items = [it for g in groups for it in g]
-        for name, scene in picked:
-            log.info("Sentinel-2: %s %s", name or "selected", scene[0].datetime)
+    groups, labels = stac.choose(stac.group(items, pass_key), windows, "Sentinel-2 L2A")
+    items = [it for g in groups for it in g]
 
     assets = [ASSETS[b] for b in bands]
     ds = stac.load_scenes(
@@ -275,7 +263,6 @@ def load(
         ),
         scene_ids=("time", [" ".join(it.id for it in g) for g in groups]),
     )
-    if any(labels):
-        ds = ds.assign_coords(window=("time", [name or "" for name in labels]))
+    ds = stac.label_windows(ds, labels)
     ds.attrs = {**source_attrs(items), **provenance.time_extent(ds)}
     return ds
