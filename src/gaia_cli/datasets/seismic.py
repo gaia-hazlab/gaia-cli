@@ -8,7 +8,7 @@ velocity is counts / sensitivity. See dev/seismic.md.
 Examples
 --------
 Peters Dome, 2023-09-14: every HH or BH station within 250 km:
-    $ gaia stage --config examples/peters-dome-waveforms.yaml -o peters-dome-waveforms
+    $ gaia stage --config examples/peters-dome.yaml --only seismic -o peters-dome
 
 One station, two minutes:
     $ gaia stage seismic -i aoi.geojson -s 2023-09-14T02:06 -e 2023-09-14T02:08 -n AK --station BPAW -o bpaw

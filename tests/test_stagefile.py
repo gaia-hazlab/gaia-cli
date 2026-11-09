@@ -1,5 +1,6 @@
 import inspect
 import typing
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -270,6 +271,16 @@ def test_dry_run_prints_resolved_config(tmp_path, capsys):
     assert "aoi_bbox: [-152.2, 62.75, -150.2, 63.55]" in out
     # Peters Dome is in Alaska, outside the CONUS-only datasets
     assert "skipped: AOI [-152.2, 62.75, -150.2, 63.55] is outside" in out
+
+
+@pytest.mark.parametrize(
+    "path",
+    sorted((Path(__file__).parents[1] / "examples").glob("*.yaml")),
+    ids=lambda p: p.name,
+)
+def test_examples_dry_run(path, capsys):
+    runner.stage(config=str(path), dry_run=True)
+    assert "datasets:" in capsys.readouterr().out
 
 
 # Around Bolt Creek, WA: inside every current dataset's extent

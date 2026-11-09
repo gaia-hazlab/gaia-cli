@@ -1,0 +1,48 @@
+# Peters Dome, AK: the 2023-09-14 ice-rock avalanche (Toney et al., 2026,
+# https://doi.org/10.1029/2025JF008577). Sentinel-1 RTC and Sentinel-2 passes before and
+# after, ERA5 weather, the Copernicus 30 m DEM, and the seismic and infrasound records
+# as raw counts at each channel's native rate.
+# ERA5 needs ARRAYLAKE_TOKEN (a free Earthmover account). Check, then stage:
+#   gaia stage --config examples/peters-dome.yaml --dry-run
+#   gaia stage --config examples/peters-dome.yaml -o peters-dome
+# or only the waveforms (a minute or two, no token):
+#   gaia stage --config examples/peters-dome.yaml --only seismic,infrasound -o peters-dome
+# peters-dome.ipynb takes a first look at each dataset.
+name: peters-dome
+time: 2023-09-14T02:06:49Z                        # ComCat origin
+origin: {latitude: 63.1455, longitude: -151.1904} # distance_km and back_azimuth from here
+attrs:
+  title: Peters Dome ice-rock avalanche, 2023-09-14, remote sensing, weather, elevation, seismic and infrasound
+  references: https://doi.org/10.1029/2025JF008577
+aois:
+  source: {latitude: 63.1455, longitude: -151.1904, radius_km: 15}   # around the ComCat location
+  outlines: {latitude: 63.1423, longitude: -151.1871, radius_km: 5}  # the mapped source and deposit
+  regional: {bbox: [-152.2, 62.75, -150.2, 63.55]}
+  seismic: {latitude: 63.1455, longitude: -151.1904, radius_km: 250}
+  infrasound: {latitude: 63.1455, longitude: -151.1904, radius_km: 400}  # arrays at 200-310 km
+aoi: source                          # relative orbit 131 only; regional also has 102
+datasets:
+  sentinel1-rtc:
+    window:                          # every pass in three 12-day repeats on each side,
+      pre: {before: 36d}             # labelled pre or post in a `window` coordinate
+      post: {after: 36d}
+    match: relative_orbit            # only tracks with passes on both sides
+  sentinel2:
+    aoi: outlines                    # 10 m: about 35 MB a pass in memory
+    window:
+      pre: {before: 36d}
+      post: {after: 36d}
+    max_cloud_cover: 90              # of the 110 km tile; the notebook checks the AOI
+  era5:                              # hourly tp, sf, t2m, swvl1, swvl2, sd
+    aoi: outlines                    # 0.25° cells: the two around the source
+    window: {before: 48d, after: 36d}  # the passes' span, plus the 12 days before the
+                                       # first pass (its interval with --time-like)
+  dem/cop30: {}                      # static: takes no window
+  seismic:
+    aoi: seismic
+    window: {before: 1009s, after: 1391s}         # 01:50 to 02:30 UTC
+    channel: "HH?,BH?"                            # per station, HH if it has them, else BH
+  infrasound:
+    aoi: infrasound
+    window: {before: 1009s, after: 3191s}         # 01:50 to 03:00 UTC: ~0.3 km/s over 400 km
+    channel: "BDF,HDF"                            # per sensor, BDF if it has it, else HDF
