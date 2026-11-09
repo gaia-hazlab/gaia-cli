@@ -4,8 +4,9 @@
 
 
 Stage geospatial datasets for an event (an area of interest and a time window) into
-one analysis-ready Zarr store: weather stations, PRISM, HRRR, land cover, elevation,
-soil, burn severity, and Sentinel-1 and Sentinel-2 satellite imagery.
+one analysis-ready Zarr store: weather stations, gridded weather (PRISM, HRRR, ERA5,
+Stage IV), land cover, elevation, soil, burn severity, satellite imagery (Sentinel-1,
+Sentinel-2, OPERA RTC) and seismic and infrasound waveforms.
 
 **Documentation: <https://gaia-hazlab.github.io/gaia-cli/>**
 
@@ -24,7 +25,7 @@ See [examples/skagit-precip.ipynb](examples/skagit-precip.ipynb) for an analysis
 
 This is a convenience for creating datasets without requiring any local setup, but you must have *write* permissions to this repository to run GitHub actions.
 
-The [Stage Event](.github/workflows/stage-event.yml) workflow collates and stages data required for landlab landslide modeling in Zarr format. It optionally aligns the datasets and and uploads the results to a public object store. Run it from the
+The [Stage Event](.github/workflows/stage-event.yml) workflow collates and stages data required for landlab landslide modeling in Zarr format. It optionally aligns the datasets and uploads the results to a public object store. Run it from the
 [Actions tab](https://github.com/gaia-hazlab/gaia-cli/actions/workflows/stage-event.yml)
 or with the GitHub CLI:
 
