@@ -108,9 +108,20 @@ Settings → API Clients), or run `arraylake auth login` once.
   13:00 UTC.
 - The free copy is updated quarterly, so the latest months are missing.
 - On glaciers ERA5 models a deep snowpack, so `sd` stays in the metres all year.
-- `orography` (m) is the height of ERA5's smoothed terrain in each cell, the level
-  `t2m` is valid at. In the mountains it can be far below the real terrain; use it
-  to correct temperatures for height.
+- `orography` (m) is the height of the model's terrain: smoothed, roughly each
+  cell's mean. Every ERA5 surface value (`t2m`, `sf`, `sd`, ...) is valid at that
+  height, not on the ground below it, and regridding onto a finer grid adds no
+  terrain. In the mountains it is far below the peaks (around Peters Dome
+  1,200–2,100 m against ~2,760 m at the source), so there ERA5 is too warm, puts
+  too much of its precipitation down as rain, and spreads orographic precipitation
+  over the whole cell. The usual first correction is a lapse rate:
+  `t2m − 6.5 °C/km × (elevation − orography)`, with `elevation` from a DEM. Real
+  lapse rates vary (inversions in valleys, Alaskan winters), so treat it as an
+  estimate. On a map, `elevation − orography` says more than `orography` alone.
+- ERA5 is a model run constrained by observations, not an interpolation of stations
+  like PRISM. It assimilates surface stations (pressure, and 2 m temperature and
+  humidity in its land-surface analysis) and, over the US from 2009, radar–gauge
+  precipitation, but its `tp` is a short forecast and its values are cell means.
 - License: CC-BY-4.0; keep the Copernicus `acknowledgement` attribute.
 
 (stage4)=
