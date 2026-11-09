@@ -13,8 +13,8 @@ project:
     - file: gdal.md
     - title: Examples
       children:
-        - file: ../examples/skagit-precip.ipynb
-        - file: ../examples/pioneer-landlab.ipynb
+        - file: examples/skagit-precip.ipynb
+        - file: examples/pioneer-landlab.ipynb
     - file: reference.md
 site:
   template: book-theme

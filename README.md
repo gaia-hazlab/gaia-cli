@@ -51,7 +51,8 @@ or on a map in
 pixi run test        # tests
 pixi run lint        # ruff
 pixi run typecheck   # ty
-pixi run docs        # preview the user docs (docs/) at http://localhost:3000
+pixi run docs        # preview the user docs (docs/) at http://localhost:3000, running the notebooks
+pixi run strip-notebooks  # clear example notebook outputs before committing
 ```
 
 User documentation lives in [docs/](docs/) and is published to GitHub Pages from

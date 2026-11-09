@@ -1,7 +1,8 @@
 name: Docs
 
-# Builds the user docs (docs/) with MyST. Pull requests only build them;
-# pushes to main also deploy them to GitHub Pages.
+# Builds the user docs (docs/) with MyST, running the example notebooks (they are
+# committed without outputs). Pull requests only build them; pushes to main also
+# deploy them to GitHub Pages.
 on:
   push:
     branches: [main]
@@ -15,9 +16,19 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # The notebooks stage into s3://gaia-scratch on Kopah
+    environment: kopah
     env:
       # Served from https://gaia-hazlab.github.io/gaia-cli/
       BASE_URL: /${{ github.event.repository.name }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_ENDPOINT_URL: ${{ vars.AWS_ENDPOINT_URL }}
+      AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION || 'us-west-2' }}
+      # Recent aws-cli sends CRC checksums by default, which some S3-compatible stores reject
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      SYNOPTIC_TOKEN: ${{ secrets.SYNOPTIC_TOKEN }}
+      ARRAYLAKE_TOKEN: ${{ secrets.ARRAYLAKE_TOKEN }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -29,8 +40,15 @@ jobs:
           environments: docs
           cache: true
 
+      # MyST reuses a notebook's outputs while its code is unchanged
+      - uses: actions/cache@v4
+        with:
+          path: docs/_build/execute
+          key: myst-execute-${{ hashFiles('examples/*.ipynb') }}
+          restore-keys: myst-execute-
+
       - name: Build docs
-        run: pixi run docs-build
+        run: pixi run docs-build --strict
 
       - uses: actions/upload-pages-artifact@v5
         with:
