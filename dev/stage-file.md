@@ -2,7 +2,7 @@
 
 A stage file describes one event: its AOIs, time windows and the datasets to stage.
 `gaia stage --config` stages every dataset in it into one Zarr store, one group per
-dataset (`stations/synoptic`, `rasters/prism`, `rasters/hrrr`, `rasters/nlcd`, `dem/cop30`, `soil/solus100`, `soil/statsgo`, `rasters/burn-severity`, `waveforms/seismic`), in an
+dataset (`stations/synoptic`, `rasters/prism`, `rasters/hrrr`, `stage4/daily`, `rasters/era5`, `rasters/nlcd`, `dem/cop30`, `soil/solus100`, `soil/statsgo`, `rasters/burn-severity`, `waveforms/seismic`), in an
 [output folder](#output-folder).
 Single-dataset commands (`gaia stage prism -i … -s … -e …`) build the same
 configuration from their flags and write the same layout, with one group.
@@ -27,7 +27,10 @@ run controls combine with a file:
 
 A dataset that fails doesn't stop the run. The others are written, every failure is
 listed at the end, and the command exits with an error. Rerun with `--skip-existing` to
-retry only the datasets that failed. The single-dataset commands also take
+retry only the datasets that failed. Each dataset's size is logged, and one over
+10 GB (`runner.MAX_BYTES`, the in-memory size of what `load()` returns) fails before it
+is written. Most `load()`s return lazy arrays, so this usually comes before any data
+is read. The single-dataset commands also take
 `--dry-run`, `--overwrite` and `--skip-existing`, so
 `gaia stage nlcd -i aoi.geojson -o out --skip-existing` adds land cover to the store
 in `out/`.
@@ -62,7 +65,7 @@ aois:                                # named AOIs
   local: {latitude: 63.1455, longitude: -151.1904, radius_km: 15}
 aoi: regional                        # default AOI: a name, path, URL or inline AOI
 window: 2023-06-01/2023-09-21        # default window
-output: s3://gaia/scratch/peters-dome   # output folder; -o overrides it
+output: s3://gaia-scratch/gaia-cli/peters-dome   # output folder; -o overrides it
 datasets:
   hrrr: {aoi: local, window: {before: 6h, after: 1d}, variable: temperature_2m}
   prism: {variables: [ppt, tmin, tmax]}
@@ -83,10 +86,14 @@ and `dem/usgs10m`. `--only dem` selects every variant, and `--only dem/usgs10m` 
 | `synoptic` | `variables` (list, default `[precip_accum]`; see [stations.md](stations.md)) |
 | `prism` | `variables` (list of `ppt`, `tmin`, `tmax`, `tmean`; default `[ppt]`; see [prism.md](prism.md#values)) |
 | `hrrr` | `variable` (default `precipitation_surface`) |
+| `era5` | `variables` (list of ERA5 short names; default `[tp, sf, t2m, swvl1, swvl2, sd]`; see [era5.md](era5.md#variables)) |
+| `stage4` | none; the key names the accumulation: `stage4/daily`, `stage4/sixhourly` or `stage4/hourly` (a bare `stage4` is `stage4/daily`; see [stage4.md](stage4.md)) |
 | `nlcd` | `year` (default `2021`); static, no window |
 | `dem` | none; the key names the product: `dem/cop30` or `dem/usgs10m` (a bare `dem` is `dem/cop30`; see [dem.md](dem.md)); static, no window |
 | `soil` | none; the key names the product: `soil/solus100` or `soil/statsgo` (a bare `soil` is `soil/solus100`; see [soil.md](soil.md)); static, no window |
 | `burn-severity` | `fire` (part of the fire's name) and `year`, needed only when several fires intersect the AOI (see [burn-severity.md](burn-severity.md)); static, no window |
+| `sentinel1-rtc` | `polarizations` (list of `vv`, `vh`, `hh`, `hv`; default `[vv, vh]`), `orbit_state` (`any`, `ascending`, `descending`; default `any`), `relative_orbit` (default `0`, every track), `match` (`none`, `relative_orbit`; see [Choosing scenes](#choosing-scenes)); see [sentinel1-rtc.md](sentinel1-rtc.md) |
+| `sentinel2` | `bands` (list of common names, default `[blue, green, red, nir, swir16, scl]`), `max_cloud_cover` (percent of the tile, default `100`, no filter); see [sentinel2.md](sentinel2.md) |
 | `seismic` | `network`, `station`, `location` (FDSN codes, default `*`) and `channel` (default `"HH?,BH?"`, in order of preference: each station keeps the first band it has; see [seismic.md](seismic.md)); one group per sample rate, `waveforms/seismic/<rate>hz` |
 
 `origin` isn't a dataset option: datasets that use it (`seismic`, for `distance_km` and
@@ -180,9 +187,34 @@ accepts full RFC 3339 timestamps.
 Durations are a number and a unit (`s`, `min`, `h`, `d`, `w`), such as `17min` or `30d`,
 or ISO 8601 (`PT17M`). Months and years aren't durations; use absolute dates.
 
-The current datasets each take one closed window, so `pre`/`post`, `select` and open
-ends are rejected for them. Each dataset's own time convention (for example PRISM's
-12 UTC day) applies inside the window; see the dataset's doc.
+Most datasets take one closed window, so `pre`/`post` and `select` are rejected for
+them. Each dataset's own time convention (for example PRISM's 12 UTC day) applies
+inside the window; see the dataset's doc.
+
+### Choosing scenes
+
+Scene datasets (`sentinel1-rtc`, `sentinel2`; `SCENES = True` in the module) take `pre`/`post`
+windows and `select`/`count`, and are read over exactly the span of their windows, with
+no padding. Each window keeps the scenes in `[start, end)` that its `select` picks:
+`all` (the default), `first`, `last`, or `nearest` to `time`, `count` of them
+(default 1). They are chosen from the STAC search results, before any pixels are read.
+
+```yaml
+time: 2023-09-14T02:06:49Z
+datasets:
+  sentinel1-rtc:
+    window:
+      pre:  {before: 30d, select: last}    # the last pass before `time`
+      post: {after: 30d,  select: first}   # the first pass after it
+    match: relative_orbit                   # on each track that has both
+```
+
+With `match: relative_orbit`, each window chooses on each relative orbit separately, and
+only tracks with scenes in every window are kept, so a pre and a post pass share their
+viewing geometry; without it, `pre` and `post` may come from different tracks. Each
+chosen pass records its window in a `window` coordinate (`pre`, `post`). The resolved
+`stage.yaml` writes the windows with absolute bounds and their `select` and `count`.
+Windows must still be closed.
 
 ## Coverage
 
@@ -201,6 +233,7 @@ the provider.
 | `synoptic` | global (stations are mostly in the US, Alaska included) | open |
 | `prism` | CONUS | 1981 onward |
 | `hrrr` | CONUS | 2014-10-01 onward |
+| `era5` | global | 1940 onward (the store ends a few months back; checked when read) |
 | `nlcd` | CONUS | static; years 1985–2024 |
 | `dem` | global (`usgs10m`: US only, not checked) | static |
 | `soil` | CONUS | static |

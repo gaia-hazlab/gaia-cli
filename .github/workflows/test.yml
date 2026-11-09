@@ -43,4 +43,5 @@ jobs:
       - name: Run online tests
         env:
           SYNOPTIC_TOKEN: ${{ secrets.SYNOPTIC_TOKEN }}
+          ARRAYLAKE_TOKEN: ${{ secrets.ARRAYLAKE_TOKEN }}
         run: pixi run test-online

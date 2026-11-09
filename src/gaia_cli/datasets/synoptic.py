@@ -26,9 +26,11 @@ from .. import provenance, stations
 log = logging.getLogger(__name__)
 
 TOKEN = os.environ.get("SYNOPTIC_TOKEN")
+# Environment variables load() needs, checked before a run starts
+TOKENS = {"SYNOPTIC_TOKEN": "a Synoptic API token, https://docs.synopticdata.com"}
 SYNOPTIC_API = "https://api.synopticdata.com/v2"
 RESET_MM = 10  # drops in raw gauge accumulation larger than this are treated as resets
-PRECIP = "precip_accum"  # staged as "precipitation", a running total
+PRECIP = "precip_accum"  # staged under this name as a running total
 # Written by hand (no STAC Collection): stations are mostly in the US, Alaska
 # included, but the API serves networks worldwide
 EXTENT = {
@@ -36,6 +38,8 @@ EXTENT = {
     "temporal": {"interval": [[None, None]]},
 }
 KIND = "stations"
+# `gaia align`'s names for quantities other datasets also have
+COMMON_NAMES = {PRECIP: "precipitation"}
 PROVENANCE = {
     "title": "Synoptic Data station observations",
     "description": "Every report of precipitation and other requested "
@@ -53,7 +57,7 @@ PROVENANCE = {
     ],
     "version": "v2",  # API version
     "processing:lineage": "every report kept as a CF contiguous ragged array; "
-    "precipitation is Synoptic's derived running total, or precip_accum "
+    "precip_accum is Synoptic's derived running total, or the raw precip_accum "
     "reports de-reset when that is unavailable",
 }
 
@@ -247,8 +251,8 @@ def construct_ragged(data: dict, variables: Sequence[str] = (PRECIP,)) -> xr.Dat
     data : dict
         The JSON-like dictionary returned by :func:`get_station_timeseries`.
     variables : sequence of str
-        Synoptic variables to keep. ``precip_accum`` becomes
-        ``precipitation``, the running total since the first report: Synoptic's
+        Synoptic variables to keep. ``precip_accum`` is the running total
+        since the first report: Synoptic's
         derived ``precip_accumulated_set_1d`` when present, otherwise the raw
         accumulation de-reset with :func:`accumulate_raw_precip`. Other
         variables keep their name and take the first sensor set (``_set_1``),
@@ -273,11 +277,9 @@ def construct_ragged(data: dict, variables: Sequence[str] = (PRECIP,)) -> xr.Dat
         for var in variables:
             if var == PRECIP:
                 if "precip_accumulated_set_1d" in obs:
-                    table["precipitation"] = obs["precip_accumulated_set_1d"]
+                    table[PRECIP] = obs["precip_accumulated_set_1d"]
                 elif "precip_accum_set_1" in obs:
-                    table["precipitation"] = accumulate_raw_precip(
-                        obs["precip_accum_set_1"]
-                    )
+                    table[PRECIP] = accumulate_raw_precip(obs["precip_accum_set_1"])
             elif (column := _column(obs, var)) is not None:
                 table[var] = obs[column]
         table = table.apply(pd.to_numeric, errors="coerce").dropna(how="all")
@@ -312,8 +314,9 @@ def construct_ragged(data: dict, variables: Sequence[str] = (PRECIP,)) -> xr.Dat
         ds.precip_source.attrs["long_name"] = (
             "Synoptic variable the precipitation running total is derived from"
         )
-    if "precipitation" in ds:
-        ds.precipitation.attrs = {
+    if PRECIP in ds:
+        ds[PRECIP].attrs = {
+            "standard_name": "lwe_thickness_of_precipitation_amount",
             "long_name": "precipitation accumulated since the first report",
             "units": "mm",
         }
@@ -351,7 +354,7 @@ def load(
         End date/time (parseable by pandas.Timestamp).
     variables : list of str
         Synoptic variables, e.g. ``precip_accum air_temp``. ``precip_accum``
-        is staged as ``precipitation``, a running total.
+        is staged as a running total.
 
     Returns
     -------

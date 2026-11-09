@@ -86,6 +86,43 @@ def test_minimum_and_maximum_keep_their_extremes():
     np.testing.assert_allclose(out.tmax.sel(day).squeeze(), 23.0)
 
 
+def _hourly_in(year):
+    # the same hourly series, but in another year, bounds included
+    times = pd.date_range(f"{year}-12-01T13:00", f"{year}-12-03T12:00", freq="h")
+    da = _raster(times, 3_000, 2, 2, np.ones((len(times), 2, 2)))
+    da.attrs[regrid.METHOD_ATTR] = "conservative"
+    return io.with_time_bounds(da, -1, 0, "time: sum")
+
+
+def test_no_overlap_gives_all_nan_not_an_error():
+    # e.g. multitemporal DEM strips from 2012-2020 next to a 2025 event window
+    old = _hourly_in(2020)
+    old["precipitation"] = old.precipitation.astype("float32")
+
+    out = align.aggregate_time(old, *_day_bins(_daily()))
+
+    assert out.precipitation.sizes == {"time": 3, "y": 2, "x": 2}
+    assert out.precipitation.dims == old.precipitation.dims
+    assert np.isnan(out.precipitation).all()
+    assert out.precipitation.dtype == old.precipitation.dtype
+    assert out.precipitation.attrs["cell_methods"] == "time: sum"
+    assert "aggregated_from" in out.precipitation.attrs
+
+
+def test_align_keeps_a_group_outside_the_time_window():
+    old = _hourly_in(2020)
+    dt = xr.DataTree.from_dict(
+        {"rasters/prism": _daily(), "rasters/hrrr": _hourly(), "rasters/strips": old}
+    )
+
+    aligned = align.align(dt, time_like="rasters/prism")
+
+    strips = aligned["rasters/strips"].to_dataset()
+    np.testing.assert_array_equal(strips.time, aligned["rasters/prism"].time)
+    assert np.isnan(strips.precipitation).all()
+    np.testing.assert_allclose(aligned["rasters/prism"].precipitation, 10.0)
+
+
 def test_align_daily_on_coarsest_grid_roundtrip(tmp_path):
     dt = xr.DataTree.from_dict({"rasters/prism": _daily(), "rasters/hrrr": _hourly()})
     path = str(tmp_path / "native.zarr")
@@ -162,6 +199,8 @@ def test_run_writes_a_folder_named_store(tmp_path):
     assert native_props["description"].startswith("gaia store with groups: ")
     with pytest.raises(SystemExit, match="drop the .zarr"):
         align.run(native, str(tmp_path / "daily.zarr"))
+    with pytest.raises(SystemExit, match="Error: time_like 'rasters/x'"):
+        align.run(native, str(tmp_path / "x"), time_like="rasters/x")
 
 
 def test_common_window_snaps_to_every_products_steps():
@@ -278,3 +317,278 @@ def test_parse_methods():
     assert align._parse_methods([]) is None
     with pytest.raises(ValueError, match="not one of"):
         align._parse_methods(["dem/usgs10m=bicubic"])
+
+
+def _passes():
+    """Four instantaneous Sentinel-1-like passes on two tracks, with scene coordinates."""
+    times = pd.to_datetime(
+        ["2023-09-07T16:45", "2023-09-09T16:29", "2023-09-19T16:45", "2023-09-21T16:29"]
+    )
+    da = _raster(times, 10, 4, 4, np.arange(64.0).reshape(4, 4, 4) + 1).rename("vv")
+    da.attrs[regrid.METHOD_ATTR] = "average"
+    return da.to_dataset().assign_coords(
+        platform=("time", ["SENTINEL-1A"] * 4),
+        relative_orbit=("time", np.array([102, 131, 102, 131])),
+        scene_ids=("time", ["a", "b", "c", "d e"]),
+    )
+
+
+def test_a_scene_groups_own_steps_keep_its_scene_coordinates(tmp_path):
+    s1 = _passes()
+    dt = xr.DataTree.from_dict(
+        {"rasters/sentinel1-rtc": s1, "dem/cop30": _elevation(30, 2)}
+    )
+    path = str(tmp_path / "native.zarr")
+    io.save_datatree(dt, path)
+
+    aligned = align.align(io.open_datatree(path), crs="EPSG:32610", res=20)
+    io.save_datatree(aligned, str(tmp_path / "aligned.zarr"))
+    out = io.open_datatree(str(tmp_path / "aligned.zarr"))[
+        "rasters/sentinel1-rtc"
+    ].to_dataset()
+
+    np.testing.assert_array_equal(out.time, s1.time)
+    assert out.relative_orbit.values.tolist() == [102, 131, 102, 131]
+    assert out.relative_orbit.dtype.kind == "i"
+    assert out.platform.values.tolist() == ["SENTINEL-1A"] * 4
+    assert out.scene_ids.values.tolist() == ["a", "b", "c", "d e"]
+    assert out.vv.sizes["time"] == 4 and out.vv.notnull().any()
+
+
+def test_scene_coordinates_that_a_coarser_step_would_mix_are_dropped(caplog):
+    s1 = _passes()
+    labels = pd.to_datetime(["2023-09-10", "2023-09-22", "2023-10-04"]).values
+    start = labels - np.timedelta64(12, "D")
+
+    with caplog.at_level("INFO", logger="gaia_cli.align"):
+        out = align.aggregate_time(s1, labels, start, labels)
+
+    # Each 12-day step mixes tracks 102 and 131, so their passes average together
+    assert "relative_orbit" not in out.coords
+    assert "relative_orbit: dropped" in caplog.text
+    # The same platform in each step is kept; the empty last step gets ""
+    assert out.platform.values.tolist() == ["SENTINEL-1A", "SENTINEL-1A", ""]
+    assert "scene_ids" not in out.coords
+
+
+def test_numeric_scene_coordinates_with_empty_steps_become_float():
+    s1 = _passes().isel(time=[1, 3])  # track 131 only
+    labels = pd.to_datetime(["2023-09-10", "2023-09-16", "2023-09-22"]).values
+    out = align.aggregate_time(s1, labels, labels - np.timedelta64(6, "D"), labels)
+    np.testing.assert_array_equal(out.relative_orbit.values, [131.0, np.nan, 131.0])
+
+
+def _hours(start, end):
+    # hour-ending hourly sums of 1 mm, e.g. ERA5 precipitation
+    times = pd.date_range(start, end, freq="h")
+    da = _raster(times, 25_000, 2, 2, np.ones((len(times), 2, 2)))
+    return io.with_time_bounds(da, -1, 0, "time: sum")
+
+
+# Sentinel-1-like bins: edges at acquisition times, off the hour; the last one spans a
+# missed pass (24 days)
+EDGES = pd.to_datetime(
+    [
+        "2023-08-04T16:29:38",
+        "2023-08-16T16:29:38",
+        "2023-08-28T16:29:38",
+        "2023-09-21T16:29:38",
+    ]
+).values
+
+
+def test_bins_off_the_hour_count_the_whole_hours_inside():
+    hourly = _hours("2023-08-01T01:00", "2023-09-30T00:00")
+    out = align.aggregate_time(hourly, EDGES[1:], EDGES[:-1], EDGES[1:])
+
+    # 12 days are 288 hours, the two split at the edges (hh:29:38) shared by time
+    np.testing.assert_allclose(out.precipitation.isel(y=0, x=0), [288, 288, 576])
+    assert "weighted by their overlap" in out.precipitation.attrs["aggregated_from"]
+
+
+def test_missing_hours_are_skipped_in_a_sum():
+    hourly = _hours("2023-08-01T01:00", "2023-09-30T00:00")
+    gap = (hourly.time > np.datetime64("2023-09-05")) & (
+        hourly.time < np.datetime64("2023-09-07")
+    )
+    out = align.aggregate_time(
+        hourly.isel(time=~gap.values), EDGES[1:], EDGES[:-1], EDGES[1:]
+    )
+
+    # The 24-day bin counts the 576 - 47 hours it has data for
+    np.testing.assert_allclose(out.precipitation.isel(y=0, x=0), [288, 288, 529])
+
+
+def test_bins_beyond_the_sources_time_span_are_nan():
+    # The source ends on the 20th, inside the second bin: no partial total
+    hourly = _hours("2023-08-01T01:00", "2023-08-20T00:00")
+    out = align.aggregate_time(hourly, EDGES[1:], EDGES[:-1], EDGES[1:])
+    values = out.precipitation.isel(y=0, x=0).values
+    np.testing.assert_allclose(values[0], 288)
+    assert np.isnan(values[1:]).all()
+
+
+def test_overlap_splits_straddling_steps_and_spreads_longer_ones():
+    hourly = _hours("2023-08-01T01:00", "2023-08-03T00:00")
+    # A day from 00:00 and a half day ending 12:30: the 12-13 hour is split
+    edges = pd.to_datetime(
+        ["2023-08-01T00:00", "2023-08-02T00:00", "2023-08-02T12:30"]
+    ).values
+    w = align.overlap(hourly.time_bounds, edges[:-1], edges[1:])
+    assert w.dims == ("step", "time")
+    np.testing.assert_allclose(w.sum("time"), [24, 12.5])
+    # A 24 mm day spread evenly over its hours
+    day = _daily().isel(time=[1], x=0, y=0)
+    hours = pd.date_range(day.time_bounds.values[0, 0], periods=25, freq="h").values
+    spread = xr.dot(
+        align.overlap(day.time_bounds, hours[:-1], hours[1:]),
+        day.precipitation * 2.4,
+        dim="time",
+    )
+    np.testing.assert_allclose(spread, 1.0)
+
+
+def test_aligned_groups_keep_names_and_select_by_common_name():
+    import cf_xarray as cfxr
+
+    from gaia_cli.datasets import cf_criteria
+
+    def staged(ds, name):
+        ds = ds.rename(precipitation=name)
+        ds[name].attrs["gaia:common-name"] = "precipitation"
+        return ds
+
+    tree = xr.DataTree.from_dict(
+        {
+            "rasters/era5": staged(_hourly(), "tp"),
+            "rasters/prism": staged(_daily(), "ppt"),
+        }
+    )
+    aligned = align.align(tree)
+    with cfxr.set_options(custom_criteria=cf_criteria()):
+        for group, name in (("rasters/era5", "tp"), ("rasters/prism", "ppt")):
+            assert aligned[group].to_dataset().cf["precipitation"].name == name
+
+
+def _scenes():
+    s1 = _passes()
+    s1.attrs["gaia:scenes"] = True  # as gaia stage writes it for Sentinel-1/2
+    return s1
+
+
+def test_scene_groups_keep_their_acquisition_times():
+    s1 = _scenes()
+    tree = xr.DataTree.from_dict(
+        {
+            "rasters/sentinel1-rtc": s1,
+            "rasters/era5": _hours("2023-09-01", "2023-09-30"),
+        }
+    )
+    aligned = align.align(tree, crs="EPSG:32610", res=25_000)
+    out = aligned["rasters/sentinel1-rtc"].to_dataset()
+    np.testing.assert_array_equal(out.time, s1.time)
+    assert out.relative_orbit.values.tolist() == [102, 131, 102, 131]
+    # ERA5 is the time target, so it keeps its hours
+    assert aligned["rasters/era5"].sizes["time"] == 30 * 24 - 23
+    assert "scenes=kept" in aligned.attrs["gaia_align"]
+
+    # As before: every timed group on the coarsest, here Sentinel-1's passes
+    together = align.align(tree, crs="EPSG:32610", res=25_000, align_scenes=True)
+    assert together["rasters/era5"].sizes["time"] == 4
+    assert "scenes=aligned" in together.attrs["gaia_align"]
+
+
+def test_weather_sums_between_passes_when_the_scenes_are_the_target():
+    s1 = _scenes()
+    hourly = _hours("2023-09-01", "2023-09-30")
+    tree = xr.DataTree.from_dict({"rasters/sentinel1-rtc": s1, "rasters/era5": hourly})
+    aligned = align.align(
+        tree, crs="EPSG:32610", res=25_000, time_like="rasters/sentinel1-rtc"
+    )
+    np.testing.assert_array_equal(aligned["rasters/sentinel1-rtc"].time, s1.time)
+    era5 = aligned["rasters/era5"].to_dataset()
+    np.testing.assert_array_equal(era5.time, s1.time)
+    # Each interval runs from the previous pass to this one; with 1 mm every hour,
+    # its total is its length in hours
+    passes = s1.time.values
+    np.testing.assert_array_equal(era5.time_bounds.values[1:, 0], passes[:-1])
+    hours = np.diff(era5.time_bounds.values, axis=1)[:, 0] / np.timedelta64(1, "h")
+    np.testing.assert_allclose(era5.precipitation.isel(y=0, x=0), hours)
+    np.testing.assert_allclose(hours[1:], [47.73, 240.27, 47.73], atol=0.01)
+
+
+def test_variables_without_time_pass_through_a_timed_group():
+    era5 = _hours("2023-09-01", "2023-09-03")
+    era5["orography"] = era5.precipitation.isel(time=0, drop=True) * 0 + 1500.0
+    era5.orography.attrs = {"units": "m", "gaia:regrid-method": "bilinear"}
+    tree = xr.DataTree.from_dict({"rasters/era5": era5, "rasters/prism": _daily()})
+    aligned = align.align(tree, like="rasters/prism")
+    out = aligned["rasters/era5"].to_dataset()
+    assert out.orography.dims == ("y", "x")
+    assert out.orography.attrs["regrid_method"] == "bilinear"
+    assert float(out.orography.max()) == 1500.0
+
+
+def test_an_aligned_store_over_the_limit_stops_before_regridding(monkeypatch):
+    # 696 hours on a 10 m grid over 50 km: far over the limit once regridded
+    tree = xr.DataTree.from_dict(
+        {"rasters/era5": _hours("2023-09-01", "2023-09-30"), "dem/x": _elevation(10, 2)}
+    )
+    monkeypatch.setattr(io, "MAX_BYTES", 10 * 1024**2)
+    with pytest.raises(
+        ValueError, match=r"over the 10\.0 MB limit; rasters/era5 alone"
+    ):
+        align.align(tree, crs="EPSG:32610", res=10)
+    # A coarser grid fits
+    align.align(tree, crs="EPSG:32610", res=5_000)
+
+
+def test_a_longer_step_is_spread_over_shorter_targets():
+    # PRISM's 10 mm days onto HRRR's hours: each hour gets 10/24 mm, and a
+    # mean (temperature) gets the day's value
+    daily = _daily()
+    daily["tmean"] = daily.precipitation.assign_attrs(cell_methods="time: mean")
+    hourly = _hourly()
+    b = hourly.time_bounds.values
+    out = align.aggregate_time(daily, hourly.time.values, b[:, 0], b[:, 1])
+    np.testing.assert_allclose(out.precipitation.isel(y=0, x=0), 10 / 24)
+    np.testing.assert_allclose(out.tmean.isel(y=0, x=0), 10.0)
+    np.testing.assert_allclose(out.precipitation.sum("time").isel(y=0, x=0), 20.0)
+
+
+def test_a_mean_weights_a_split_step_by_its_overlap():
+    # 1 mm then 3 mm in the hours ending 01:00 and 02:00
+    times = pd.to_datetime(["2023-08-01T01:00", "2023-08-01T02:00"])
+    da = _raster(times, 3_000, 1, 1, np.array([1.0, 3.0]).reshape(2, 1, 1))
+    ds = io.with_time_bounds(da.rename("t2m"), -1, 0, "time: mean")
+
+    def one(t0, t1):
+        t0, t1 = np.datetime64(t0), np.datetime64(t1)
+        return align.aggregate_time(ds, np.array([t1]), np.array([t0]), np.array([t1]))
+
+    # 00:00-01:30 holds all of the first hour and half the second
+    np.testing.assert_allclose(
+        one("2023-08-01T00:00", "2023-08-01T01:30").t2m.squeeze(), (60 + 3 * 30) / 90
+    )
+    # 23:30-00:30 starts before the source does
+    assert np.isnan(one("2023-07-31T23:30", "2023-08-01T00:30").t2m.squeeze())
+
+
+def test_a_missing_value_inside_the_span_is_skipped_but_the_edge_is_nan():
+    hours = pd.date_range("2023-08-01T01:00", periods=6, freq="h")
+    ds = io.with_time_bounds(
+        _raster(hours, 3_000, 1, 1, np.ones((6, 1, 1))), -1, 0, "time: sum"
+    )
+    ds["precipitation"] = ds.precipitation.where(
+        ds.time != np.datetime64("2023-08-01T04:00")
+    )
+
+    def total(t0, t1):
+        t0, t1 = np.datetime64(t0), np.datetime64(t1)
+        out = align.aggregate_time(ds, np.array([t1]), np.array([t0]), np.array([t1]))
+        return float(out.precipitation.squeeze())
+
+    # Half of 00-01, 01-02, 02-03; the 03-04 value is missing
+    assert total("2023-08-01T00:30", "2023-08-01T03:30") == 2.5
+    # Starts before the data does (00:00)
+    assert np.isnan(total("2023-07-31T23:30", "2023-08-01T02:30"))

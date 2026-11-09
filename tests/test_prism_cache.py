@@ -311,6 +311,20 @@ def test_from_env_output_profile_for_kopah_writes_cache(aws_config):
     assert PrismCache.from_env().writable
 
 
+def test_from_env_keys_for_other_store_leave_cache_read_only(aws_config):
+    aws_config.setenv("AWS_ACCESS_KEY_ID", "HFAK")
+    aws_config.setenv("AWS_SECRET_ACCESS_KEY", "s")
+    aws_config.setenv("AWS_ENDPOINT_URL", "https://s3.hf.co/gaia-hazlab")
+    assert not PrismCache.from_env().writable
+
+
+def test_from_env_keys_for_kopah_write_cache(aws_config):
+    aws_config.setenv("AWS_ACCESS_KEY_ID", "k")
+    aws_config.setenv("AWS_SECRET_ACCESS_KEY", "s")
+    aws_config.setenv("AWS_ENDPOINT_URL", "https://s3.kopah.uw.edu")
+    assert PrismCache.from_env().writable
+
+
 def test_from_env_cache_profile_supplies_endpoint(aws_config):
     aws_config.setenv("AWS_PROFILE", "kopah")
     aws_config.setenv("PRISM_CACHE_PROFILE", "b2")
@@ -327,13 +341,11 @@ def test_prism_load_temperatures(store_dir, fake_upstream, monkeypatch):
     aoi = gpd.GeoDataFrame(geometry=[box(-125.0, 48.5, -123.0, 50.0)], crs="EPSG:4326")
     ds = prism.load(aoi, "2025-12-01", "2025-12-02", ("ppt", "tmin", "tmax"))
 
-    assert set(ds.data_vars) == {"precipitation", "tmin", "tmax", "time_bounds"}
+    assert set(ds.data_vars) == {"ppt", "tmin", "tmax", "time_bounds"}
     assert ds.sizes["time"] == 2
-    methods = {
-        v: ds[v].attrs["cell_methods"] for v in ("precipitation", "tmin", "tmax")
-    }
+    methods = {v: ds[v].attrs["cell_methods"] for v in ("ppt", "tmin", "tmax")}
     assert methods == {
-        "precipitation": "time: sum",
+        "ppt": "time: sum",
         "tmin": "time: minimum",
         "tmax": "time: maximum",
     }

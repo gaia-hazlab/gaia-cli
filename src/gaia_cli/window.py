@@ -34,11 +34,25 @@ class Window:
     name: str | None = None
     select: str | None = None
     count: int | None = None
+    # The stage file's `time`, for `select: nearest`
+    anchor: pd.Timestamp | None = None
 
     def __str__(self) -> str:
         return "/".join(
             ".." if t is None else t.isoformat() for t in (self.start, self.end)
         )
+
+    def spec(self) -> dict:
+        """The window as stage-file YAML data: absolute bounds plus its selection."""
+        out: dict[str, str | int | None] = {
+            k: None if t is None else t.isoformat()
+            for k, t in (("start", self.start), ("end", self.end))
+        }
+        if self.select is not None:
+            out["select"] = self.select
+        if self.count is not None:
+            out["count"] = self.count
+        return out
 
     def padded(self, pad: pd.Timedelta | None = None) -> Window:
         """The interval actually read: *pad* (default ``PAD``) beyond each
@@ -142,4 +156,13 @@ def parse_window(
             raise ValueError("count needs select")
         if isinstance(count, bool) or not isinstance(count, int) or count < 1:
             raise ValueError(f"count must be a positive integer, not {count!r}")
-    return [Window(start, end, name, select, count)]
+    return [
+        Window(start, end, name, select, count, time if relative or select else None)
+    ]
+
+
+def union(windows: list[Window]) -> Window:
+    """The interval spanning every closed window in *windows*."""
+    starts = [w.start for w in windows if w.start is not None]
+    ends = [w.end for w in windows if w.end is not None]
+    return Window(min(starts) if starts else None, max(ends) if ends else None)

@@ -7,7 +7,9 @@ dynamic = ["version"]
 # Everything src/gaia_cli imports. Pixi installs most of these from
 # conda-forge ([tool.pixi.dependencies]).
 dependencies = [
+  "arraylake>=1.8",
   "boto3",
+  "cf-xarray>=0.10",
   "cyclopts>=5.2.0,<6",
   "exactextract",
   "geopandas>=1.2.0,<2",
@@ -16,15 +18,18 @@ dependencies = [
   "obstore>=0.11",
   "odc-stac>=0.5.3",
   "pandas",
+  "pcodec>=1.1",
   "pymseed>=1.0",
   "pyproj",
   "pystac",
+  "pystac-client>=0.9",
   "pyyaml>=6",
   "rasterio",
   "requests",
   "rioxarray>=0.23",
   "scipy",
   "shapely>=2",
+  "unlzw3",
   "xarray",
   "xvec>=0.5.2,<0.6",
   "zarr",
@@ -103,7 +108,7 @@ pytest-cov = ">=7.1.0,<8"
 
 [tool.pixi.dependencies]
 # Notebooks only: ipykernel, matplotlib, folium, mapclassify, xyzservices,
-# rustac, pystac-client, python-dotenv
+# rustac, python-dotenv
 ipykernel = ">=7.4.0,<8"
 rioxarray = ">=0.23.0,<0.24"
 obstore = ">=0.11.1,<0.12"
@@ -118,5 +123,9 @@ pystac-client = ">=0.9.0,<0.10"
 python-dotenv = ">=1.2.4,<2"
 icechunk = ">=2.3.0,<3"
 exactextract = ">=0.3.0,<0.4"
+libgdal-grib = ">=3.13.3,<4"
+unlzw3 = ">=0.2.2,<0.3"
+arraylake = ">=1.8.0,<2"
+pcodec = ">=1.1.0,<2"
 pymseed = ">=1.0.1,<2"
 scipy = ">=1.18.1,<2"

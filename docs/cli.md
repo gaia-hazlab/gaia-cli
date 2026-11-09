@@ -59,6 +59,9 @@ gaia stage --config skagit.yaml -o skagit --only prism,hrrr
   `{latitude: 48.5, longitude: -121.5, radius_km: 20}`.
 - A dataset that fails doesn't stop the others. Rerun with `--skip-existing` to retry
   only the failed ones.
+- A missing token (`SYNOPTIC_TOKEN` for `synoptic`, `ARRAYLAKE_TOKEN` for `era5`) is
+  warned about before anything is staged, and by `--dry-run`.
+- A dataset larger than 10 GB fails before it is written; use a smaller AOI or window.
 - `--config` can be an http(s) URL, e.g. a stage file in another repository. Its AOIs
   must then be URLs or inline, not paths.
 
@@ -79,10 +82,34 @@ gaia align -i skagit/skagit.zarr -o skagit-10m --crs EPSG:32610 --res 10
 
 Writes a new store with every raster on one grid and time step. By default it uses
 the coarsest of each: for PRISM and HRRR, HRRR's 3 km grid and PRISM's days. Values are
-combined in time according to their `cell_methods` (precipitation is summed). In space
-each dataset uses its own default resampling (conservative for PRISM and HRRR,
-bilinear for DEMs, mode for categories), which `--method` overrides, for every dataset
-or for one (`-m dem/usgs10m=cubic`). The input store is not changed.
+combined in time according to their `cell_methods` (precipitation is summed,
+temperature averaged), each source step weighted by how much of it lies inside each
+target step: a step that straddles a target edge is split between the two by time,
+and a longer step (a PRISM day aligned onto hours) is spread evenly over the shorter
+ones. Missing values within a dataset's time span are skipped, so a total counts the
+data present; a step that reaches beyond the span (a PRISM day starting before hourly
+data does) is NaN rather than a partial total. `gaia_cli.align.overlap()` gives the same weights for analysis code. In space each dataset uses its own default
+resampling (conservative for PRISM and HRRR, bilinear for DEMs, mode for categories),
+which `--method` overrides, for every dataset or for one (`-m dem/usgs10m=cubic`).
+Variables without time, such as ERA5's `orography`, are only regridded. The input
+store is not changed.
+
+Scene datasets (`sentinel1-rtc`, `sentinel2`) keep their acquisition times: they are
+put on the grid, but not combined in time, and the default time step is the coarsest
+of the other datasets. To total weather between passes, make a scene dataset the
+target. Each step then runs from one pass to the next; hourly ERA5 between passes at
+16:29:38 twelve days apart gives the 287 hours wholly between them plus a share of the
+two hours each pass falls in:
+
+```bash
+gaia align -i peters-dome/peters-dome.zarr -o peters-dome-aligned \
+  --like rasters/sentinel1-rtc --time-like rasters/sentinel1-rtc
+```
+
+`--align-scenes` combines scene datasets in time too, onto the same steps as the rest.
+
+Variables keep their staged names. To select the same quantity in every group
+(`ds.cf["precipitation"]`), see [](datasets.md).
 
 `--crs utm --res 10 --aoi $AOI` builds a grid from the AOI alone: its UTM zone, its
 bounds snapped outward to multiples of 10 m, and NaN in cells whose center is outside
@@ -100,14 +127,14 @@ To write GeoTIFF or ESRI ASCII files from the result, use GDAL ([](gdal.md)).
 ## `gaia catalog rebuild`
 
 ```bash
-gaia catalog rebuild -p s3://gaia/scratch/public
+gaia catalog rebuild -p s3://gaia-scratch/gaia-cli
 ```
 
 Collects the STAC Items of every store under a prefix into a `catalog.json`. The
 public stores are browsable in
-[STAC Browser](https://browser.moregeo.it/external/s3.kopah.uw.edu/gaia/scratch/public/catalog.json)
+[STAC Browser](https://browser.moregeo.it/external/s3.kopah.uw.edu/gaia-scratch/gaia-cli/catalog.json)
 and on a map in
-[stac-map](https://developmentseed.org/stac-map/?href=https://s3.kopah.uw.edu/gaia/scratch/public/catalog.json).
+[stac-map](https://developmentseed.org/stac-map/?href=https://s3.kopah.uw.edu/gaia-scratch/gaia-cli/catalog.json).
 
 (prism-cache)=
 ## `gaia prism fill`

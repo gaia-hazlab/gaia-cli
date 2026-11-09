@@ -5,7 +5,7 @@
 #
 #   scripts/landlab-inputs.sh STORE OUTDIR
 #
-# STORE can be remote, e.g. /vsis3/gaia/scratch/public/pioneer-10m/pioneer-10m.zarr with
+# STORE can be remote, e.g. /vsis3/gaia-scratch/gaia-cli/pioneer-10m/pioneer-10m.zarr with
 # AWS_S3_ENDPOINT=s3.kopah.uw.edu AWS_NO_SIGN_REQUEST=YES AWS_VIRTUAL_HOSTING=FALSE.
 #
 # STORE must already be on the contract grid, e.g.
@@ -36,6 +36,10 @@ gdal() {
   command gdal "$@" 2> >(grep -vE '^(Warning 1: HTTP response code on .*/zarr\.json(\.[^/]*\.ovr)?: (0|403)|Warning 6: Unsupported option: https?|ERROR 5: Missing url parameter)$' >&2)
 }
 
+# Each array is opened through its own group: GDAL 3.13 crashes opening a store
+# whose raster group (spatial:dimensions [y, x]) also holds a 2-D array on other
+# dimensions, such as PRISM's time_bounds (time, nv), whichever array is read.
+
 # output name, then the array in the store
 layers=(
   "topographic__elevation dem/usgs10m/elevation"
@@ -55,7 +59,7 @@ for layer in "${layers[@]}"; do
   echo "$array -> $out/$name.{tif,asc}"
   # unscale applies the scale_factor of packed integers (soil), else only casts;
   # calc then writes every nodata cell (NaN or the integer fill) as -9999
-  gdal raster pipeline -q read "ZARR:\"$store\":/$array" \
+  gdal raster pipeline -q read "ZARR:\"$store/${array%/*}\":/${array##*/}" \
     ! unscale --ot Float32 \
     ! write --overwrite "$out/$name.vrt"
   gdal raster calc -q --overwrite -i "A=$out/$name.vrt" --calc A \
@@ -68,7 +72,7 @@ done
 # (unburned to very low, unmapped, outside the AOI) becomes 1. materialize
 # fixes the classes before edit removes the nodata reclassify reads.
 echo "rasters/burn-severity/burn_severity -> $out/burn__severity.{tif,asc}"
-gdal raster pipeline -q read "ZARR:\"$store\":/rasters/burn-severity/burn_severity" \
+gdal raster pipeline -q read "ZARR:\"$store/rasters/burn-severity\":/burn_severity" \
   ! reclassify --ot Float32 -m "[2,4]=PASS_THROUGH; NO_DATA=1; DEFAULT=1" \
   ! materialize \
   ! edit --nodata none \

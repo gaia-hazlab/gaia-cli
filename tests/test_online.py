@@ -6,6 +6,7 @@ import os
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 from shapely.geometry import box
@@ -35,7 +36,8 @@ def check_synoptic(ds):
 
 def check_prism(ds):
     assert ds.sizes["time"] == 3
-    assert float(ds.precipitation.min()) >= 0
+    assert float(ds.ppt.min()) >= 0
+    assert ds.ppt.attrs["gaia:common-name"] == "precipitation"
 
 
 def check_prism_temperature(ds):
@@ -46,7 +48,25 @@ def check_prism_temperature(ds):
 
 def check_hrrr(ds):
     assert ds.sizes["time"] == 72
-    assert float(ds.precipitation.min()) >= 0
+    assert float(ds.precipitation_surface.min()) >= 0
+
+
+def check_era5(ds):
+    # Hourly, hour-ending; three December days in the Cascades
+    assert ds.sizes["time"] == 72
+    assert float(ds.tp.min()) >= 0 and ds.tp.attrs["units"] == "mm"
+    assert bool((ds.sf <= ds.tp + 1e-3).all())  # snowfall is part of the total
+    assert -30 < float(ds.t2m.min()) < float(ds.t2m.max()) < 20  # degC
+    assert 0 < float(ds.swvl1.min()) and float(ds.swvl2.max()) < 1
+    assert 0 < float(ds.orography.min()) < float(ds.orography.max()) < 2500  # m
+    assert ds.attrs["gaia:icechunk-snapshot"]
+
+
+def check_stage4(ds):
+    # Read from GDEX into a fresh cache: the 24 h totals ending 12 UTC on each day
+    assert ds.sizes["time"] == 3
+    assert float(ds.apcp.min()) >= 0
+    assert ds.attrs["stage4:domain"] == "conus"
 
 
 def check_nlcd(ds):
@@ -103,6 +123,15 @@ def check_statsgo(ds):
             id="prism-temperature",
         ),
         ("hrrr", check_hrrr, {}),
+        ("stage4/daily", check_stage4, {}),
+        pytest.param(
+            "era5",
+            check_era5,
+            {},
+            marks=pytest.mark.skipif(
+                not os.environ.get("ARRAYLAKE_TOKEN"), reason="needs ARRAYLAKE_TOKEN"
+            ),
+        ),
         ("nlcd", check_nlcd, {}),
         ("dem/cop30", check_dem, {}),
         ("dem/usgs10m", check_dem, {}),
@@ -111,7 +140,8 @@ def check_statsgo(ds):
         ("soil/statsgo", check_statsgo, {}),
     ],
 )
-def test_stage(tmp_path, dataset, check, options):
+def test_stage(tmp_path, monkeypatch, dataset, check, options):
+    monkeypatch.setenv("STAGE4_CACHE", str(tmp_path / "stage4"))
     config = tmp_path / "stage.yaml"
     config.write_text(STAGE.format(dataset=dataset, options=json.dumps(options)))
     out = tmp_path / "out"
@@ -158,6 +188,86 @@ def test_pioneer_dems_on_the_landlab_grid(tmp_path):
         assert 2600 < float(da.max()) < 2750
     # Different geoids and a surface vs a bare-earth model: close, not equal
     assert abs(float((cop30 - usgs10m).median())) < 5
+
+
+# Peters Dome, AK: the 2023-09-14 landslide lies between two passes of descending
+# relative orbit 131 over the source area (only Sentinel-1A flew in 2023)
+PETERS_S1 = """
+name: peters-dome-s1
+aoi: {latitude: 63.1455, longitude: -151.1904, radius_km: 5}
+window: 2023-09-01/2023-09-30
+datasets:
+  sentinel1-rtc: {}
+"""
+
+
+def test_sentinel1_rtc_passes_around_peters_dome(tmp_path):
+    config = tmp_path / "stage.yaml"
+    config.write_text(PETERS_S1)
+    runner.stage(config=str(config), output_path=str(tmp_path / "out"))
+
+    tree = xr.open_datatree(tmp_path / "out" / "peters-dome-s1.zarr", engine="zarr")
+    ds = tree["rasters/sentinel1-rtc"].to_dataset()
+    assert [str(t)[:10] for t in ds.time.values] == ["2023-09-09", "2023-09-21"]
+    assert ds.relative_orbit.values.tolist() == [131, 131]
+    assert set(ds.orbit_state.values.tolist()) == {"descending"}
+    assert ds.attrs["license"] == "CC-BY-4.0"
+    # Linear gamma0: VH below VV, both mostly between -30 and +5 dB
+    vv, vh = (float(ds[p].median()) for p in ("vv", "vh"))
+    assert 10**-3 < vh < vv < 10**0.5
+    assert ds.vv.attrs["gaia:regrid-method"] == "average"
+
+
+def test_sentinel1_rtc_pre_and_post_passes_on_each_track(tmp_path):
+    # The regional AOI sees tracks 102 and 131; the last pass before and the first
+    # after the event on each. Loaded lazily, so nothing is read
+    from gaia_cli.datasets import sentinel1_rtc
+    from gaia_cli.window import parse_window
+
+    windows = parse_window(
+        {
+            "pre": {"before": "30d", "select": "last"},
+            "post": {"after": "30d", "select": "first"},
+        },
+        pd.Timestamp("2023-09-14T02:06:49"),
+    )
+    aoi = gpd.GeoDataFrame(
+        geometry=[box(-152.2, 62.75, -150.2, 63.55)], crs="EPSG:4326"
+    )
+    ds = sentinel1_rtc.load(
+        aoi,
+        "2023-08-15T02:06:49",
+        "2023-10-14T02:06:48",
+        match=sentinel1_rtc.Match.relative_orbit,
+        windows=windows,
+    )
+    assert [str(t)[:10] for t in ds.time.values] == [
+        "2023-09-07",
+        "2023-09-09",
+        "2023-09-19",
+        "2023-09-21",
+    ]
+    assert ds.window.values.tolist() == ["pre", "pre", "post", "post"]
+    assert ds.relative_orbit.values.tolist() == [102, 131, 102, 131]
+
+
+def test_sentinel2_after_the_event_is_snow_covered():
+    # The paper notes snowfall right after the event; the clear 2023-09-24 pass
+    # over the source is mostly snow: bright in the visible, dark at 1.6 um
+    from gaia_cli.aoi import load_aoi
+    from gaia_cli.datasets import sentinel2
+
+    aoi = load_aoi({"latitude": 63.1455, "longitude": -151.1904, "radius_km": 5})
+    ds = sentinel2.load(aoi, "2023-09-24T00:00:00", "2023-09-24T23:59:59")
+    assert ds.sizes["time"] == 1
+    assert ds.mgrs_tiles.values[0].split() == [
+        "05VNK",
+        "05VNL",
+    ]  # the AOI spans two tiles
+    scene = ds.isel(time=0).load()
+    inside = scene.scl.values > 0
+    assert (scene.scl.values[inside] == 11).mean() > 0.5  # snow_or_ice
+    assert float(scene.blue.median()) > 0.5 > float(scene.swir16.median())
 
 
 # AK.BPAW, 107 km from Peters Dome, two minutes around the 2023-09-14 avalanche

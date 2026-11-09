@@ -29,6 +29,17 @@ and optionally:
   values are separate products, each written to its own top-level group
   `<name>/<value>` instead of `<GROUPS[KIND]>/<name>`. Stage files key them as
   `<name>/<value>` (see `dem.py`, [stage-file.md](stage-file.md)).
+- **`SCENES = True`**: the dataset chooses among scenes, so a stage file may give it
+  `pre`/`post` windows with `select` and `count` ([stage-file.md](stage-file.md#choosing-scenes)).
+  `load()` then also takes `windows: list[Window] | None = None`, which the runner sets
+  (it is not an option), and `start_date`/`end_date` span the windows exactly. Use
+  `stac.select` to pick the scenes before loading them (see `sentinel1_rtc.py`). The
+  runner stamps the group `gaia:scenes`, so `gaia align` keeps its acquisition times
+  rather than combining them into the other datasets' time steps.
+- **`TOKENS`**: environment variables `load()` needs, each with what it is, e.g.
+  `{"SYNOPTIC_TOKEN": "a Synoptic API token, https://docs.synopticdata.com"}`.
+  `gaia stage` (and `--dry-run`) warns about any that aren't set before loading
+  anything; the dataset still raises its own error when it runs.
 - **`REGRID_METHOD`**: `gaia align`'s default spatial method for the dataset's
   raster variables, one of `regrid.Method` (`conservative`, `average`,
   `bilinear`, `cubic`, `nearest`). The runner stores it as each variable's
@@ -65,9 +76,14 @@ Examples: `prism.py`, `hrrr.py`.
 1. **Open the source** into an `xr.Dataset`/`DataArray` with a spatial CRS
    readable by `rioxarray` (`da.rio.crs`). Use whatever access pattern fits the
    source (STAC + `odc.stac`, Icechunk, `rioxarray.open_rasterio`, …); see
-   `open_prism` / `open_hrrr`.
-2. **Standardize names**: spatial dims `x`, `y`; time dim `time`; variable name
-   and units, e.g. `precipitation` in `mm`.
+   `open_prism` / `open_hrrr`. Planetary Computer collections can use `stac.search`
+   and `stac.load` (signed, lazy, native grid; see `sentinel1_rtc.py`).
+2. **Standardize dims and units, not names**: spatial dims `x`, `y`; time dim
+   `time`; SI units (mm, degC). Variables keep the source's names (`ppt`, `tp`).
+   If another dataset has the same quantity, add it to the module's `COMMON_NAMES`
+   (staged name → common name, e.g. `{"tp": "precipitation"}`): the runner stamps
+   it as `gaia:common-name`, which `datasets.cf_criteria()` lets cf-xarray select
+   (`ds.cf["precipitation"]`). Set a CF `standard_name` where one fits.
 3. **Clip to the AOI** with `io.clip_to_aoi(da, aoi)`. This reprojects the AOI
    into the raster's CRS and keeps every touched cell; the raster stays on its
    **native grid**. Putting products on a common grid is `gaia align`'s job (see

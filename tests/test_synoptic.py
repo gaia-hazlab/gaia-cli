@@ -115,9 +115,9 @@ def test_construct_ragged_from_raw_precip():
     # Every report is kept
     assert ds.station.values.tolist() == ["HOURLY", "QUARTER"]
     assert ds.row_size.values.tolist() == [4, 13]
-    assert ds.precipitation.values[:4].tolist() == [0.0, 1.0, 1.0, 3.0]
-    assert ds.precipitation.values[-1] == 6.0
-    assert ds.precipitation.attrs["units"] == "mm"
+    assert ds.precip_accum.values[:4].tolist() == [0.0, 1.0, 1.0, 3.0]
+    assert ds.precip_accum.values[-1] == 6.0
+    assert ds.precip_accum.attrs["units"] == "mm"
     assert ds.elevation.values.tolist() == pytest.approx([304.8, 304.8])
     assert ds.precip_source.values.tolist() == ["precip_accum", "precip_accum"]
 
@@ -137,7 +137,7 @@ def test_construct_ragged_prefers_derived_precip():
         }
     }
     ds = synoptic.construct_ragged({"STATION": [station]})
-    assert ds.precipitation.values.tolist() == [0.0, 1.5]
+    assert ds.precip_accum.values.tolist() == [0.0, 1.5]
     assert ds.precip_source.values.tolist() == ["precip_accum_one_hour"]
 
 
@@ -169,7 +169,7 @@ def test_construct_ragged_keeps_other_variables():
     # The first sensor set
     assert ds.air_temp.values.tolist() == [2.5, 3.0, 1.0]
     assert ds.air_temp.attrs["units"] == "Celsius"
-    assert np.isnan(ds.precipitation.values[1:]).all()
+    assert np.isnan(ds.precip_accum.values[1:]).all()
 
 
 def test_construct_ragged_raises_without_any_reports():

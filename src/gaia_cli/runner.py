@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 import inspect
 import logging
+import os
 import re
 import sys
 import typing
@@ -29,6 +30,7 @@ from .stagefile import (
     CONFIG_FILE,
     DATASETS,
     PRESETS,
+    SCENE_WINDOWS,
     StageConfig,
     StageFileError,
     group,
@@ -37,12 +39,13 @@ from .stagefile import (
     load_config,
     options,
     outside_extent,
-    pad,
     parse_config,
     plain,
     presets,
     read_config,
+    read_window,
     resolved,
+    scenes,
     takes_origin,
     timed,
     write_stage_file,
@@ -50,6 +53,21 @@ from .stagefile import (
 from .window import unknown
 
 log = logging.getLogger(__name__)
+
+# The largest group a run writes. load() returns lazy arrays where it can, so the
+# check usually comes before any data is read
+MAX_BYTES = io.MAX_BYTES
+size = io.size
+
+
+def warn_missing_tokens(requests) -> None:
+    """Warn, before anything loads, for each dataset whose token isn't set."""
+    for req in requests:
+        for var, what in getattr(DATASETS[req.dataset], "TOKENS", {}).items():
+            if not os.environ.get(var):
+                log.warning(
+                    "%s: %s is not set (%s); it will likely fail", req.name, var, what
+                )
 
 
 def run(
@@ -72,30 +90,45 @@ def run(
         module = DATASETS[req.dataset]
         kwargs = dict(req.options)
         if req.windows:
-            w = req.windows[0].padded(pad(module))
+            w = read_window(req)
             assert w.start is not None and w.end is not None  # checked in load_config
             # load() takes inclusive bounds; the window's end is exclusive. One
             # microsecond before it keeps a waveform's last second, and gives
             # daily and hourly datasets the same steps as one second would
             kwargs["start_date"] = w.start.isoformat()
             kwargs["end_date"] = (w.end - pd.Timedelta(microseconds=1)).isoformat()
+            if scenes(module):
+                kwargs[SCENE_WINDOWS] = req.windows
         if takes_origin(module):
             kwargs["origin"] = cfg.origin
         log.info(
             "%s: loading (%s)",
             req.name,
-            f"{req.windows[0]}, read as {req.windows[0].padded(pad(module))}"
+            f"{', '.join(map(str, req.windows))}, read as {read_window(req)}"
             if req.windows
             else "static",
         )
         try:
             obj = module.load(aois[aoi_key(req.aoi)], **kwargs)
             nodes = _nodes(module, group(req), obj)
-            if method := getattr(module, "REGRID_METHOD", None):
-                for node in nodes.values():
-                    for var in node.data_vars.values():
-                        if {"x", "y"} <= set(var.dims):
-                            var.attrs.setdefault(regrid.METHOD_ATTR, method)
+            nbytes = sum(node.nbytes for node in nodes.values())
+            log.info("%s: %s to write", req.name, size(nbytes))
+            if nbytes > MAX_BYTES:
+                raise ValueError(
+                    f"{size(nbytes)} is over the {size(MAX_BYTES)} limit; "
+                    "use a smaller AOI or window"
+                )
+            method = getattr(module, "REGRID_METHOD", None)
+            common_names = getattr(module, "COMMON_NAMES", {})
+            for node in nodes.values():
+                for var in node.data_vars.values():
+                    if method and {"x", "y"} <= set(var.dims):
+                        var.attrs.setdefault(regrid.METHOD_ATTR, method)
+                for name, common in common_names.items():
+                    if name in node.data_vars:
+                        node[name].attrs.setdefault(provenance.COMMON_NAME_ATTR, common)
+            if scenes(module):
+                nodes[group(req)].attrs[provenance.SCENES_ATTR] = True
             tree = xr.DataTree.from_dict(nodes)
             tree.attrs = dict(cfg.attrs)
             io.save_datatree(
@@ -181,6 +214,7 @@ def execute(
         if (reason := outside_extent(req, aois[aoi_key(req.aoi)]))
     }
     if dry_run:
+        warn_missing_tokens(r for r in cfg.requests if r.name not in skipped)
         print(
             yaml.safe_dump(
                 resolved(cfg, output, aois, skipped),
@@ -218,6 +252,7 @@ def execute(
         if not requests:
             log.info("Done: every group already exists")
             return
+    warn_missing_tokens(requests)
     failures = run(
         dataclasses.replace(cfg, requests=requests),
         aois,

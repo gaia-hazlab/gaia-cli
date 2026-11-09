@@ -45,8 +45,8 @@ In other words, **precipitation is hour-ending**: the value stamped
 
 - `precipitation_surface`: "Average precipitation rate since the previous
   forecast step", in kg m⁻² s⁻¹ (≡ mm s⁻¹). `hrrr.load` multiplies it by
-  3600 s to get **mm per hour**, renames it `precipitation`, and sets
-  `cell_methods = "time: sum"`.
+  3600 s to get **mm per hour**, keeps its name, and sets
+  `cell_methods = "time: sum"`. `gaia align` names it `precipitation`.
 - `snowfall_surface`: average rate in m s⁻¹, staged unchanged with
   `cell_methods = "time: mean"`.
 - `wind_u_*` / `wind_v_*` are **grid-relative**: velocity along the LCC grid's

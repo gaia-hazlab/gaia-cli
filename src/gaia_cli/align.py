@@ -81,9 +81,10 @@ def common_window(tree: xr.DataTree, start, end) -> tuple[pd.Timestamp, pd.Times
     # Edges that are a step edge in every product
     s = functools.reduce(pd.DatetimeIndex.intersection, starts)
     e = functools.reduce(pd.DatetimeIndex.intersection, ends)
-    if s.empty or e.empty or s.min() >= e.max():
+    first, last = cast(pd.Timestamp, s.min()), cast(pd.Timestamp, e.max())
+    if s.empty or e.empty or first >= last:
         raise ValueError(f"no whole time steps of every product lie in {start}/{end}")
-    return s.min(), e.max()
+    return first, last
 
 
 def select_window(ds: xr.Dataset, t0, t1) -> xr.Dataset:
@@ -107,57 +108,147 @@ def _step(ds: xr.Dataset) -> np.timedelta64:
     return np.median(end - start)
 
 
+def _time_coords(ds: xr.Dataset, steps: np.ndarray, bins: np.ndarray, n: int) -> dict:
+    """*ds*'s other coordinates along ``time``, one value per target interval.
+
+    *steps* are the source steps used and *bins* their target intervals. A
+    coordinate is kept when the steps in each interval agree on its value, as
+    for a Sentinel-1 pass's orbit when each pass is its own interval; intervals
+    with no step get ``""`` (text) or NaN. One that an interval would mix, such
+    as two tracks' passes in one interval, is dropped.
+    """
+    out = {}
+    for name, coord in ds.coords.items():
+        if name == "time" or coord.dims != ("time",):
+            continue
+        values = pd.Series(coord.values[steps])
+        if (values.groupby(bins).nunique() > 1).any():
+            log.info("%s: dropped, it differs within a target time step", name)
+            continue
+        per_bin = values.groupby(bins).first().reindex(range(n))
+        if coord.dtype.kind in "OSTU":
+            data = np.asarray(per_bin.fillna("").tolist(), dtype=str)
+        elif per_bin.isna().any():
+            data = per_bin.to_numpy(dtype=float)
+        else:
+            data = per_bin.to_numpy(dtype=coord.dtype)
+        out[str(name)] = ("time", data, coord.attrs)
+    return out
+
+
+def _overlap(
+    start: np.ndarray, end: np.ndarray, target_start, target_end
+) -> xr.DataArray:
+    """Overlap of each source interval with each target interval, in seconds
+    (dims ``step``, ``time``)."""
+    s = xr.DataArray(start, dims="time")
+    e = xr.DataArray(end, dims="time")
+    ts = xr.DataArray(np.asarray(target_start), dims="step")
+    te = xr.DataArray(np.asarray(target_end), dims="step")
+    inside = np.minimum(e, te) - np.maximum(s, ts)
+    return (inside / np.timedelta64(1, "s")).clip(min=0).transpose("step", "time")
+
+
+def overlap(bounds: xr.DataArray, target_start, target_end) -> xr.DataArray:
+    """The fraction of each source interval that lies inside each target interval.
+
+    *bounds* are the source's ``time_bounds`` (``time``, ``nv``); the targets are
+    ``(start, end]`` intervals. Gives weights (``step``, ``time``): a source sum
+    spread over the targets is ``xr.dot(overlap(...), da, dim="time")``, e.g.
+    hourly precipitation between satellite passes, or a daily total spread
+    evenly over its hours.
+    """
+    start, end = bounds.isel(nv=0).values, bounds.isel(nv=1).values
+    seconds = (end - start) / np.timedelta64(1, "s")
+    return _overlap(start, end, target_start, target_end) / xr.DataArray(
+        seconds, dims="time"
+    )
+
+
 def aggregate_time(
     ds: xr.Dataset,
     labels: np.ndarray,
     target_start: np.ndarray,
     target_end: np.ndarray,
 ) -> xr.Dataset:
-    """Aggregate *ds* into the target intervals ``(start, end]``.
+    """Aggregate *ds* into the target intervals ``(start, end]``; variables
+    without time pass through.
 
-    A source interval contributes to the target interval that fully contains
-    it (point values: ``start < t <= end``). Values combine according to the
-    variable's ``cell_methods`` (``time: sum`` → sum, ``time: minimum`` → min,
-    ``time: maximum`` → max, otherwise mean). Bins
-    missing any expected source step become NaN instead of a silent undercount.
+    Each source interval is weighted by how much of it lies inside each target
+    (:func:`overlap`): a source step that straddles a target edge is split
+    between the two by time, and a longer source step is spread evenly over the
+    shorter targets it covers. Point values stand for the step ending at them.
+    Values combine according to the variable's ``cell_methods``: ``time: sum``
+    as a weighted sum, ``time: minimum``/``maximum`` over every overlapping
+    step, otherwise a mean weighted by overlap. Missing values within the
+    source's time span are skipped, so a sum counts the data present; a target
+    that reaches beyond the span (e.g. a day starting before an hourly source
+    does), or that has no data, is NaN.
     """
     start, end, is_point = _intervals(ds)
     step = _step(ds)
+    if is_point:  # each point stands for the step ending at it
+        start = end - step
+    seconds = xr.DataArray((end - start) / np.timedelta64(1, "s"), dims="time")
+    if step > np.timedelta64(0, "ns"):
+        covers = _overlap(start, end, target_start, target_end)
+    else:  # one time step: it counts wholly for the target it falls in
+        ts = xr.DataArray(target_start, dims="step")
+        te = xr.DataArray(target_end, dims="step")
+        t = xr.DataArray(end, dims="time")
+        covers = ((ts < t) & (t <= te)).astype(float)
+        seconds = xr.ones_like(seconds)
+
+    # Targets that reach beyond the source's time span are NaN, not partial
+    inside_span = xr.DataArray(
+        (target_start >= start.min()) & (target_end <= end.max()), dims="step"
+    )
+
+    # A source step's coordinates go to the target holding its end
     j = np.searchsorted(target_end, end, side="left")
     jj = np.minimum(j, len(target_end) - 1)
-    inside = (j < len(target_end)) & (
-        (target_start[jj] < start) if is_point else (target_start[jj] <= start)
-    )
-    expected = round(float(np.median(target_end - target_start) / step))
+    held = np.flatnonzero((j < len(target_end)) & (target_start[jj] < end))
 
     bounds = _bounds_name(ds)
     timed = [str(v) for v in ds.data_vars if "time" in ds[v].dims and v != bounds]
-    sub = ds[timed].isel(time=np.flatnonzero(inside))
-    sub = sub.assign_coords(_bin=("time", jj[inside]))
-
     out = {}
     for name in timed:
-        da = sub[name]
+        da = ds[name]
         method = da.attrs.get("cell_methods", "time: mean")
-        grouped = da.groupby("_bin")
-        if "sum" in method:
-            agg = grouped.sum()
-        elif "minimum" in method:
-            agg = grouped.min()
-        elif "maximum" in method:
-            agg = grouped.max()
+        if not np.issubdtype(da.dtype, np.floating):
+            da = da.astype(np.float32)
+        present = da.notnull()
+        has_data = inside_span & (xr.dot(covers, present, dim="time") > 0)
+        if "minimum" in method or "maximum" in method:
+            # extremes can't be spread: each target takes them over every
+            # source step it overlaps
+            reduce = "min" if "minimum" in method else "max"
+            agg = xr.concat(
+                [getattr(da.where(row > 0), reduce)("time") for row in covers],
+                dim="step",
+            )
+        elif "sum" in method:
+            agg = xr.dot(covers / seconds, da.fillna(0), dim="time")
         else:
-            agg = grouped.mean()
-        agg = agg.where(grouped.count() >= expected)
-        agg = agg.reindex(_bin=np.arange(len(labels))).rename(_bin="time")
+            weight = covers * present
+            agg = xr.dot(covers, da.fillna(0), dim="time") / xr.dot(
+                weight, xr.ones_like(da), dim="time"
+            )
+        agg = agg.where(has_data).rename(step="time").transpose(*da.dims)
         agg.attrs = {
-            **da.attrs,
+            **ds[name].attrs,
             "cell_methods": method.replace("point", "mean"),
-            "aggregated_from": f"{expected} values of {np.timedelta64(step, 'm')}",
+            "aggregated_from": f"steps of {np.timedelta64(step, 'm')}, "
+            "weighted by their overlap with each target step",
         }
-        out[name] = agg
+        out[name] = agg.astype(da.dtype, copy=False)
 
+    # Variables without time (e.g. ERA5's orography) pass through unchanged
+    for name in ds.data_vars:
+        if "time" not in ds[name].dims and name not in out:
+            out[str(name)] = ds[name]
     result = xr.Dataset(out, attrs=ds.attrs).assign_coords(time=labels)
+    result = result.assign_coords(_time_coords(ds, held, jj[held], len(labels)))
     result["time_bounds"] = (("time", "nv"), np.stack([target_start, target_end], -1))
     result.time.attrs["bounds"] = "time_bounds"
     if "spatial_ref" in ds.coords:
@@ -252,10 +343,13 @@ def align(
     res: float | None = None,
     method: regrid.Method | Mapping[str, regrid.Method] | None = None,
     aoi=None,
+    align_scenes: bool = False,
 ) -> xr.DataTree:
     """Aggregate in time, then regrid once, every raster group in *dt*.
 
-    Non-raster groups (e.g. station data) pass through unchanged.
+    Non-raster groups (e.g. station data) pass through unchanged. Scene groups
+    (``gaia:scenes``, e.g. Sentinel-1/2) keep their acquisition times and are
+    only regridded, unless *align_scenes*.
 
     Parameters
     ----------
@@ -264,7 +358,9 @@ def align(
     like : str, optional
         Group whose grid is the target. Default: the coarsest raster.
     time_like : str, optional
-        Group whose time intervals are the target. Default: the coarsest.
+        Group whose time intervals are the target, a scene group included (its
+        intervals run from one acquisition to the next). Default: the coarsest
+        group that isn't scenes.
     crs, res : optional
         Explicit target grid instead of ``like``: *res* spacing in *crs*, over
         *aoi*'s bounds (else every raster's), snapped outward to multiples of
@@ -283,6 +379,8 @@ def align(
     aoi : geopandas.GeoDataFrame, optional
         If given, cells whose center is outside it in the target CRS are NaN.
         The grid keeps its extent.
+    align_scenes : bool
+        Aggregate scene groups in time too, like every other group.
     """
     nodes = {path: node.to_dataset() for path, node in dt.subtree_with_keys}
     rasters = {p: ds for p, ds in nodes.items() if _is_raster(ds)}
@@ -291,15 +389,25 @@ def align(
 
     # ---- time ----------------------------------------------------------------
     timed = {p: ds for p, ds in rasters.items() if "time" in ds.dims}
-    if timed:
-        time_like = time_like or max(timed, key=lambda p: _step(timed[p]))
+    if time_like is not None and time_like not in timed:
+        raise ValueError(f"time_like {time_like!r}: no raster group with time")
+    scenes = [
+        p
+        for p, ds in timed.items()
+        if ds.attrs.get(provenance.SCENES_ATTR) and not align_scenes
+    ]
+    for p in scenes:
+        log.info("%s: keeping its acquisition times (scenes)", p)
+    aggregated = {p: ds for p, ds in timed.items() if p not in scenes}
+    if aggregated:
+        time_like = time_like or max(aggregated, key=lambda p: _step(aggregated[p]))
         ref = timed[time_like]
         start, end, is_point = _intervals(ref)
-        if is_point:  # label each point as the end of a (t - step, t] interval
-            start = end - _step(ref)
+        if is_point:  # each point ends the interval from the previous one
+            start = np.r_[end[0] - _step(ref), end[:-1]]
         labels = ref.time.values
         log.info("time target %s (%d step(s))", time_like, len(labels))
-        for p, ds in timed.items():
+        for p, ds in aggregated.items():
             rasters[p] = aggregate_time(ds, labels, start, end)
 
     # ---- space ---------------------------------------------------------------
@@ -321,6 +429,8 @@ def align(
         template.sizes["y"],
         template.sizes["x"],
     )
+
+    _check_size(rasters, template)
 
     # TODO: convert heights to a common vertical datum. DEMs keep their geoid
     # (``vertical_datum``: cop30 EGM2008, usgs10m NAVD88), so differences
@@ -358,13 +468,41 @@ def align(
     aligned.attrs = {
         **dt.attrs,
         "gaia_align": f"grid={target_desc}; time={time_like}; "
-        f"method={method or 'per variable'}",
+        f"method={method or 'per variable'}; "
+        f"scenes={'aligned' if align_scenes else 'kept'}",
     }
     # A title that tells it from its input in a catalog
     title = dt.attrs.get("title")
     if title and not title.endswith(" (aligned)"):
         aligned.attrs["title"] = f"{title} (aligned)"
     return aligned
+
+
+def _check_size(rasters: dict[str, xr.Dataset], template: xr.DataArray) -> None:
+    """Stop before regridding if the rasters on *template* would exceed
+    ``io.MAX_BYTES``, naming the largest group."""
+    cells = template.sizes["y"] * template.sizes["x"]
+    per_group = {
+        p: sum(
+            float(np.prod([n for d, n in ds[v].sizes.items() if d not in ("x", "y")]))
+            * cells
+            * ds[v].dtype.itemsize
+            for v in _raster_vars(ds)
+        )
+        for p, ds in rasters.items()
+    }
+    total = sum(per_group.values())
+    if total <= io.MAX_BYTES:
+        return
+    big = max(per_group, key=lambda p: per_group[p])
+    steps = rasters[big].sizes.get("time", 1)
+    raise ValueError(
+        f"the aligned rasters would be {io.size(total)}, over the "
+        f"{io.size(io.MAX_BYTES)} limit; {big} alone is {io.size(per_group[big])} "
+        f"({steps} time step(s) on {template.sizes['y']} x {template.sizes['x']} "
+        "cells). Use a coarser grid (--like, --res) or time step (--time-like, "
+        "e.g. a scene dataset for totals between its passes)."
+    )
 
 
 def _parse_methods(specs: list[str]) -> dict[str, regrid.Method] | None:
@@ -390,12 +528,16 @@ def run(
     method: Annotated[list[str] | None, Parameter(name=["--method", "-m"])] = None,
     aoi_path: Annotated[str | None, Parameter(name=["--aoi"])] = None,
     overwrite: Annotated[bool, Parameter(name=["--overwrite"], negative="")] = False,
+    align_scenes: Annotated[
+        bool, Parameter(name=["--align-scenes"], negative="")
+    ] = False,
 ):
     """Align staged rasters onto one grid and time step, writing a new store.
 
     Each raster is first aggregated in time to the coarsest product's
     intervals (using its ``time_bounds`` and ``cell_methods``), then regridded
-    once from its native grid onto the coarsest product's grid.
+    once from its native grid onto the coarsest product's grid. Scene datasets
+    (Sentinel-1/2) keep their acquisition times and are only regridded.
 
     Parameters
     ----------
@@ -407,7 +549,9 @@ def run(
     like : str
         Group whose grid is the target, e.g. ``rasters/hrrr``. Default: coarsest.
     time_like : str
-        Group whose time intervals are the target, e.g. ``rasters/prism``. Default: coarsest.
+        Group whose time intervals are the target, e.g. ``rasters/prism``, or a
+        scene group such as ``rasters/sentinel1-rtc`` for totals between its
+        passes. Default: the coarsest that isn't scenes.
     crs : str
         Target CRS for an explicit grid (use with ``--res``), or ``utm`` for
         the UTM zone of the AOI. The grid covers ``--aoi`` (else every raster),
@@ -427,6 +571,9 @@ def run(
     overwrite : bool
         Write into an output folder that isn't empty, replacing its store.
         Default False.
+    align_scenes : bool
+        Aggregate scene datasets (Sentinel-1/2) in time too, onto the same
+        intervals as the rest. Default False: they keep their acquisition times.
 
     Examples
     --------
@@ -449,9 +596,19 @@ def run(
     store = io.store_path(output_path, io.folder_name(output_path))
     dt = io.open_datatree(input_path)
     aoi = load_aoi(aoi_path) if aoi_path else None
-    aligned = align(
-        dt, like=like, time_like=time_like, crs=crs, res=res, method=methods, aoi=aoi
-    )
+    try:
+        aligned = align(
+            dt,
+            like=like,
+            time_like=time_like,
+            crs=crs,
+            res=res,
+            method=methods,
+            aoi=aoi,
+            align_scenes=align_scenes,
+        )
+    except ValueError as e:
+        sys.exit(f"Error: {e}")
     aligned.attrs = provenance.derived_from(aligned.attrs, input_path)
     io.save_datatree(aligned, store, overwrite=overwrite)
     log.info("Done")

@@ -1,0 +1,23 @@
+# Pioneer Fire, WA (2024): the landlab reference run, over the lidar footprint. It is the part
+# of the fire with mapped debris-flow initiations and a lidar DEM difference, so model output
+# can be validated here. Same datasets as pioneer.yaml; PRISM is ppt only until the cache
+# holds tmin and tmax after Dec 17.
+#   gaia stage --config examples/pioneer-reference.yaml -o /tmp/pioneer-reference
+# Align onto the lidar's CRS, EPSG:6339 (NAD83(2011) UTM 10N). Aligned the same way, the
+# fire-wide grid contains this one cell for cell, so a fire-wide run can be validated here
+# without resampling:
+#   gaia align -i /tmp/pioneer-reference/pioneer-reference.zarr -o /tmp/pioneer-reference-10m \
+#     --crs EPSG:6339 --res 10 --aoi examples/pioneer-footprint.geojson \
+#     -m dem/usgs10m=cubic -m soil/solus100=bilinear -m rasters/nlcd=nearest -m rasters/burn-severity=nearest
+name: pioneer-reference
+attrs:
+  title: Pioneer Fire landlab reference run, lidar footprint
+aoi: pioneer-footprint.geojson      # relative to this file
+window: 2025-12-07/2025-12-20       # the December 2025 debris flows
+datasets:
+  dem/usgs10m: {}
+  burn-severity: {fire: pioneer, year: 2024}
+  soil/solus100: {}
+  soil/statsgo: {}
+  nlcd: {year: 2021}
+  prism: {variables: [ppt]}

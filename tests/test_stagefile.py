@@ -26,7 +26,7 @@ aois:
   local: {latitude: 63.1455, longitude: -151.1904, radius_km: 15}
 aoi: regional
 window: 2023-06-01/2023-09-21
-output: s3://gaia/scratch/peters-dome
+output: s3://gaia-scratch/gaia-cli/peters-dome
 datasets:
   hrrr: {aoi: local, window: {before: 6h, after: 1d}, variable: temperature_2m}
   prism: {variables: [ppt, tmax]}
@@ -310,6 +310,33 @@ def test_run_writes_one_group_per_dataset(tmp_path, monkeypatch):
     assert tree["rasters/prism"].attrs["title"] == "prism"
 
 
+def test_groups_over_the_size_limit_fail_before_writing(tmp_path, monkeypatch, caplog):
+    calls = []
+    monkeypatch.setattr(prism, "load", fake_load("prism", calls))
+    monkeypatch.setattr(hrrr, "load", fake_load("hrrr", calls))
+    monkeypatch.setattr(runner, "MAX_BYTES", 4)  # each fake group is 8 bytes
+    config = write(tmp_path, CONUS + "  prism: {}\n  hrrr: {}\n")
+    caplog.set_level("INFO", logger="gaia_cli.runner")
+    with pytest.raises(SystemExit, match=r"2 of 2 dataset\(s\) failed") as e:
+        runner.stage(config=config, output_path=str(tmp_path / "out"))
+    assert "prism: ValueError: 8 B is over the 4 B limit" in str(e.value)
+    assert "prism: 8 B to write" in caplog.text
+    assert not (tmp_path / "out" / "bolt-creek.zarr").exists()
+
+
+@pytest.mark.parametrize(
+    "nbytes, text",
+    [
+        (8, "8 B"),
+        (1536, "1.5 kB"),
+        (10 * 1024**3, "10.0 GB"),
+        (2048 * 1024**3, "2048.0 GB"),
+    ],
+)
+def test_size(nbytes, text):
+    assert runner.size(nbytes) == text
+
+
 def test_module_pad_and_origin_reach_load(tmp_path, monkeypatch, capsys):
     calls = []
 
@@ -382,6 +409,8 @@ def test_registered_modules_declare_kind_and_extent(name):
     assert stagefile.timed(module) == any(a in params for a in stagefile.WINDOW_ARGS)
     if hasattr(module, "REGRID_METHOD"):
         assert module.REGRID_METHOD in typing.get_args(regrid.Method)
+    if stagefile.scenes(module):  # the runner passes the stage file's windows
+        assert stagefile.timed(module) and stagefile.SCENE_WINDOWS in params
     if hasattr(module, "VARIANT"):  # an option with a default, its values the keys
         assert module.VARIANT in stagefile.options(module.load)
     (overall, *_) = module.EXTENT["spatial"]["bbox"]
@@ -646,3 +675,33 @@ def test_output_and_name_must_make_a_folder_layout(tmp_path, name, output, messa
     config = write(tmp_path, CONUS.replace("bolt-creek", name) + "  prism: {}\n")
     with pytest.raises(SystemExit, match=message):
         runner.stage(config=config, output_path=output, dry_run=True)
+
+
+TOKENS = """
+name: tokens
+aoi: {bbox: [-151.3, 63.1, -151.1, 63.2]}
+window: 2023-09-13/2023-09-14
+datasets:
+  synoptic: {}
+  era5: {}
+  dem/cop30: {}
+"""
+
+
+def test_missing_tokens_are_warned_about_before_anything_loads(
+    tmp_path, monkeypatch, caplog
+):
+    monkeypatch.delenv("SYNOPTIC_TOKEN", raising=False)
+    monkeypatch.delenv("ARRAYLAKE_TOKEN", raising=False)
+    with caplog.at_level("WARNING", logger="gaia_cli.runner"):
+        runner.stage(config=write(tmp_path, TOKENS), dry_run=True)
+    assert "synoptic: SYNOPTIC_TOKEN is not set" in caplog.text
+    assert "era5: ARRAYLAKE_TOKEN is not set" in caplog.text
+    assert "dem" not in caplog.text
+
+    caplog.clear()
+    monkeypatch.setenv("SYNOPTIC_TOKEN", "x")
+    monkeypatch.setenv("ARRAYLAKE_TOKEN", "x")
+    with caplog.at_level("WARNING", logger="gaia_cli.runner"):
+        runner.stage(config=write(tmp_path, TOKENS), dry_run=True)
+    assert "not set" not in caplog.text

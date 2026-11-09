@@ -28,6 +28,9 @@ This project uses [ruff](https://docs.astral.sh/ruff/) for linting and formattin
 - Run `pixi run typecheck` to check type annotations
 - Do not add type annotations, docstrings, or comments to code you did not change
 - Keep changes minimal and focused — avoid refactoring unrelated code
+- Prefer xarray operations (`sel`, `where`, `groupby` with grouper objects such as
+  `BinGrouper`, `resample`, broadcasting over named dims) to converting to NumPy arrays
+  with `.values` and indexing by hand, in code and notebooks alike
 
 ## Project Structure
 
@@ -43,6 +46,7 @@ src/gaia_cli/
   window.py       # times, durations and window grammar
   io.py           # Shared I/O: clipping, Zarr and STAC Item writing, object stores
   provenance.py   # provenance attributes and STAC Items
+  stac.py         # Planetary Computer STAC search, SAS signing, odc-stac loading
   catalog.py      # "gaia catalog rebuild"
   align.py        # "gaia align": time aggregation and regridding onto one grid
   regrid.py       # per-array spatial regridding methods
@@ -55,6 +59,10 @@ src/gaia_cli/
     synoptic.py   # Synoptic API station reports (CF ragged array)
     prism.py      # PRISM daily grids (from prism_cache); also `gaia prism fill`
     hrrr.py       # HRRR analysis (Icechunk)
+    era5.py       # ERA5 hourly single levels (Earthmover Icechunk via arraylake; ARRAYLAKE_TOKEN)
+    stage4.py     # NCEP Stage IV daily/6-hourly/hourly precipitation (GDEX archive, local cache)
+    sentinel1_rtc.py  # Sentinel-1 RTC gamma0 per pass (Planetary Computer, via stac.py)
+    sentinel2.py  # Sentinel-2 L2A reflectance and SCL per pass (Planetary Computer, via stac.py)
     seismic.py    # EarthScope FDSN waveforms, raw counts per sample rate (uses waveforms.py)
     nlcd.py, dem.py, soil.py, burn_severity.py   # static layers
 
