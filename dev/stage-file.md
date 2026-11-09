@@ -194,7 +194,7 @@ inside the window; see the dataset's doc.
 
 ### Choosing scenes
 
-Scene datasets (`sentinel1-rtc`, `sentinel2`; `SCENES = True` in the module) take `pre`/`post`
+Scene datasets (`sentinel1-rtc`, `sentinel2`, `opera-rtc`; `SCENES = True` in the module) take `pre`/`post`
 windows and `select`/`count`, and are read over exactly the span of their windows, with
 no padding. Each window keeps the scenes in `[start, end)` that its `select` picks:
 `all` (the default), `first`, `last`, or `nearest` to `time`, `count` of them

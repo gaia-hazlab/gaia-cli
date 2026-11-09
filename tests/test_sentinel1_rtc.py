@@ -16,7 +16,8 @@ from gaia_cli import runner, stac, stagefile
 from gaia_cli.aoi import load_aoi
 from gaia_cli.cli import stage_app
 from gaia_cli.datasets import sentinel1_rtc
-from gaia_cli.datasets.sentinel1_rtc import Match, OrbitState
+from gaia_cli.datasets.sentinel1_rtc import OrbitState
+from gaia_cli.stac import Match
 from gaia_cli.window import parse_window
 
 # 10 x 10 cells of 10 m in UTM 5N, near Peters Dome; each frame is half of it
