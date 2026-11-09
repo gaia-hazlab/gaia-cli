@@ -90,11 +90,12 @@ docs = { features = ["docs"], solve-group = "default" }
 [tool.pixi.feature.docs.dependencies]
 mystmd = ">=1.10.1,<2"
 nodejs = ">=22"
+jupyter_server = ">=2.21.1,<3"
 
 [tool.pixi.feature.docs.tasks]
 docs-reference = { cmd = "python docs/cli_reference.py", description = "Generate docs/reference.md from the CLI" }
-docs = { cmd = "myst start", cwd = "docs", depends-on = ["docs-reference"], description = "Preview the user docs at http://localhost:3000" }
-docs-build = { cmd = "myst build --html", cwd = "docs", depends-on = ["docs-reference"], description = "Build the user docs into docs/_build/html" }
+docs = { cmd = "myst start --execute", cwd = "docs", depends-on = ["docs-reference"], description = "Preview the user docs at http://localhost:3000, running the notebooks (cached in docs/_build/execute)" }
+docs-build = { cmd = "myst build --html --execute", cwd = "docs", depends-on = ["docs-reference"], description = "Build the user docs into docs/_build/html, running the notebooks (cached in docs/_build/execute)" }
 
 [tool.pixi.feature.dev.tasks]
 test = { cmd = "pytest", description = "Run the test suite" }
@@ -103,9 +104,11 @@ coverage = { cmd = "pytest --cov --cov-report=term-missing", description = "Run 
 typecheck = { cmd = "ty check src/", description = "Type-check src/ with ty" }
 lint = { cmd = "ruff check src tests --fix ; ruff format src tests", description = "Fix lint issues and format src/ and tests/" }
 lint-check = { cmd = "ruff check src tests && ruff format --check src tests", description = "Check lint and formatting without changing files (CI)" }
+strip-notebooks = { cmd = "nbstripout examples/*.ipynb", description = "Clear the example notebooks' outputs before committing; the docs build runs them" }
 
 [tool.pixi.feature.dev.dependencies]
 pytest-cov = ">=7.1.0,<8"
+nbstripout = ">=0.9.1,<0.10"
 
 [tool.pixi.dependencies]
 # Notebooks only: ipykernel, matplotlib, folium, mapclassify, xyzservices,

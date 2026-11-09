@@ -16,6 +16,27 @@ published at <https://gaia-hazlab.github.io/gaia-cli/>.
 | [huggingface.md](huggingface.md) | Hugging Face bucket setup (S3 gateway, monthly scratch wipe) |
 | [releasing.md](releasing.md) | versions from git tags; cutting a release |
 
+## Example notebooks
+
+Notebooks in `examples/` are committed **without outputs**: run `pixi run strip-notebooks`
+before committing (CI checks with `nbstripout --verify`). The docs build runs the ones in
+the docs table of contents (`docs/myst.yml`, as `examples/<name>.ipynb`, through the
+`docs/examples` symlink) and publishes their outputs. `--strict` fails the build if a
+cell raises.
+
+The notebooks stage into local folders under `/tmp/gaia-scratch/gaia-cli/`, so a docs
+build doesn't touch shared object storage, and a local build never collides with one in
+CI. They show how to read a store on S3 in markdown instead. To run them, `pixi run docs`
+and `pixi run docs-build` need `SYNOPTIC_TOKEN` and `ARRAYLAKE_TOKEN`; in CI the Docs
+workflow gets them from repository secrets. MyST
+keeps each notebook's outputs in `docs/_build/execute` and reruns it only when its code
+changes; CI caches that folder. Delete it to rerun everything.
+
+Each notebook stages into a fixed folder, so don't run two copies of one at once on one
+machine (say `pixi run docs` while `docs-build` runs): their writes collide and some datasets fail
+(see `--skip-existing` in [docs/cli.md](../docs/cli.md)). A cell that runs `!gaia` checks
+`_exit_code` after it, since `!` ignores the exit code.
+
 ## Object store credentials
 
 Zarr outputs are well-suited to S3-compatible object stores (e.g. AWS S3, MinIO, etc.). The examples below write to either a University of Washington object store called [Kopah](https://hyak.uw.edu/docs/systems/kopah/overview/), [backblaze B2](https://www.backblaze.com/docs), or a [Hugging Face bucket](huggingface.md). We output to the publicly readable `gaia-scratch` bucket on Kopah, under `gaia-cli/`. It has a 30-day lifecycle policy (any uploaded file is deleted after 30 days). You must have credentials to write to this bucket, credentials can be configured by setting environment variables `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` or by using the AWS config files and settings AWS_PROFILE to the profile name. For example, to use the `kopah` profile, set `AWS_PROFILE=kopah` in your environment:

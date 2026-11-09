@@ -10,7 +10,7 @@ dev/infrasound.md.
 Examples
 --------
 Peters Dome, 2023-09-14: every BDF or HDF sensor within 400 km:
-    $ gaia stage --config examples/peters-dome-waveforms.yaml -o peters-dome-waveforms
+    $ gaia stage --config examples/peters-dome.yaml --only infrasound -o peters-dome
 
 The IMS array I53US (Fairbanks), ten minutes:
     $ gaia stage infrasound -i aoi.geojson -s 2023-09-14T02:10 -e 2023-09-14T02:20 -n IM --station "I53H?" -o i53

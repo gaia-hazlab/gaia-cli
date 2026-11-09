@@ -1,7 +1,8 @@
 name: Docs
 
-# Builds the user docs (docs/) with MyST. Pull requests only build them;
-# pushes to main also deploy them to GitHub Pages.
+# Builds the user docs (docs/) with MyST, running the example notebooks (they are
+# committed without outputs). Pull requests only build them; pushes to main also
+# deploy them to GitHub Pages.
 on:
   push:
     branches: [main]
@@ -18,6 +19,9 @@ jobs:
     env:
       # Served from https://gaia-hazlab.github.io/gaia-cli/
       BASE_URL: /${{ github.event.repository.name }}
+      # The notebooks stage into local folders under /tmp; these are for the data sources
+      SYNOPTIC_TOKEN: ${{ secrets.SYNOPTIC_TOKEN }}
+      ARRAYLAKE_TOKEN: ${{ secrets.ARRAYLAKE_TOKEN }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -29,8 +33,15 @@ jobs:
           environments: docs
           cache: true
 
+      # MyST reuses a notebook's outputs while its code is unchanged
+      - uses: actions/cache@v4
+        with:
+          path: docs/_build/execute
+          key: myst-execute-${{ hashFiles('examples/*.ipynb') }}
+          restore-keys: myst-execute-
+
       - name: Build docs
-        run: pixi run docs-build
+        run: pixi run docs-build --strict
 
       - uses: actions/upload-pages-artifact@v5
         with:

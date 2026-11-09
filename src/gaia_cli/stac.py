@@ -8,6 +8,7 @@ load lazily with odc-stac on the items' native grid (see dev/sentinel1-rtc.md).
 from __future__ import annotations
 
 import logging
+import warnings
 from collections import Counter
 from collections.abc import Callable, Sequence
 
@@ -18,6 +19,7 @@ import pystac
 import pystac_client
 import requests
 import xarray as xr
+from rasterio.errors import NotGeoreferencedWarning
 
 from . import io
 from .window import Window
@@ -29,6 +31,13 @@ PC_SAS = "https://planetarycomputer.microsoft.com/api/sas/v1/token"
 # A token is renewed when it expires sooner than this: lazy reads happen while
 # the store is written, after load() returns
 TOKEN_MARGIN = pd.Timedelta(hours=1)
+
+# odc-stac reprojects scenes from another UTM zone with rasterio.warp.reproject into
+# NumPy arrays, whose temporary in-memory dataset has no geotransform until the
+# destination's is applied; the output is georeferenced correctly
+warnings.filterwarnings(
+    "ignore", category=NotGeoreferencedWarning, module="rasterio.warp"
+)
 
 # collection -> (token, expiry)
 _tokens: dict[str, tuple[str, pd.Timestamp]] = {}

@@ -14,6 +14,7 @@ pixi run test-online # network smoke tests, marked @pytest.mark.online (skipped 
 pixi run typecheck   # ty check src/
 
 pixi run docs        # preview the MyST user docs (docs/); docs-build builds them
+pixi run strip-notebooks  # examples/*.ipynb are committed without outputs; the docs build runs them
 
 # Lint code & format
 pixi run lint        # ruff check --fix + format, src and tests
