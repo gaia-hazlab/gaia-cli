@@ -416,7 +416,7 @@ def test_runner_passes_the_windows_and_their_exact_span(tmp_path, monkeypatch):
     assert calls == [
         (
             "2023-08-15T02:06:49",
-            "2023-10-14T02:06:48",
+            "2023-10-14T02:06:48.999999",
             Match.relative_orbit,
             ["pre", "post"],
         )

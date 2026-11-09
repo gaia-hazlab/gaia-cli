@@ -11,7 +11,7 @@ published at <https://gaia-hazlab.github.io/gaia-cli/>.
 | [provenance-metadata.md](provenance-metadata.md) | provenance attributes in each store |
 | [stac-catalog.md](stac-catalog.md) | STAC Items and `gaia catalog rebuild` |
 | [browser-viewers.md](browser-viewers.md) | the Source Cooperative zarr-viewer, and opening it from stac-browser |
-| [prism.md](prism.md), [hrrr.md](hrrr.md), [stage4.md](stage4.md), [stations.md](stations.md), [precip-timing.md](precip-timing.md), [dem.md](dem.md), [soil.md](soil.md), [burn-severity.md](burn-severity.md) | per-dataset details: sources, grids, time conventions, caveats |
+| [prism.md](prism.md), [hrrr.md](hrrr.md), [stage4.md](stage4.md), [stations.md](stations.md), [precip-timing.md](precip-timing.md), [dem.md](dem.md), [soil.md](soil.md), [burn-severity.md](burn-severity.md), [seismic.md](seismic.md) | per-dataset details: sources, grids, time conventions, caveats |
 | [backblaze.md](backblaze.md) | Backblaze B2 setup |
 | [huggingface.md](huggingface.md) | Hugging Face bucket setup (S3 gateway, monthly scratch wipe) |
 | [releasing.md](releasing.md) | versions from git tags; cutting a release |

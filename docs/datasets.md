@@ -15,6 +15,7 @@ title: Datasets
 | [`burn-severity`](#burn-severity) | BAER soil burn severity | CONUS, fires 2017 on | 20–30 m | static | `rasters/burn-severity` |
 | [`sentinel1-rtc`](#sentinel1-rtc) | Sentinel-1 radar backscatter | global, 2014-10 on | 10 m | each pass | `rasters/sentinel1-rtc` |
 | [`sentinel2`](#sentinel2) | Sentinel-2 surface reflectance | global, 2015-06 on | 10 m | each pass | `rasters/sentinel2` |
+| [`seismic`](#seismic) | seismic waveforms (EarthScope FDSN) | global | stations | native rate, raw counts | `waveforms/seismic/<rate>hz` |
 
 A dataset that the AOI or window misses (for example `prism` in Alaska) is skipped
 with a warning. Licenses differ: check each group's `license` attribute before sharing
@@ -223,3 +224,27 @@ at 10 m in the scenes' UTM zone. No account needed.
 ```bash
 gaia stage sentinel2 -i aoi.geojson -s 2023-09-01 -e 2023-09-30 -o out --max-cloud-cover 50
 ```
+(seismic)=
+## Seismic
+
+Seismic waveforms from [EarthScope](https://www.earthscope.org)'s FDSN web services,
+for the stations inside the AOI (use a circle, e.g. `radius_km: 250`, to limit the
+distance).
+
+- `--channel` (default `HH?,BH?`) lists channel codes in order of preference: each
+  station keeps every channel of the first band it has, at its lowest location code.
+  A station with HH and BH channels gives HHZ, HHN and HHE only. `--network`,
+  `--station` and `--location` take FDSN codes with `?` and `*` wildcards.
+- Stored as **raw counts at each channel's native rate**, one group per rate
+  (`waveforms/seismic/50hz`, `.../100hz`), next to two tables: `sites` (one row per
+  station position, with `distance_km` and `back_azimuth` from the stage file's
+  `origin`, else the AOI's centroid) and `channels` (one row per channel requested,
+  with its orientation, sensitivity and the group holding its data). Gaps are NaN on
+  read.
+- Samples snap to a grid starting at the window's start; `time_offset` gives each
+  channel's true sample times, `time + time_offset`.
+- With `node = tree["waveforms/seismic"]`, `gaia_cli.waveforms.to_physical(node,
+  "50hz")` gives velocity (m/s) as counts / sensitivity, and
+  `gaia_cli.waveforms.to_grid(node, rate=20)` puts every channel on one common grid.
+- The window is read exactly, without the one-day padding of other datasets.
+- License: set by each seismic network; `waveforms/seismic` lists its `networks`.

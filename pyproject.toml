@@ -19,6 +19,7 @@ dependencies = [
   "odc-stac>=0.5.3",
   "pandas",
   "pcodec>=1.1",
+  "pymseed>=1.0",
   "pyproj",
   "pystac",
   "pystac-client>=0.9",
@@ -26,6 +27,7 @@ dependencies = [
   "rasterio",
   "requests",
   "rioxarray>=0.23",
+  "scipy",
   "shapely>=2",
   "unlzw3",
   "xarray",
@@ -125,3 +127,5 @@ libgdal-grib = ">=3.13.3,<4"
 unlzw3 = ">=0.2.2,<0.3"
 arraylake = ">=1.8.0,<2"
 pcodec = ">=1.1.0,<2"
+pymseed = ">=1.0.1,<2"
+scipy = ">=1.18.1,<2"

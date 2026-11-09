@@ -42,12 +42,14 @@ TOP_KEYS = (
     "datasets",
 )
 # KIND -> group prefix in the output store
-GROUPS = {"raster": "rasters", "stations": "stations"}
+GROUPS = {"raster": "rasters", "stations": "stations", "waveforms": "waveforms"}
 # Built-in stage files without AOIs or windows, used as --config NAME -i -s -e
 PRESETS = Path(__file__).parent / "presets"
 WINDOW_ARGS = ("start_date", "end_date")
 # load() argument of scene datasets (SCENES = True): the windows to choose scenes in
 SCENE_WINDOWS = "windows"
+# load() arguments the runner fills in, never options or flags
+RESERVED = ("aoi", *WINDOW_ARGS, "origin", SCENE_WINDOWS)
 # `name` names the store and STAC Item in the output folder
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 # The resolved configuration, written to the output folder next to the store
@@ -95,6 +97,17 @@ def timed(module: ModuleType) -> bool:
     return all(a in inspect.signature(module.load).parameters for a in WINDOW_ARGS)
 
 
+def pad(module: ModuleType) -> pd.Timedelta | None:
+    """How far beyond each end of its window the dataset is read: the
+    module's ``PAD``, or None for :data:`gaia_cli.window.PAD`."""
+    return getattr(module, "PAD", None)
+
+
+def takes_origin(module: ModuleType) -> bool:
+    """Whether the dataset's ``load()`` takes the stage file's ``origin``."""
+    return "origin" in inspect.signature(module.load).parameters
+
+
 def scenes(module: ModuleType) -> bool:
     """Whether the dataset chooses scenes: takes ``pre``/``post`` windows and ``select``."""
     return getattr(module, "SCENES", False)
@@ -106,7 +119,7 @@ def options(load: typing.Callable) -> dict[str, tuple[Any, Any]]:
     return {
         n: (hints.get(n), p.default)
         for n, p in inspect.signature(load).parameters.items()
-        if n not in ("aoi", *WINDOW_ARGS, SCENE_WINDOWS)
+        if n not in RESERVED
     }
 
 
@@ -383,11 +396,12 @@ def window_entry(windows: list[Window]) -> str | dict:
 
 
 def read_window(req: Request) -> Window:
-    """The interval *req* reads: its window padded by a day, or for a scene
-    dataset the span of its windows, exactly."""
-    if scenes(DATASETS[req.dataset]):
+    """The interval *req* reads: its window padded by the dataset's
+    :func:`pad`, or for a scene dataset the span of its windows, exactly."""
+    module = DATASETS[req.dataset]
+    if scenes(module):
         return union(req.windows)
-    return req.windows[0].padded()
+    return req.windows[0].padded(pad(module))
 
 
 def _entry_options(req: Request) -> dict:

@@ -55,8 +55,7 @@ datasets:
   seismic:
     aoi: waveforms
     window: {before: 17min, after: 23min}      # relative to `time`
-    channel: "HH?,BH?"                         # FDSN query names and wildcards
-    sampling_rate: 20
+    channel: "HH?,BH?"                         # FDSN codes; per station, the first band it has
   infrasound:
     aoi: waveforms
     window: {before: 17min, after: 53min}

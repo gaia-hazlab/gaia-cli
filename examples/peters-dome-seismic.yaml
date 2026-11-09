@@ -1,0 +1,15 @@
+# Peters Dome rock-ice avalanche, Alaska (2023-09-14): the seismic records of the
+# peters-dome report, as raw counts at each channel's native rate. Check, then stage:
+#   gaia stage --config examples/peters-dome-seismic.yaml --dry-run
+#   gaia stage --config examples/peters-dome-seismic.yaml -o /tmp/peters-dome-seismic
+name: peters-dome-seismic
+time: 2023-09-14T02:06:49Z                        # ComCat landslide origin time
+origin: {latitude: 63.1455, longitude: -151.1904} # distance_km and back_azimuth from here
+attrs:
+  title: Peters Dome rock-ice avalanche, 2023-09-14, seismic waveforms
+  references: https://doi.org/10.1029/2025JF008577
+aoi: {latitude: 63.1455, longitude: -151.1904, radius_km: 250}
+datasets:
+  seismic:
+    window: {before: 1009s, after: 1391s}         # 01:50 to 02:30 UTC
+    channel: "HH?,BH?"                            # per station, HH if it has them, else BH

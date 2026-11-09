@@ -46,6 +46,7 @@ from .stagefile import (
     read_window,
     resolved,
     scenes,
+    takes_origin,
     timed,
     write_stage_file,
 )
@@ -91,11 +92,15 @@ def run(
         if req.windows:
             w = read_window(req)
             assert w.start is not None and w.end is not None  # checked in load_config
-            # load() takes inclusive bounds; the window's end is exclusive
+            # load() takes inclusive bounds; the window's end is exclusive. One
+            # microsecond before it keeps a waveform's last second, and gives
+            # daily and hourly datasets the same steps as one second would
             kwargs["start_date"] = w.start.isoformat()
-            kwargs["end_date"] = (w.end - pd.Timedelta(seconds=1)).isoformat()
+            kwargs["end_date"] = (w.end - pd.Timedelta(microseconds=1)).isoformat()
             if scenes(module):
                 kwargs[SCENE_WINDOWS] = req.windows
+        if takes_origin(module):
+            kwargs["origin"] = cfg.origin
         log.info(
             "%s: loading (%s)",
             req.name,
@@ -105,24 +110,26 @@ def run(
         )
         try:
             obj = module.load(aois[aoi_key(req.aoi)], **kwargs)
-            # Station data is xvec CF-encoded for the store
-            node = module.to_dataset(obj) if module.KIND == "stations" else obj
-            log.info("%s: %s to write", req.name, size(node.nbytes))
-            if node.nbytes > MAX_BYTES:
+            nodes = _nodes(module, group(req), obj)
+            nbytes = sum(node.nbytes for node in nodes.values())
+            log.info("%s: %s to write", req.name, size(nbytes))
+            if nbytes > MAX_BYTES:
                 raise ValueError(
-                    f"{size(node.nbytes)} is over the {size(MAX_BYTES)} limit; "
+                    f"{size(nbytes)} is over the {size(MAX_BYTES)} limit; "
                     "use a smaller AOI or window"
                 )
-            if method := getattr(module, "REGRID_METHOD", None):
+            method = getattr(module, "REGRID_METHOD", None)
+            common_names = getattr(module, "COMMON_NAMES", {})
+            for node in nodes.values():
                 for var in node.data_vars.values():
-                    if {"x", "y"} <= set(var.dims):
+                    if method and {"x", "y"} <= set(var.dims):
                         var.attrs.setdefault(regrid.METHOD_ATTR, method)
-            for name, common in getattr(module, "COMMON_NAMES", {}).items():
-                if name in node.data_vars:
-                    node[name].attrs.setdefault(provenance.COMMON_NAME_ATTR, common)
+                for name, common in common_names.items():
+                    if name in node.data_vars:
+                        node[name].attrs.setdefault(provenance.COMMON_NAME_ATTR, common)
             if scenes(module):
-                node.attrs[provenance.SCENES_ATTR] = True
-            tree = xr.DataTree.from_dict({group(req): node})
+                nodes[group(req)].attrs[provenance.SCENES_ATTR] = True
+            tree = xr.DataTree.from_dict(nodes)
             tree.attrs = dict(cfg.attrs)
             io.save_datatree(
                 tree, store, overwrite=overwrite, append=append, assets=assets
@@ -136,6 +143,26 @@ def run(
     # cleanup can crash sys.excepthook on Python 3.14
     FILE_CACHE.clear()
     return failures
+
+
+def _nodes(module, path: str, obj: xr.Dataset | xr.DataTree) -> dict[str, xr.Dataset]:
+    """The store groups for what *module*'s ``load()`` returned: a Dataset at
+    the dataset's group *path*, or each child of a DataTree under it (e.g.
+    ``waveforms/seismic/50hz``), with the tree's own attrs on *path*.
+
+    Station and waveform data is CF-encoded for the store with the module's
+    ``to_dataset``.
+    """
+    encode = getattr(module, "to_dataset", lambda ds: ds)
+    if not isinstance(obj, xr.DataTree):
+        return {path: encode(obj)}
+    nodes = {
+        f"{path}/{name}": encode(child.to_dataset())
+        for name, child in obj.children.items()
+    }
+    if obj.attrs:
+        nodes[path] = xr.Dataset(attrs=obj.attrs)
+    return nodes
 
 
 def execute(

@@ -19,6 +19,7 @@ from . import (
     hrrr,
     nlcd,
     prism,
+    seismic,
     sentinel1_rtc,
     sentinel2,
     soil,
@@ -40,6 +41,7 @@ DATASETS: dict[str, ModuleType] = {
     "burn-severity": burn_severity,
     "sentinel1-rtc": sentinel1_rtc,
     "sentinel2": sentinel2,
+    "seismic": seismic,
 }
 
 
