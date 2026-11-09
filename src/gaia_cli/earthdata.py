@@ -22,7 +22,7 @@ import pystac
 import rasterio
 from shapely.geometry import box, shape
 
-from . import stac
+from . import fetch, stac
 
 log = logging.getLogger(__name__)
 # asf_search logs each search's options, the whole AOI WKT, at INFO
