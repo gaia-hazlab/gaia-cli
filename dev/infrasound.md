@@ -10,7 +10,7 @@ Code: `src/gaia_cli/datasets/infrasound.py`, a thin wrapper of `waveforms.load()
 `arrays=True`.
 
 ```bash
-gaia stage --config examples/peters-dome-waveforms.yaml -o peters-dome-waveforms
+gaia stage --config examples/peters-dome.yaml --only seismic,infrasound -o peters-dome
 gaia stage infrasound -i aoi.geojson -s 2023-09-14T02:10 -e 2023-09-14T02:20 -n IM --station "I53H?" -o i53
 ```
 
@@ -82,7 +82,7 @@ Chaparral 64 ~0.03 Hz), so amplitudes below about 0.05 Hz are not reliable.
 
 ## Checks
 
-Done on 2026-11-09, staging `examples/peters-dome-waveforms.yaml`'s infrasound
+Done on 2026-11-09, staging `examples/peters-dome.yaml`'s infrasound
 (400 km, 01:50 to 03:00 UTC):
 
 - **Size and speed.** 79 channels at 61 stations were requested and 74 returned data

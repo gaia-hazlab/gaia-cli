@@ -16,17 +16,10 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # The notebooks stage into s3://gaia-scratch on Kopah
-    environment: kopah
     env:
       # Served from https://gaia-hazlab.github.io/gaia-cli/
       BASE_URL: /${{ github.event.repository.name }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_ENDPOINT_URL: ${{ vars.AWS_ENDPOINT_URL }}
-      AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION || 'us-west-2' }}
-      # Recent aws-cli sends CRC checksums by default, which some S3-compatible stores reject
-      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      # The notebooks stage into local folders under /tmp; these are for the data sources
       SYNOPTIC_TOKEN: ${{ secrets.SYNOPTIC_TOKEN }}
       ARRAYLAKE_TOKEN: ${{ secrets.ARRAYLAKE_TOKEN }}
     steps:

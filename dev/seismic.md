@@ -11,7 +11,7 @@ Code: `src/gaia_cli/waveforms.py` (shared with [`infrasound`](infrasound.md)) an
 `src/gaia_cli/datasets/seismic.py`.
 
 ```bash
-gaia stage --config examples/peters-dome-waveforms.yaml -o peters-dome-waveforms
+gaia stage --config examples/peters-dome.yaml --only seismic,infrasound -o peters-dome
 gaia stage seismic -i aoi.geojson -s 2023-09-14T02:06 -e 2023-09-14T02:08 -n AK --station BPAW -o bpaw
 ```
 
@@ -173,7 +173,7 @@ variables along `geometry` as `stations.to_grid` gives for station reports:
 ```python
 from gaia_cli import io, waveforms
 
-tree = io.open_datatree("peters-dome-waveforms/peters-dome-waveforms.zarr")
+tree = io.open_datatree("peters-dome/peters-dome.zarr")
 node = tree["waveforms/seismic"]
 grid = waveforms.to_grid(node, rate=20)  # velocity, m/s
 z = waveforms.by_component(grid, node["sites"]).velocity.sel(component="Z")
