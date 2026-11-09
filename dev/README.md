@@ -24,14 +24,16 @@ the docs table of contents (`docs/myst.yml`, as `examples/<name>.ipynb`, through
 `docs/examples` symlink) and publishes their outputs. `--strict` fails the build if a
 cell raises.
 
-To run them, `pixi run docs` and `pixi run docs-build` need what the notebooks need:
-write access to `s3://gaia-scratch` (below), `SYNOPTIC_TOKEN` and `ARRAYLAKE_TOKEN`. In CI
-the Docs workflow gets them from the `kopah` environment and repository secrets. MyST
+The notebooks stage into local folders under `/tmp/gaia-scratch/gaia-cli/`, so a docs
+build doesn't touch shared object storage, and a local build never collides with one in
+CI. They show how to read a store on S3 in markdown instead. To run them, `pixi run docs`
+and `pixi run docs-build` need `SYNOPTIC_TOKEN` and `ARRAYLAKE_TOKEN`; in CI the Docs
+workflow gets them from repository secrets. MyST
 keeps each notebook's outputs in `docs/_build/execute` and reruns it only when its code
 changes; CI caches that folder. Delete it to rerun everything.
 
-Each notebook stages into a fixed folder, so don't run two copies of one at once (say
-`pixi run docs` while `docs-build` runs): their writes collide and some datasets fail
+Each notebook stages into a fixed folder, so don't run two copies of one at once on one
+machine (say `pixi run docs` while `docs-build` runs): their writes collide and some datasets fail
 (see `--skip-existing` in [docs/cli.md](../docs/cli.md)). A cell that runs `!gaia` checks
 `_exit_code` after it, since `!` ignores the exit code.
 
