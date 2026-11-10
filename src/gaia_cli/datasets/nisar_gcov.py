@@ -49,9 +49,9 @@ SCENES = True
 REGRID_METHOD = "average"
 TOKENS = earthdata.TOKENS
 # Read in worker processes: libhdf5 makes a process's reads one at a time. Each
-# fetches 4 MiB at a time, the files' HDF5 page size, so an open reads the
-# metadata at the front of the file in a request or two (GDAL fixes this when a
-# process first reads, hence processes of its own)
+# fetches 4 MiB at a time, the files' HDF5 page size, so a request is a whole
+# page: an open reads its 3 metadata pages in 4 requests, not 25 (GDAL fixes
+# this when a process first reads, hence processes of its own)
 PROCESS_ENV = {"CPL_VSIL_CURL_CHUNK_SIZE": str(4 * 2**20)}
 # The same quantities as sentinel1-rtc's and opera-rtc's vv, vh, hh, hv
 COMMON_NAMES = {

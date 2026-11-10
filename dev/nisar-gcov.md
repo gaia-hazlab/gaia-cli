@@ -73,14 +73,32 @@ GDAL 3.13.3.
   with threads the opens of every pass queue up. The runner instead reads the dataset
   in 4 spawned processes, then writes it from its own. 9 passes over Paradise
   (a 4.5 × 7.8 km AOI): 102 s with threads, 37 s in processes.
-- **4 MiB requests.** The files use HDF5 paged aggregation with 4 MiB pages, and the
-  metadata is at the front (the first data chunk starts at about 4.8 MB). GDAL's
-  default 16 kB `/vsicurl/` requests take 3–5 s to open a file; with
-  `CPL_VSIL_CURL_CHUNK_SIZE` at the page size, about 1 s. The workers set it in their
-  environment because GDAL fixes the chunk size at a process's first `/vsicurl/`
+- **4 MiB requests.** The files use HDF5 paged aggregation: all file space, metadata
+  and data, is allocated in 4 MiB pages, each starting at a multiple of 4 MiB. The
+  metadata is in a few pages: the first, and two near the end of the file (at 6432 and
+  6536 MiB of 6552 in the file below). Data chunks (512 × 512, about 650 kB with gzip)
+  are packed several to a page. Opening `HHHH` and reading the Paradise window
+  (471 × 786 cells), with `CPL_DEBUG` logging each request
+  (`…_029_172_D_065_…_20260906…`, 2026-11-10):
+
+  | `/vsicurl/` setting | open | read |
+  |---|---|---|
+  | default (16 kB, with GDAL's read-ahead) | 25 requests, 1.3 MB, 2.6 s | 7 requests, 3.9 MB, 0.9 s |
+  | `GDAL_INGESTED_BYTES_AT_OPEN=8388608` | the same requests | the same |
+  | `CPL_VSIL_CURL_CHUNK_SIZE=4194304` | 4 requests, 16 MB, 1.6 s | 2 requests, 8 MB, 0.5 s |
+
+  HDF5 follows pointers from one piece of metadata to the next, so the requests come
+  one after another: their number, not their size, sets the time.
+  At the page size each request is one page, aligned to the pages: it reads more
+  bytes than needed for a small AOI, and fewer requests. The data chunks would make a
+  poor unit: they vary in size and don't start at fixed offsets.
+  `GDAL_INGESTED_BYTES_AT_OPEN` changed nothing: the open still starts with a 16 kB
+  request. It seems not to apply to an `HDF5:"…":<path>` subdataset open, and the
+  first 8 MB would hold only one of the metadata pages anyway.
+- **Workers set the chunk size.** GDAL fixes it at a process's first `/vsicurl/`
   read: a `rasterio.Env` around the load (which odc-stac does carry to its reads)
   can't change it, and setting it in the main process would also change every COG
-  read. In processes: 33–35 s with the default, 26–28 s with 4 MiB.
+  read. 9 Paradise passes in processes: 33–35 s with the default, 26–28 s with 4 MiB.
 - **Four workers.** Eight were barely faster (24–26 s), and one trial with eight
   workers and 1 MiB requests had a file fail to open.
 - **Each pass is about 3 opens** (2 terms and the mask). A worker's later grids of a
