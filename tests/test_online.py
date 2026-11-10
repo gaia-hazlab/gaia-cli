@@ -34,6 +34,15 @@ def check_synoptic(ds):
     assert stations.to_grid(ds).sizes["time"] >= 72
 
 
+def check_nrcs(ds):
+    # Stevens Pass SNOTEL: hourly, so 72 reports over the padded three days
+    assert "791:WA:SNTL" in ds.station.values.tolist()
+    assert int(ds.row_size.sum()) == ds.sizes["obs"]
+    assert ds.WTEQ.attrs["units"] == "mm" and float(ds.WTEQ.min()) >= 0
+    assert -30 < float(ds.TOBS.min()) < float(ds.TOBS.max()) < 20  # degC
+    assert stations.to_grid(ds).sizes["time"] >= 72
+
+
 def check_prism(ds):
     assert ds.sizes["time"] == 3
     assert float(ds.ppt.min()) >= 0
@@ -115,6 +124,7 @@ def check_statsgo(ds):
                 not os.environ.get("SYNOPTIC_TOKEN"), reason="needs SYNOPTIC_TOKEN"
             ),
         ),
+        ("nrcs", check_nrcs, {"variables": ["WTEQ", "TOBS"]}),
         ("prism", check_prism, {}),
         pytest.param(
             "prism",

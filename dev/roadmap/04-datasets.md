@@ -92,6 +92,7 @@ datum in `gaia align` is a TODO. See [dem.md](../dem.md).
 | dynamical.org | none | `hrrr` | gaia | **CONUS** |
 | USGS (OSN, MRLC) | none | `nlcd` | gaia, landlab | **CONUS** |
 | Synoptic | `SYNOPTIC_TOKEN` | `synoptic` | gaia | US incl. Alaska, and beyond |
+| NRCS AWDB | none | `nrcs` | — | western US and Alaska (SNOTEL); US (SCAN) |
 
 Only `era5` needs a new credential (a free Earthmover account; revised in step 2.3).
 
@@ -152,7 +153,7 @@ network call ([02](02-stage-file.md#validation)).
 | `sentinel1-rtc`, `sentinel2` | Planetary Computer collection (`sentinel-1-rtc`, `sentinel-2-l2a`) |
 | `hrrr` | dynamical.org collection, which `hrrr.py` already reads for provenance |
 | `prism` | the gaia PRISM cache's own collection (`prism_cache/stac.py`) |
-| `dem`, `nlcd`, `soil` (SOLUS100, STATSGO), `burn_severity`, `synoptic`, `era5`, `seismic`, `infrasound` | written by hand in the same schema (the provider has no STAC Collection, or none was found yet) |
+| `dem`, `nlcd`, `soil` (SOLUS100, STATSGO), `burn_severity`, `synoptic`, `nrcs`, `era5`, `seismic`, `infrasound` | written by hand in the same schema (the provider has no STAC Collection, or none was found yet) |
 
 How the extent is used:
 
@@ -173,6 +174,7 @@ Summary by region:
 | prism, hrrr, nlcd, solus100 | ✓ | ✗ | ✗ |
 | burn_severity | USFS fires | ✗ | ✗ |
 | synoptic | ✓ | ✓ | partial |
+| nrcs | ✓ (SCAN; SNOTEL in the West) | ✓ | ✗ |
 | dem (Cop30), sentinel1-rtc, sentinel2, era5, seismic, infrasound | ✓ | ✓ | ✓ |
 
 ## Presets
