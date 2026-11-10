@@ -65,7 +65,7 @@ usable: HADS (9) and CRN (2) soil sensors that stopped in 2006–2008 at station
 and CW3E Headworks and YLine (listed, but access denied).
 
 `gaia stage synoptic -v soil_moisture` works, but keeps only the first sensor set and
-no depth. Commit `5a5163a` (old `add-soil-moisture` branch, not merged) kept every set,
+no depth. Branch `synoptic-soil-sensors` (commit `5a5163a`, not merged) kept every set,
 named by depth from `sensorvars=1` positions (`soil_moisture_10cm`) or `_set_n`, and
 converted to m3 m-3. Revisit it if the CW3E sites, or Synoptic's denser coverage
 elsewhere (Oregon's CPC and SKYPN), are needed. Since main now stages source names, a
