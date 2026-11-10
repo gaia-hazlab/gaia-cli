@@ -447,8 +447,8 @@ def save_datatree(
         for path in (p for p, ds in nodes.items() if ds.sizes):
             try:
                 remove_group(output_path, path)
-            except Exception as cleanup:
-                log.warning("could not remove the partial group %s: %s", path, cleanup)
+            except Exception:
+                log.warning("could not remove the partial group %s", path, exc_info=True)
         raise PartialWriteError(output_path) from e
     if append:
         # The root attributes written above describe only the new groups
