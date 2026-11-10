@@ -476,7 +476,7 @@ def dataset_command(name: str) -> typing.Callable:
         bound.apply_defaults()
         stage_dataset(name, **bound.arguments)
 
-    command.__signature__ = sig  # ty: ignore[unresolved-attribute]
+    command.__signature__ = sig  # ty: ignore[missing-attribute]
     doc = inspect.cleandoc(module.load.__doc__ or "")
     section = re.search(
         r"^Parameters\n-+\n.*?(?=^\w+\n-+\n|\Z)", doc, re.MULTILINE | re.DOTALL
