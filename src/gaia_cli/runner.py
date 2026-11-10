@@ -133,6 +133,9 @@ def run(
             )
             append = True  # later groups go into the same store
         except Exception as e:
+            if isinstance(e, io.PartialWriteError) and e.__cause__:
+                append = True  # the failed write created the store
+                e = e.__cause__
             log.error("%s: failed: %s", req.name, e)
             log.debug("%s: traceback", req.name, exc_info=True)
             failures[req.name] = f"{type(e).__name__}: {e}"

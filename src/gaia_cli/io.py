@@ -379,6 +379,11 @@ def _prepare_for_zarr(ds: xr.Dataset) -> tuple[xr.Dataset, dict]:
     return ds, {}
 
 
+class PartialWriteError(Exception):
+    """A write that failed after creating the store; its groups are removed.
+    The original error is the ``__cause__``."""
+
+
 def save_datatree(
     dt: xr.DataTree,
     output_path: str,
@@ -423,14 +428,28 @@ def save_datatree(
     prepared.attrs = provenance.stamp_tree(prepared)
     store = _zarr_store_for_path(output_path)
     log.info("Writing Zarr to %s", output_path)
-    prepared.to_zarr(
-        store,
-        mode="a" if append else "w" if overwrite else "w-",
-        zarr_format=3,
-        consolidated=True,
-        write_empty_chunks=True,
-        encoding=encoding or None,
-    )
+    try:
+        prepared.to_zarr(
+            store,
+            mode="a" if append else "w" if overwrite else "w-",
+            zarr_format=3,
+            consolidated=True,
+            write_empty_chunks=True,
+            encoding=encoding or None,
+        )
+    except FileExistsError:
+        raise  # someone else's store: leave it alone
+    except Exception as e:
+        if not output_exists(output_path):
+            raise
+        # to_zarr creates the store and the groups' arrays before reading lazy
+        # data, so a read that fails leaves part of the groups: remove them
+        for path in (p for p, ds in nodes.items() if ds.sizes):
+            try:
+                remove_group(output_path, path)
+            except Exception as cleanup:
+                log.warning("could not remove the partial group %s: %s", path, cleanup)
+        raise PartialWriteError(output_path) from e
     if append:
         # The root attributes written above describe only the new groups
         prepared = open_datatree(output_path)
@@ -440,6 +459,16 @@ def save_datatree(
         zarr.consolidate_metadata(store)
     log.info("Saved %s", output_path)
     _write_item(output_path, prepared, assets)
+
+
+def remove_group(output_path: str, path: str) -> None:
+    """Delete the group at *path*, with everything under it, from the store at
+    *output_path* (local or ``s3://``), and consolidate the store's metadata."""
+    store = _zarr_store_for_path(output_path)
+    root = zarr.open_group(store, mode="r+", zarr_format=3)
+    if path in root:
+        del root[path]
+    zarr.consolidate_metadata(store)
 
 
 def groups(path: str) -> set[str]:
