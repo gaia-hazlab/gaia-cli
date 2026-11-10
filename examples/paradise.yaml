@@ -1,0 +1,20 @@
+# Paradise and the Muir Snowfield, Mt Rainier, WA, summer 2026: melting snow in
+# C-band (Sentinel-1, from Planetary Computer and from OPERA) and L-band (NISAR)
+# backscatter, from the evening passes, when the snow is wettest. OPERA and NISAR need
+# EARTHDATA_TOKEN. Check, then stage (about 5 minutes, mostly NISAR's HDF5 reads):
+#   gaia stage --config examples/paradise.yaml --dry-run
+#   gaia stage --config examples/paradise.yaml -o /tmp/paradise
+# paradise-sar.ipynb compares them.
+name: paradise-2026
+attrs:
+  title: Paradise and the Muir Snowfield, Mt Rainier, summer 2026, C- and L-band backscatter
+# Rasters are clipped to the AOI's shape, so a box: from the Paradise SNOTEL station
+# (46.7827, -121.7477, 1563 m) up to Camp Muir (3100 m)
+aoi: {bbox: [-121.78, 46.77, -121.72, 46.84]}
+# NISAR PROVISIONAL GCOV starts 2026-06-17; VALIDATED, from 2026-10-21
+window: 2026-06-15/2026-10-20
+datasets:
+  sentinel1-rtc: {orbit_state: ascending}     # ~19:00 PDT, tracks 64 and 137
+  opera-rtc: {orbit_state: ascending}
+  nisar-gcov: {maturity: provisional, relative_orbit: 172}  # descending, ~20:18 PDT
+  dem/cop30: {}

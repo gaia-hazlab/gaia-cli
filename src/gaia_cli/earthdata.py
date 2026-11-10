@@ -65,7 +65,8 @@ def sign(items: Sequence[pystac.Item], assets: Sequence[str]) -> None:
             )
         return location
 
-    hrefs = [it.assets[a].href for it in items for a in assets]
+    # Assets may share a file (NISAR's HDF5): one request each
+    hrefs = list(dict.fromkeys(it.assets[a].href for it in items for a in assets))
     with ThreadPoolExecutor(16) as pool:
         signed = dict(zip(hrefs, pool.map(resolve, hrefs), strict=True))
     for it in items:
@@ -157,12 +158,21 @@ def newest(
     return stac.newest(items, key, rank=lambda it: it.properties["processing:datetime"])
 
 
-def set_proj(items: Sequence[pystac.Item], asset: str) -> None:
+def burst(item: pystac.Item) -> str:
+    return item.properties["opera:burst_id"]
+
+
+def set_proj(
+    items: Sequence[pystac.Item],
+    asset: str,
+    key: Callable[[pystac.Item], Hashable] = burst,
+) -> None:
     """Set ``proj:code``, ``proj:shape`` and ``proj:transform`` on *items* from
-    one *asset* header per burst (a burst ID keeps its grid on every date)."""
-    first: dict[str, pystac.Item] = {}
+    one *asset* header per *key*: by default per burst (a burst ID keeps its
+    grid on every date)."""
+    first: dict[Hashable, pystac.Item] = {}
     for it in items:
-        first.setdefault(it.properties["opera:burst_id"], it)
+        first.setdefault(key(it), it)
 
     def read(item: pystac.Item) -> dict:
         href = item.assets[asset].href
@@ -185,4 +195,4 @@ def set_proj(items: Sequence[pystac.Item], asset: str) -> None:
     with ThreadPoolExecutor(8) as pool:
         grids = dict(zip(first, pool.map(read, first.values()), strict=True))
     for it in items:
-        it.properties.update(grids[it.properties["opera:burst_id"]])
+        it.properties.update(grids[key(it)])

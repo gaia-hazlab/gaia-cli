@@ -26,6 +26,7 @@ import xarray as xr
 from .. import earthdata, provenance, stac
 from ..stac import Match
 from ..window import Window
+from . import sentinel1_rtc
 from .sentinel1_rtc import OrbitState, Polarization, pass_key
 
 log = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ SCENES = True
 # (flag_values) uses mode
 REGRID_METHOD = "average"
 TOKENS = earthdata.TOKENS
+COMMON_NAMES = sentinel1_rtc.COMMON_NAMES  # gamma0_vv, ..., as nisar-gcov's
 
 FLOAT = {"data_type": "float32", "nodata": "nan"}
 BANDS = {pol: FLOAT for pol in ("vv", "vh", "hh", "hv")}

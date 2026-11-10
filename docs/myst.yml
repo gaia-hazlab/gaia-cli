@@ -16,6 +16,7 @@ project:
         - file: examples/skagit-precip.ipynb
         - file: examples/pioneer-landlab.ipynb
         - file: examples/peters-dome.ipynb
+        - file: examples/paradise-sar.ipynb
     - file: reference.md
 site:
   template: book-theme
