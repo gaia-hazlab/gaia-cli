@@ -1,9 +1,11 @@
 import json
 import logging
+import multiprocessing
 import os
 import posixpath
 import sys
 import warnings
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import boto3
@@ -31,6 +33,42 @@ log = logging.getLogger(__name__)
 odc.stac.configure_rio(
     cloud_defaults=True, CPL_VSIL_CURL_USE_HEAD="NO", GDAL_HTTP_VERSION="1.1"
 )
+
+# Processes reading a dataset that declares PROCESS_ENV (compute_in_processes)
+WORKERS = 4
+
+
+def _set_env(env: dict[str, str]) -> None:
+    os.environ.update(env)
+
+
+def compute_in_processes(
+    tree: xr.DataTree, env: dict[str, str], workers: int = WORKERS
+) -> xr.DataTree:
+    """*tree* with its lazy arrays read in *workers* new processes, each started
+    with the environment variables *env*, and rechunked as they were.
+
+    For readers that a process serializes (libhdf5 has one lock), or that need
+    GDAL settings fixed when a process first reads (``CPL_VSIL_CURL_CHUNK_SIZE``)
+    without changing them for this process's other reads.
+    """
+    with ProcessPoolExecutor(
+        workers,
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=_set_env,
+        initargs=(env,),
+    ) as pool:
+        nodes = {}
+        for path, node in tree.subtree_with_keys:
+            ds = node.to_dataset(inherit=False)
+            chunks = dict(ds.chunksizes)
+            ds = ds.compute(scheduler="processes", pool=pool)
+            # The store keeps the dask chunks of datasets over 10 MB
+            nodes[path] = ds.chunk(chunks) if chunks else ds
+    out = xr.DataTree.from_dict(nodes)
+    out.attrs = tree.attrs
+    return out
+
 
 # The most `gaia stage` writes in one group, and `gaia align` in one store
 MAX_BYTES = 10 * 1024**3

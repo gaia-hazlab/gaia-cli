@@ -1,7 +1,7 @@
 # Paradise and the Muir Snowfield, Mt Rainier, WA, summer 2026: melting snow in
 # C-band (Sentinel-1, from Planetary Computer and from OPERA) and L-band (NISAR)
 # backscatter, from the evening passes, when the snow is wettest. OPERA and NISAR need
-# EARTHDATA_TOKEN. Check, then stage (about 5 minutes, mostly NISAR's HDF5 reads):
+# EARTHDATA_TOKEN. Check, then stage (about a minute):
 #   gaia stage --config examples/paradise.yaml --dry-run
 #   gaia stage --config examples/paradise.yaml -o /tmp/paradise
 # paradise-sar.ipynb compares them.

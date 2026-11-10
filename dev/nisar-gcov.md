@@ -68,20 +68,23 @@ GDAL 3.13.3.
 - **The netCDF driver is no good here.** It would read the CF grid mapping, but on
   macOS it can't open `/vsi` files (it needs Linux userfaultfd). The HDF5 driver does
   pick up the CRS, geotransform and nodata from the CF attributes.
-- **Opens are slow and one at a time.** An open reads the file's metadata, 1–3 s
-  through `/vsicurl`, and libhdf5 serializes calls across threads.
-  - A pass is about 3 opens (2 terms and the mask). The first open of a file is
-    the slow one; the file's later grids take about 0.4 s.
-  - A ~3 km AOI over Paradise took 5 minutes for 18 passes and 13 minutes for 38.
-  - `CPL_VSIL_CURL_CHUNK_SIZE=1048576` (default 16 kB) cuts a pass read on its own
-    from 5.8 to 1.7 s, but only 102 → 74 s for the 9 Paradise passes staged, while
-    the COG datasets of the same AOI go from 23–26 s to 29–32 s. It isn't set.
-  - It can't be set for NISAR alone. odc-stac does carry GDAL options per load: it
-    captures the calling thread's `rasterio.Env` in `odc.stac.load` and restores it
-    around each read, so most options could be scoped to a dataset. But GDAL fixes
-    the `/vsicurl/` chunk size at the process's first `/vsicurl/` read: whichever
-    value is in effect then applies to every later read, inside an `Env` or not
-    (tested with three granules, in each order).
+- **Read in worker processes** (`PROCESS_ENV`, `io.compute_in_processes`). An open
+  reads the file's metadata, and libhdf5 makes one process's calls one at a time, so
+  with threads the opens of every pass queue up. The runner instead reads the dataset
+  in 4 spawned processes, then writes it from its own. 9 passes over Paradise
+  (a 4.5 × 7.8 km AOI): 102 s with threads, 37 s in processes.
+- **4 MiB requests.** The files use HDF5 paged aggregation with 4 MiB pages, and the
+  metadata is at the front (the first data chunk starts at about 4.8 MB). GDAL's
+  default 16 kB `/vsicurl/` requests take 3–5 s to open a file; with
+  `CPL_VSIL_CURL_CHUNK_SIZE` at the page size, about 1 s. The workers set it in their
+  environment because GDAL fixes the chunk size at a process's first `/vsicurl/`
+  read: a `rasterio.Env` around the load (which odc-stac does carry to its reads)
+  can't change it, and setting it in the main process would also change every COG
+  read. In processes: 33–35 s with the default, 26–28 s with 4 MiB.
+- **Four workers.** Eight were barely faster (24–26 s), and one trial with eight
+  workers and 1 MiB requests had a file fail to open.
+- **Each pass is about 3 opens** (2 terms and the mask). A worker's later grids of a
+  file reuse its `/vsicurl/` cache: about 0.4 s.
 - **One header per grid.** `earthdata.set_proj` reads one header per (track, frame,
   bandwidth) rather than per granule. Every date of a frame had the same grid:
   checked for tracks 5 and 172 over Paradise, June to October 2026.
@@ -92,4 +95,8 @@ GDAL 3.13.3.
   - h5py or h5netcdf over fsspec or obstore works, and is what the Cookbook and
     `nisar-proposal-figs` use. It would need a separate mosaic and clip path from
     odc-stac's, and is subject to the same libhdf5 lock.
-  - Downloading whole 7 GB files.
+  - h5py's `ros3` driver with a page buffer (`nisarhdf`'s partial read) reads only
+    from S3, in us-west-2.
+  - Downloading whole 7 GB files (`nisarhdf` over HTTPS, `nisar-sme-stager`).
+  - Virtual references (VirtualiZarr's `HDFParser`): loading from them was blocked
+    by zarr-developers/VirtualiZarr#978.

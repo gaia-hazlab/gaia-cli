@@ -271,8 +271,8 @@ Needs `EARTHDATA_TOKEN`, as `opera-rtc` does.
 - One time step per pass, its frames mosaicked, with the `platform`, `orbit_state`,
   `relative_orbit` and `absolute_orbit` coordinates, plus `frames` and
   `range_bandwidth`.
-- Each frame's grids are read remotely from its HDF5 file (about 7 GB), a few
-  seconds per pass and variable: a long time series takes minutes.
+- Each frame's grids are read remotely from its HDF5 file (about 7 GB), in 4
+  processes: a few seconds per pass.
 - License: CC0-1.0 (NASA Earthdata data use policy).
 
 ```bash
