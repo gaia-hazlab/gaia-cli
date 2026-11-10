@@ -34,8 +34,9 @@ odc.stac.configure_rio(
     cloud_defaults=True, CPL_VSIL_CURL_USE_HEAD="NO", GDAL_HTTP_VERSION="1.1"
 )
 
-# Processes reading a dataset that declares PROCESS_ENV (compute_in_processes)
-WORKERS = 4
+# Processes reading a dataset that declares PROCESS_ENV (compute_in_processes):
+# 4, as 8 were barely faster on network-bound reads, or fewer on a smaller machine
+WORKERS = min(4, os.cpu_count() or 1)
 
 
 def _set_env(env: dict[str, str]) -> None:
