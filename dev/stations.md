@@ -1,6 +1,6 @@
 # Station data
 
-`gaia stage synoptic` keeps **every report**, not a dense hourly grid. The
+`gaia stage synoptic` and `gaia stage nrcs` ([nrcs.md](nrcs.md)) keep **every report**, not a dense hourly grid. The
 `stations/synoptic` group is a CF Discrete Sampling Geometries `timeSeries` stored as
 a [contiguous ragged array](https://cfconventions.org/Data/cf-conventions/cf-conventions-1.11/cf-conventions.html#_contiguous_ragged_array_representation).
 `gaia_cli.stations` turns it into a table or a regular grid when you need one. See
@@ -11,8 +11,8 @@ for why.
 
 | dimension | variables |
 |---|---|
-| `geometry` (one per station) | `station` (id, `cf_role: timeseries_id`), `name`, `elevation` (m), `network_id` (Synoptic `MNET_ID`), `precip_source`, `row_size`, and the point geometry (xvec CF-encoded) |
-| `obs` (one per report) | `time` (UTC), `precip_accum`, and any other requested variables |
+| `geometry` (one per station) | `station` (id, `cf_role: timeseries_id`), `name`, `elevation` (m), `network_id` (Synoptic `MNET_ID`, NRCS network code), `precip_source` (Synoptic), `utc_offset` (NRCS), `row_size`, and the point geometry (xvec CF-encoded) |
+| `obs` (one per report) | `time` (UTC), `precip_accum` (Synoptic), and any other requested variables (NRCS: `SMS_5cm`, …) |
 
 The group has `featureType: timeSeries`. `row_size` has `sample_dimension: obs`: the
 first `row_size[0]` reports belong to the first station, the next `row_size[1]` to the

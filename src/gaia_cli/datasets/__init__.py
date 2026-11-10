@@ -19,6 +19,7 @@ from . import (
     hrrr,
     infrasound,
     nlcd,
+    nrcs,
     opera_rtc,
     prism,
     seismic,
@@ -33,6 +34,7 @@ from . import (
 # key and the store group's last part
 DATASETS: dict[str, ModuleType] = {
     "synoptic": synoptic,
+    "nrcs": nrcs,
     "prism": prism,
     "hrrr": hrrr,
     "stage4": stage4,

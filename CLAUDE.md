@@ -60,6 +60,7 @@ src/gaia_cli/
   datasets/       # one module per data source (load(), EXTENT, KIND; see dev/adding-a-dataset.md)
     __init__.py   # DATASETS registry: name -> module
     synoptic.py   # Synoptic API station reports (CF ragged array)
+    nrcs.py       # NRCS AWDB SNOTEL/SCAN hourly station reports: soil moisture by depth (CF ragged array)
     prism.py      # PRISM daily grids (from prism_cache); also `gaia prism fill`
     hrrr.py       # HRRR analysis (Icechunk)
     era5.py       # ERA5 hourly single levels (Earthmover Icechunk via arraylake; ARRAYLAKE_TOKEN)
