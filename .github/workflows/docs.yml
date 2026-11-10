@@ -22,6 +22,7 @@ jobs:
       # The notebooks stage into local folders under /tmp; these are for the data sources
       SYNOPTIC_TOKEN: ${{ secrets.SYNOPTIC_TOKEN }}
       ARRAYLAKE_TOKEN: ${{ secrets.ARRAYLAKE_TOKEN }}
+      EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}
     steps:
       - uses: actions/checkout@v7
         with:

@@ -39,6 +39,8 @@ KIND = "raster"
 SCENES = True
 # `gaia align` default: the mean of linear power (average dB values after aligning)
 REGRID_METHOD = "average"
+# Shared with opera-rtc and nisar-gcov (HHHH, HVHV, ...)
+COMMON_NAMES = {pol: f"gamma0_{pol}" for pol in ("vv", "vh", "hh", "hv")}
 
 Polarization = Literal["vv", "vh", "hh", "hv"]
 

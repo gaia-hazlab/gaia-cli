@@ -15,6 +15,7 @@ title: Datasets
 | [`burn-severity`](#burn-severity) | BAER soil burn severity | CONUS, fires 2017 on | 20–30 m | static | `rasters/burn-severity` |
 | [`sentinel1-rtc`](#sentinel1-rtc) | Sentinel-1 radar backscatter | global, 2014-10 on | 10 m | each pass | `rasters/sentinel1-rtc` |
 | [`opera-rtc`](#opera-rtc) | OPERA Sentinel-1 radar backscatter (NASA Earthdata) | land north of 60° S, 2016-04 on | 30 m | each pass | `rasters/opera-rtc` |
+| [`nisar-gcov`](#nisar-gcov) | NISAR L-band radar backscatter (NASA Earthdata) | global, 2025-11 on | 10–20 m | each pass | `rasters/nisar-gcov` |
 | [`sentinel2`](#sentinel2) | Sentinel-2 surface reflectance | global, 2015-06 on | 10 m | each pass | `rasters/sentinel2` |
 | [`seismic`](#seismic) | seismic waveforms (EarthScope FDSN) | global | stations | native rate, raw counts | `waveforms/seismic/<rate>hz` |
 | [`infrasound`](#infrasound) | infrasound waveforms (EarthScope FDSN) | global | sensors | native rate, raw counts | `waveforms/infrasound/<rate>hz` |
@@ -31,6 +32,7 @@ and aligned stores. Quantities that several datasets have also carry a common na
 |---|---|
 | `precipitation` (mm) | `prism` `ppt`, `hrrr` `precipitation_surface`, `stage4` `apcp`, `era5` `tp`, `synoptic` `precip_accum` (a running total) |
 | `temperature` (degC, 2 m air) | `prism` `tmean`, `hrrr` `temperature_2m`, `era5` `t2m` |
+| `gamma0_hh`, `gamma0_hv`, `gamma0_vv`, `gamma0_vh` (linear power) | `sentinel1-rtc` and `opera-rtc` `hh`, `hv`, `vv`, `vh`; `nisar-gcov` `HHHH`, `HVHV`, `VVVV`, `VHVH` |
 
 To select by common name, use [cf-xarray](https://cf-xarray.readthedocs.io) with
 gaia's criteria:
@@ -245,6 +247,37 @@ which expires after 60 days.
 ```bash
 gaia stage opera-rtc -i aoi.geojson -s 2023-09-01 -e 2023-09-30 -o out --relative-orbit 131
 gaia stage opera-rtc -i aoi.geojson -s 2023-09-01 -e 2023-09-30 -o out --static mask --static local_incidence_angle
+```
+
+(nisar-gcov)=
+## NISAR GCOV
+
+L-band (24 cm) backscatter from [NISAR](https://nisar-docs.asf.alaska.edu/gcov/)'s
+geocoded polarimetric covariance product (GCOV), radiometrically terrain corrected,
+from ASF DAAC: 10 m in 40 MHz mode (20 m in 20 MHz mode), in the frames' UTM zone.
+Needs `EARTHDATA_TOKEN`, as `opera-rtc` does.
+
+- `HHHH` and `HVHV` (default; `--terms` also takes `VVVV`, `VHVH` where quad-pol): the
+  diagonal covariance terms of frequency A, gamma0 as **linear power**, like
+  `sentinel1-rtc`'s `hh` and `hv`. Most land is imaged HH+HV, where Sentinel-1 is
+  usually VV+VH: compare like with like through the common names above.
+- `mask` (default): 0 where a sample isn't valid (partly focused), 255 outside the
+  swath, else the subswath number. `--layers` also takes `numberOfLooks` and
+  `rtcGammaToSigmaFactor` (gamma0 × factor = sigma0).
+- `--maturity validated` (default) reads `NISAR_L2_GCOV_V1`, acquired from
+  2026-10-21; `--maturity provisional` reads `NISAR_L2_GCOV_PROVISIONAL_V1`, mostly
+  2026-06-17 to 2026-10-23 (to be superseded by reprocessing in 2027). A store never
+  mixes the two.
+- One time step per pass, its frames mosaicked, with the `platform`, `orbit_state`,
+  `relative_orbit` and `absolute_orbit` coordinates, plus `frames` and
+  `range_bandwidth`.
+- Each frame's grids are read remotely from its HDF5 file (about 7 GB), a few
+  seconds per pass and variable: a long time series takes minutes.
+- License: CC0-1.0 (NASA Earthdata data use policy).
+
+```bash
+gaia stage nisar-gcov -i aoi.geojson -s 2026-10-21 -e 2026-11-08 -o out
+gaia stage nisar-gcov -i aoi.geojson -s 2026-07-01 -e 2026-10-20 -o out --maturity provisional --relative-orbit 172
 ```
 
 (sentinel2)=

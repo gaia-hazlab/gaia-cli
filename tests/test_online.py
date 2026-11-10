@@ -301,6 +301,43 @@ def test_opera_rtc_static_layers_of_each_pass():
     assert median[2] < median[0] < median[1]
 
 
+@pytest.mark.skipif(
+    not os.environ.get("EARTHDATA_TOKEN"), reason="needs EARTHDATA_TOKEN"
+)
+def test_nisar_gcov_provisional_pass_at_paradise(tmp_path):
+    # One descending pass over Paradise, Mt Rainier, read remotely from the HDF5;
+    # the token must not reach the store
+    config = tmp_path / "stage.yaml"
+    config.write_text(
+        """
+name: paradise-nisar
+aoi: {latitude: 46.7827, longitude: -121.7477, radius_km: 1}
+window: 2026-09-06/2026-09-06
+datasets:
+  nisar-gcov: {maturity: provisional, relative_orbit: 172}
+"""
+    )
+    runner.stage(config=str(config), output_path=str(tmp_path / "out"))
+
+    tree = xr.open_datatree(tmp_path / "out" / "paradise-nisar.zarr", engine="zarr")
+    ds = tree["rasters/nisar-gcov"].to_dataset()
+    assert [str(t)[:10] for t in ds.time.values] == ["2026-09-06"]
+    assert ds.frames.values.tolist() == ["65"]
+    assert ds.rio.resolution() == (10.0, -10.0)
+    assert ds.attrs["version"] == "NISAR_L2_GCOV_PROVISIONAL_V1"
+    # Linear gamma0 of forest and meadow at L-band: HV below HH
+    hh, hv = (float(ds[t].median()) for t in ("HHHH", "HVHV"))
+    assert 10**-2.5 < hv < hh < 10**0.5
+    assert ds.HVHV.attrs["gaia:common-name"] == "gamma0_hv"
+    assert 1 in np.unique(ds["mask"].values)
+    token = os.environ["EARTHDATA_TOKEN"]
+    assert not any(
+        token in p.read_text(errors="ignore")
+        for p in (tmp_path / "out").rglob("*")
+        if p.is_file()
+    )
+
+
 def test_sentinel2_after_the_event_is_snow_covered():
     # The paper notes snowfall right after the event; the clear 2023-09-24 pass
     # over the source is mostly snow: bright in the visible, dark at 1.6 um
