@@ -27,7 +27,9 @@ run controls combine with a file:
 
 A dataset that fails doesn't stop the run. The others are written, every failure is
 listed at the end, and the command exits with an error. Rerun with `--skip-existing` to
-retry only the datasets that failed. Each dataset's size is logged, and one over
+retry only the datasets that failed. A dataset can also fail while it is written, when
+its lazy data is read: `io.save_datatree` then removes the part of its group already
+written (`io.remove_group`), and the later datasets are added to the store. Each dataset's size is logged, and one over
 10 GB (`io.MAX_BYTES`, the in-memory size of what `load()` returns) fails before it
 is written. Most `load()`s return lazy arrays, so this usually comes before any data
 is read. The single-dataset commands also take

@@ -136,6 +136,9 @@ def run(
             )
             append = True  # later groups go into the same store
         except Exception as e:
+            if isinstance(e, io.PartialWriteError) and e.__cause__:
+                append = True  # the failed write created the store
+                e = e.__cause__
             log.error("%s: failed: %s", req.name, e)
             log.debug("%s: traceback", req.name, exc_info=True)
             failures[req.name] = f"{type(e).__name__}: {e}"
@@ -476,7 +479,7 @@ def dataset_command(name: str) -> typing.Callable:
         bound.apply_defaults()
         stage_dataset(name, **bound.arguments)
 
-    command.__signature__ = sig  # ty: ignore[unresolved-attribute]
+    command.__signature__ = sig  # ty: ignore[missing-attribute]
     doc = inspect.cleandoc(module.load.__doc__ or "")
     section = re.search(
         r"^Parameters\n-+\n.*?(?=^\w+\n-+\n|\Z)", doc, re.MULTILINE | re.DOTALL

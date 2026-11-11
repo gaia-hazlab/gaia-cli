@@ -5,6 +5,7 @@ title: Datasets
 | dataset | what | coverage | grid | time | group |
 |---|---|---|---|---|---|
 | [`synoptic`](#synoptic) | weather station reports | mostly US, Alaska included | stations | every report | `stations/synoptic` |
+| [`nrcs`](#nrcs) | NRCS SNOTEL and SCAN station reports: soil moisture, snow | western US, Alaska; SCAN US-wide | stations | hourly | `stations/nrcs` |
 | [`prism`](#prism) | PRISM daily precipitation and temperature | CONUS, 1981 on | 800 m | daily | `rasters/prism` |
 | [`hrrr`](#hrrr) | NOAA HRRR analysis | CONUS, 2014-10 on | 3 km | hourly | `rasters/hrrr` |
 | [`era5`](#era5) | ECMWF ERA5 reanalysis, single levels | global, 1940 on (a few months behind) | 0.25° | hourly | `rasters/era5` |
@@ -59,6 +60,27 @@ Station reports from the [Synoptic Data](https://synopticdata.com) API. Requires
   reports on a regular hourly (or daily) grid, and `to_dataframe(ds)` gives one row per
   report.
 - License: set by each station network.
+
+(nrcs)=
+## NRCS SNOTEL and SCAN
+
+Hourly station reports from the NRCS [Air and Water Database](https://wcc.sc.egov.usda.gov/awdbRestApi/swagger-ui/index.html):
+SNOTEL in the western mountains and Alaska, and SCAN across the US. No token needed.
+
+- `--variables` takes AWDB element codes: `SMS` (default, volumetric soil moisture),
+  `STO` (soil temperature), `WTEQ` (snow water equivalent), `SNWD` (snow depth),
+  `PREC` (precipitation since October 1), `TOBS` (air temperature), ….
+- Sensors below ground are named for their depth in cm: `SMS_5cm`, `SMS_10cm`,
+  `SMS_20cm`, `SMS_51cm`, `SMS_102cm` (2, 4, 8, 20, 40 in). The `depth` attribute has
+  the exact value.
+- Units are SI: soil moisture in m³ m⁻³ (AWDB's percent / 100), mm, °C. Times are UTC
+  (AWDB reports local standard time). Data NRCS marks suspect are left out.
+- Closed stations are included when their record overlaps the window.
+- Every report is kept, as a CF ragged array, like `synoptic`.
+- License: U.S. public domain.
+
+Other soil moisture sources, and why NRCS rather than Synoptic, are in the developer
+notes ([soil-moisture.md](https://github.com/gaia-hazlab/gaia-cli/blob/main/dev/soil-moisture.md)).
 
 (prism)=
 ## PRISM

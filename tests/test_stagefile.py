@@ -539,6 +539,62 @@ def test_failures_are_reported_and_retried_with_skip_existing(tmp_path, monkeypa
     assert tree.attrs["title"] == "Bolt Creek"
 
 
+def _down(block):
+    raise RuntimeError("prism read failed")
+
+
+def test_a_failed_write_leaves_the_others_and_is_retried(tmp_path, monkeypatch):
+    # Groups over io._CHUNK_TARGET_BYTES are written lazily: a read error then
+    # comes after the store and part of the group exist
+    import dask.array
+
+    monkeypatch.setattr(io, "_CHUNK_TARGET_BYTES", 0)
+    calls = []
+
+    def broken(aoi, start_date, end_date, variables: tuple[str, ...] = ("ppt",)):
+        calls.append("prism")
+        data = dask.array.zeros(4, chunks=2).map_blocks(_down, dtype=float)
+        return xr.Dataset({"v": ("time", data)}, attrs={"title": "prism"})
+
+    monkeypatch.setattr(prism, "load", broken)
+    monkeypatch.setattr(hrrr, "load", fake_load("hrrr", calls))
+    config = write(tmp_path, CONUS + "  prism: {}\n  hrrr: {}\n")
+    out = str(tmp_path / "out")
+    store = f"{out}/bolt-creek.zarr"
+    with pytest.raises(SystemExit, match=r"1 of 2 dataset\(s\) failed; 1 written") as e:
+        runner.stage(config=config, output_path=out)
+    assert "prism read failed" in str(e.value)
+    # hrrr is written all the same, and nothing of prism is left
+    assert io.groups(store) >= {"rasters/hrrr"}
+    assert "rasters/prism" not in io.groups(store)
+
+    calls.clear()
+    monkeypatch.setattr(prism, "load", fake_load("prism", calls))
+    runner.stage(config=config, output_path=out, skip_existing=True)
+    assert calls == [c for c in calls if c[0] == "prism"] and len(calls) == 1
+    tree = xr.open_datatree(store, engine="zarr")
+    assert set(tree["rasters"].children) == {"hrrr", "prism"}
+    assert tree.attrs["title"] == "Bolt Creek"
+
+
+def test_overwrite_after_a_failed_load_still_replaces_the_store(tmp_path, monkeypatch):
+    # prism fails before writing anything, so hrrr replaces the old store
+    calls = []
+    monkeypatch.setattr(prism, "load", fake_load("prism", calls))
+    monkeypatch.setattr(hrrr, "load", fake_load("hrrr", calls))
+    out = str(tmp_path / "out")
+    store = f"{out}/bolt-creek.zarr"
+    runner.stage(config=write(tmp_path, CONUS + "  prism: {}\n"), output_path=out)
+    assert io.groups(store) >= {"rasters/prism"}
+
+    monkeypatch.setattr(prism, "load", fake_load("prism", calls, fail=True))
+    config = write(tmp_path, CONUS + "  prism: {}\n  hrrr: {}\n")
+    with pytest.raises(SystemExit, match=r"1 of 2 dataset\(s\) failed; 1 written"):
+        runner.stage(config=config, output_path=out, overwrite=True)
+    assert "rasters/prism" not in io.groups(store)
+    assert "rasters/hrrr" in io.groups(store)
+
+
 # ---- presets and flags -----------------------------------------------------------
 
 
