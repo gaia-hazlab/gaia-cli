@@ -1,4 +1,5 @@
 import json
+import os
 
 import geopandas as gpd
 import numpy as np
@@ -199,3 +200,9 @@ def test_save_datatree_is_readable_by_gdal(tmp_path, monkeypatch, single_chunk):
     back = io.open_datatree(str(path))["rasters/a"].to_dataset()
     np.testing.assert_array_equal(back.sbs.values, sbs.values)
     assert back.sbs.rio.crs.to_epsg() == 32610
+
+
+def test_gdal_http_settings_are_in_the_environment():
+    # For reads outside odc-stac and in worker processes too
+    for key in io.GDAL_HTTP:
+        assert os.environ[key]
