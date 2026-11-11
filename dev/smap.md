@@ -94,8 +94,12 @@ Each pass is a group of 2-D arrays on EASE-Grid 2.0 Global (EPSG:6933) at 9 km,
   `SMS`) and `brightness_temperature`. No common names: their depths differ (about
   0–5 cm here, 0–7 cm for `swvl1`, NRCS's sensors at 5 cm and below), and a common
   name would mean editing those datasets too.
-- `long_name`, `valid_min`, `valid_max` and `flag_meanings` come from the first file
-  read.
+- `long_name`, `valid_min`, `valid_max` and `flag_meanings` come from the first day's
+  file (`smap.describe`).
+- **Chunks.** A dataset over 10 MB is chunked by whole days, as many as fit in 10 MB
+  (`smap.CHUNK_BYTES`; `io` would otherwise keep its dask chunks, one day each). A day
+  over 10 MB (a large share of the globe) is split into bands of rows. Smaller datasets
+  are one chunk per variable, as everywhere.
 
 ## Search
 
@@ -113,53 +117,83 @@ pystac Item: its temporal range, first bounding rectangle, `ProductionDateTime` 
   - `python-cmr`: a dependency for one query, and it refuses a spatial filter
     without a short name and version, so the pinned concept ID can't be used alone.
   - `asf_search` (OPERA's and NISAR's): it searches ASF's holdings only.
-- **TODO:** search timings.
+- **Timings** (2026-11-11), one request each: 0.2 s for a day over Paradise or a
+  month over CONUS (31 files), 0.7 s for a year over CONUS (366 files).
 
 ## Reads
 
-The token gets each file a CloudFront URL signed for an hour (`earthdata.sign`):
-NSIDC's `data.nsidc.earthdatacloud.nasa.gov` answers it with a 303, as ASF does. All
-URLs are signed before anything is read. GDAL's multidimensional API then reads them
-anonymously, from the `gdal` Python bindings (rasterio has no multidimensional API):
+`earthdata.sign` gets each file a CloudFront URL signed for an hour (NSIDC answers the
+token with a 303, as ASF does), all before anything is read. GDAL's multidimensional
+API, from the `gdal` Python bindings, then reads them anonymously:
 
-1. `smap.window` turns the AOI's bounds into rows and columns of the grid, one more on
-   each side so rioxarray finds the grid's spacing, and `io.clip_to_aoi` drops them.
+1. `smap.window` turns the AOI's bounds into the grid's rows and columns, plus one on
+   each side so rioxarray finds the grid's spacing; `io.clip_to_aoi` drops the extra
+   ones.
 2. `smap.describe` opens the first file in the main process for each array's dtype,
    fill value and attributes.
 3. `smap.read` is one dask task per file: one open
    (`gdal.OpenEx("/vsicurl/<signed url>", gdal.OF_MULTIDIM_RASTER)`), then each
-   array's window (`ReadAsArray(array_start_idx=…, count=…)`). An open reads the
-   file's metadata, the slow part, so every array of a file comes from one task.
-4. Reads use `io.py`'s GDAL settings for remote files: no HEAD requests (the signed
-   URLs answer GETs only), HTTP/1.1, no directory listing.
+   array's window (`ReadAsArray(array_start_idx=…, count=…)`). The open, which reads
+   the file's metadata, is the slow part, so one task reads all of a file's arrays.
+4. GDAL settings are `io.py`'s for remote files: no HEAD requests (the signed URLs
+   answer GETs only), HTTP/1.1, no directory listing.
 
-- **Read in worker processes** (`PROCESS_ENV`, `io.compute_in_processes`), as
-  `nisar-gcov` is: libhdf5 makes one process's calls one at a time.
-  - The runner starts workers only for a non-empty `PROCESS_ENV`, so it spells out
-    GDAL's default `CPL_VSIL_CURL_CHUNK_SIZE` (16 kB). NISAR's 4 MiB matches its
-    files' HDF5 pages; these files aren't paged, so a large request fetches far more
-    than an AOI needs.
-  - **TODO:** a file's open and an AOI's read (requests, MB, seconds) through the
-    multidimensional API against NISAR's reader (an `HDF5:"/vsicurl/…":<path>`
-    subdataset through the HDF5 driver), at the default and 4 MiB request sizes, for
-    a few AOI sizes up to global.
-  - **TODO:** days read with threads against 4 worker processes.
-- **Chunks.** A dataset over 10 MB, which `io` would otherwise store with its dask
-  chunks of one day, is chunked by whole days, as many as fit in 10 MB
-  (`smap.CHUNK_BYTES`). A day over 10 MB (a large share of the globe) is split into
-  bands of rows. Smaller datasets are stored as one chunk per variable, as everywhere.
-- **Ruled out**, following `nisar-gcov` ([nisar-gcov.md](nisar-gcov.md)):
-  - The HDF5 driver's subdatasets (NISAR's reader). An open reads the whole file's
-    metadata, every array and attribute, where the multidimensional API opens only the
-    groups and arrays asked for. And SMAP gains nothing from it: GDAL finds no
-    transform in these files, and there are no frames for `stac.load_scenes` to
-    mosaic.
+GDAL reads HDF5 two ways. **HDF5 driver subdatasets** (`nisar-gcov`'s reader) open each
+array as its own raster, `HDF5:"/vsicurl/<url>"://<group>/<array>`, and every open
+walks the whole file's metadata; in return rasterio and odc-stac can use them, with
+georeferencing read from CF attributes. The **multidimensional API** opens the file
+once and reads only the arrays asked for, as plain arrays. SMAP needs neither rasterio
+nor that georeferencing (GDAL finds none in these files), so it takes the cheaper
+API: one open for its 16 arrays rather than 16.
+
+Reading the 16 default arrays (8 variables, both passes) of
+`SMAP_L3_SM_P_E_20250901_R19240_001.h5` (688 MB) with GDAL 3.13.3 and 16 kB
+`/vsicurl/` blocks (both methods' best), one fresh process per read, from Seattle over
+HTTPS, 2026-11-11; requests counted from `CPL_DEBUG`:
+
+| AOI (window of 9 km cells) | multidimensional API | HDF5 driver subdatasets |
+|---|---|---|
+| Paradise, Mt Rainier (5 × 6) | 12.2 s · 113 requests · 2.3 MB | 22.8 s · 197 requests · 16 MB |
+| CONUS (285 × 625) | 17.5 s · 157 requests · 14 MB | 27.9 s · 241 requests · 28 MB |
+| global (1624 × 3856) | 37.0 s · 252 requests · 66 MB | 133.8 s · 1,236 requests · 166 MB |
+
+The multidimensional API would gain little reading one array, or from a file with few
+arrays, and it's no use where a reader needs a GDAL raster, as `nisar-gcov` does to
+mosaic frames across UTM zones with odc-stac.
+
+- **Ruled out**, following [nisar-gcov.md](nisar-gcov.md):
   - h5py or h5netcdf over fsspec: a second HDF5 read path, subject to the same
     libhdf5 lock.
   - Downloading whole files.
   - Reading from S3 (`s3://nsidc-cumulus-prod-protected`, temporary credentials from
     `data.nsidc.earthdatacloud.nasa.gov/s3credentials`): it works only from AWS
     us-west-2.
+
+### Worker processes
+
+`PROCESS_ENV` has the runner read the dataset in 4 worker processes
+(`io.compute_in_processes`), as `nisar-gcov` does, since libhdf5 makes one process's
+calls one at a time. The runner starts workers only for a non-empty `PROCESS_ENV`, so
+it spells out GDAL's default 16 kB `CPL_VSIL_CURL_CHUNK_SIZE`; NISAR's 4 MiB matches
+its files' HDF5 pages, and these files aren't paged.
+
+Staging 6 days over CONUS (8 files with the padding, 65 MB written) through
+`runner.stage`, 2026-11-11:
+
+| reads | total | reading |
+|---|---|---|
+| threads (`PROCESS_ENV = None`) | 163 s | about 150 s |
+| 4 worker processes | 113 s, 126 s (two runs) | 104 s |
+
+The search, signing and `describe` took about 9 s in both, the write 0.1 s. Workers
+are only about 1.4× faster (`nisar-gcov` measured 2.8×): 104 s for 2 rounds of 4 files
+is about 52 s per file, against about 18 s for one file read alone (the CONUS row
+above).
+
+- **TODO:** find why a file takes about 3 times as long when 4 are read at once: the
+  server or the bandwidth limiting 4 connections, or dask's process scheduler (it
+  returns every task's result to the main process). 4 concurrent `smap.read` calls
+  without dask would tell them apart.
 
 ## Tests
 
