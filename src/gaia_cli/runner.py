@@ -128,6 +128,9 @@ def run(
                 nodes[group(req)].attrs[provenance.SCENES_ATTR] = True
             tree = xr.DataTree.from_dict(nodes)
             tree.attrs = dict(cfg.attrs)
+            if env := getattr(module, "PROCESS_ENV", None):
+                log.info("%s: reading in %d processes", req.name, io.WORKERS)
+                tree = io.compute_in_processes(tree, env)
             io.save_datatree(
                 tree, store, overwrite=overwrite, append=append, assets=assets
             )

@@ -9,7 +9,7 @@ import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
 from shapely.geometry import box, mapping
 
-from gaia_cli import earthdata, fetch
+from gaia_cli import earthdata, fetch, io
 from gaia_cli.cli import stage_app
 from gaia_cli.datasets import cf_criteria, nisar_gcov, opera_rtc, sentinel1_rtc
 from gaia_cli.datasets.nisar_gcov import Maturity
@@ -291,3 +291,22 @@ def test_cli_flags(tmp_path, capsys):
     )
     out = capsys.readouterr().out
     assert "maturity: provisional" in out and "terms: [HVHV]" in out
+
+
+def test_the_runner_reads_it_in_processes(asf, tmp_path, monkeypatch):
+    calls = []
+
+    def compute(tree, env):
+        calls.append(env)
+        return tree
+
+    monkeypatch.setattr(io, "compute_in_processes", compute)
+    aoi = tmp_path / "aoi.geojson"
+    AOI.to_file(aoi)
+    stage_app(
+        ["nisar-gcov", "-i", str(aoi), "-s", "2026-10-21", "-e", "2026-11-08"]
+        + ["-o", str(tmp_path / "o")],
+        result_action="return_value",
+    )
+    assert calls == [nisar_gcov.PROCESS_ENV]
+    assert calls[0]["CPL_VSIL_CURL_CHUNK_SIZE"] == "4194304"
