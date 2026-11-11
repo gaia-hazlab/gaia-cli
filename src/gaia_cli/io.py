@@ -85,7 +85,7 @@ def open_raster(url: str, name: str, masked: bool = False) -> xr.DataArray:
     every whole dask chunk it touches. *masked* makes nodata NaN.
     """
     da = rioxarray.open_rasterio(url, cache=False, masked=masked)
-    return da.squeeze("band", drop=True).rename(name)  # ty: ignore[unresolved-attribute, invalid-argument-type, invalid-return-type]
+    return da.squeeze("band", drop=True).rename(name)  # ty: ignore[missing-union-attribute, invalid-argument-type, invalid-return-type]
 
 
 def with_time_bounds(

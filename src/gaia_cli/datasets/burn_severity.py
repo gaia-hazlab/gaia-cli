@@ -180,7 +180,7 @@ def open_fire(objectid: int, aoi: gpd.GeoDataFrame) -> xr.DataArray:
     if not r.headers.get("content-type", "").startswith("image/tiff"):
         raise RuntimeError(f"exportImage returned {r.headers.get('content-type')}")
     with MemoryFile(r.content) as mem, mem.open() as src:
-        da = rioxarray.open_rasterio(src).load()  # ty: ignore[unresolved-attribute]
+        da = rioxarray.open_rasterio(src).load()  # ty: ignore[missing-union-attribute]
     return da.squeeze("band", drop=True)  # ty: ignore[invalid-return-type]
 
 
