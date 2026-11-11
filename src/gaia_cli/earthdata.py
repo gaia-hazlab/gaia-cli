@@ -1,9 +1,10 @@
-"""NASA Earthdata: ASF search and Earthdata Login reads.
+"""NASA Earthdata: ASF and CMR search and Earthdata Login reads.
 
-Granules are found with asf_search and turned into pystac Items with the
-properties ``stac.group`` and ``stac.select`` use. Their COGs are read lazily by
-GDAL from the URLs ASF signs for them, with the Earthdata Login token used only
-to get those (see dev/opera-rtc.md).
+ASF granules are found with asf_search, other DAACs' (NSIDC's SMAP) with a CMR
+granule search, and turned into pystac Items with the properties
+``stac.group`` and ``stac.select`` use. Their files are read lazily by GDAL from
+the URLs the DAAC signs for them, with the Earthdata Login token used only to
+get those (see dev/opera-rtc.md).
 """
 
 from __future__ import annotations
@@ -20,13 +21,17 @@ import geopandas as gpd
 import pandas as pd
 import pystac
 import rasterio
-from shapely.geometry import box, shape
+from shapely.geometry import box, mapping, shape
 
 from . import fetch, stac
 
 log = logging.getLogger(__name__)
 # asf_search logs each search's options, the whole AOI WKT, at INFO
 logging.getLogger("asf_search").setLevel(logging.WARNING)
+
+# CMR's granule search, with results in UMM-G
+CMR = "https://cmr.earthdata.nasa.gov/search/granules.umm_json"
+CMR_PAGE_SIZE = 2000  # the most CMR returns per page
 
 TOKEN = "EARTHDATA_TOKEN"
 TOKENS = {
@@ -47,11 +52,12 @@ def token() -> str:
 
 
 def sign(items: Sequence[pystac.Item], assets: Sequence[str]) -> None:
-    """Point *items*' *assets* at the CloudFront URLs ASF signs for them.
+    """Point *items*' *assets* at the CloudFront URLs their DAAC signs for them.
 
-    ASF answers an authenticated request with a redirect to a URL signed for an
-    hour, so GDAL then reads anonymously, like Planetary Computer's SAS-signed
-    hrefs (``stac.sign``). The store must be written within that hour.
+    ASF and NSIDC answer an authenticated request with a redirect to a URL
+    signed for an hour, so GDAL then reads anonymously, like Planetary
+    Computer's SAS-signed hrefs (``stac.sign``). The store must be written
+    within that hour.
     """
     headers = {"Authorization": f"Bearer {token()}"}
 
@@ -101,6 +107,85 @@ def search(
     features = asf_search.search(**kwargs, **filters).geojson()["features"]
     log.info("ASF %s: %d granule(s)", filters.get("processingLevel", ""), len(features))
     return features
+
+
+def cmr_search(
+    concept_id: str,
+    aoi: gpd.GeoDataFrame,
+    start: str | None = None,
+    end: str | None = None,
+) -> list[dict]:
+    """CMR granules of the collection *concept_id* intersecting *aoi*'s bounds
+    between *start* and *end* (inclusive, UTC unless given), as UMM-G records
+    (each ``{"meta": ..., "umm": ...}``)."""
+    west, south, east, north = aoi.to_crs("EPSG:4326").total_bounds
+    params: dict[str, Any] = {
+        "concept_id": concept_id,
+        "bounding_box": f"{west},{south},{east},{north}",
+        "page_size": CMR_PAGE_SIZE,
+    }
+    if start or end:
+        params["temporal"] = ",".join(_cmr_time(t) for t in (start, end))
+    records: list[dict] = []
+    headers: dict[str, str] = {}
+    while True:
+        resp = fetch.get(CMR, params=params, headers=headers)
+        resp.raise_for_status()
+        page = resp.json()["items"]
+        records += page
+        # Later pages follow the search-after token CMR sends with each page
+        after = resp.headers.get("CMR-Search-After")
+        if len(page) < CMR_PAGE_SIZE or not after:
+            break
+        headers = {"CMR-Search-After": after}
+    log.info("CMR %s: %d granule(s)", concept_id, len(records))
+    return records
+
+
+def _cmr_time(t: str | None) -> str:
+    """*t* as CMR's temporal bound: UTC, to the second; empty is open."""
+    return pd.Timestamp(_utc(t)).strftime("%Y-%m-%dT%H:%M:%SZ") if t else ""
+
+
+def cmr_item(record: dict) -> pystac.Item:
+    """A CMR granule *record* (UMM-G) as a pystac Item, with one ``data`` asset:
+    the file's HTTPS URL.
+
+    Its time is the granule's temporal range (``start_datetime`` to
+    ``end_datetime``, ``datetime`` its start), its footprint the first
+    bounding rectangle, and ``processing:datetime`` the granule's production
+    time, by which :func:`newest` ranks processings.
+    """
+    umm = record["umm"]
+    times = umm["TemporalExtent"]["RangeDateTime"]
+    rect = umm["SpatialExtent"]["HorizontalSpatialDomain"]["Geometry"][
+        "BoundingRectangles"
+    ][0]
+    bbox = [
+        rect["WestBoundingCoordinate"],
+        rect["SouthBoundingCoordinate"],
+        rect["EastBoundingCoordinate"],
+        rect["NorthBoundingCoordinate"],
+    ]
+    # GET DATA is the HTTPS download; GET DATA VIA DIRECT ACCESS the S3 one
+    href = next(
+        u["URL"]
+        for u in umm["RelatedUrls"]
+        if u["Type"] == "GET DATA" and u["URL"].startswith("https://")
+    )
+    item = pystac.Item(
+        id=umm["GranuleUR"],
+        geometry=mapping(box(*bbox)),
+        bbox=bbox,
+        datetime=dt.datetime.fromisoformat(times["BeginningDateTime"]),
+        properties={
+            "start_datetime": times["BeginningDateTime"],
+            "end_datetime": times["EndingDateTime"],
+            "processing:datetime": umm["DataGranule"]["ProductionDateTime"],
+        },
+    )
+    item.add_asset("data", pystac.Asset(href, roles=["data"]))
+    return item
 
 
 def to_item(feature: dict, bands: dict[str, dict] | None = None) -> pystac.Item:
