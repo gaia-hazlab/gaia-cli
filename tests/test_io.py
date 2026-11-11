@@ -206,3 +206,23 @@ def test_gdal_http_settings_are_in_the_environment():
     # For reads outside odc-stac and in worker processes too
     for key in io.GDAL_HTTP:
         assert os.environ[key]
+
+
+def _env_value(block):
+    """A block of the worker's GAIA_TEST_ENV (0 if unset)."""
+    return np.full(block.shape, int(os.environ.get("GAIA_TEST_ENV", "0")))
+
+
+def test_compute_in_processes_reads_in_workers_with_their_env(monkeypatch):
+    import dask.array
+
+    monkeypatch.delenv("GAIA_TEST_ENV", raising=False)
+    data = dask.array.zeros((4, 6), chunks=(2, 3)).map_blocks(_env_value, dtype=int)
+    tree = xr.DataTree.from_dict({"a": xr.Dataset({"v": (("y", "x"), data)})})
+    tree.attrs = {"title": "t"}
+    out = io.compute_in_processes(tree, {"GAIA_TEST_ENV": "7"}, workers=2)
+    v = out["a"]["v"]
+    assert (v.values == 7).all()  # set in the workers
+    assert v.chunks == ((2, 2), (3, 3))  # the store keeps them
+    assert out.attrs == {"title": "t"}
+    assert "GAIA_TEST_ENV" not in os.environ  # not in this process

@@ -52,6 +52,12 @@ and optionally:
 - **`PAD`**: a `pd.Timedelta`, how far beyond each end of its window the dataset is
   read. Default `window.PAD`, one day, so that periods straddling the window's edges
   are complete for `gaia align`; `seismic` sets `pd.Timedelta(0)`.
+- **`PROCESS_ENV`**: environment variables (`{name: value}`) for reading the
+  dataset in worker processes rather than threads. The runner computes it in
+  `io.WORKERS` spawned processes, each started with them, then writes it from its own
+  (`io.compute_in_processes`). For readers a process makes one at a time (libhdf5),
+  or GDAL settings fixed when a process first reads (`CPL_VSIL_CURL_CHUNK_SIZE`); see
+  [nisar-gcov.md](nisar-gcov.md).
 - an **`origin`** argument of `load()` (`dict | None`, default None): the stage
   file's `origin` (`{latitude, longitude}`), None with flags only. Like the window
   arguments it is reserved: the runner fills it, and it is never an option or flag.

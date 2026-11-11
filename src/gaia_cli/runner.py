@@ -128,6 +128,9 @@ def run(
                 nodes[group(req)].attrs[provenance.SCENES_ATTR] = True
             tree = xr.DataTree.from_dict(nodes)
             tree.attrs = dict(cfg.attrs)
+            if env := getattr(module, "PROCESS_ENV", None):
+                log.info("%s: reading in %d processes", req.name, io.WORKERS)
+                tree = io.compute_in_processes(tree, env)
             io.save_datatree(
                 tree, store, overwrite=overwrite, append=append, assets=assets
             )
@@ -487,7 +490,7 @@ def dataset_command(name: str) -> typing.Callable:
         bound.apply_defaults()
         stage_dataset(name, **bound.arguments)
 
-    command.__signature__ = sig  # ty: ignore[unresolved-attribute]
+    command.__signature__ = sig  # ty: ignore[missing-attribute]
     doc = inspect.cleandoc(module.load.__doc__ or "")
     section = re.search(
         r"^Parameters\n-+\n.*?(?=^\w+\n-+\n|\Z)", doc, re.MULTILINE | re.DOTALL
