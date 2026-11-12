@@ -54,8 +54,11 @@ Each pass is a group of 2-D arrays on EASE-Grid 2.0 Global (EPSG:6933) at 9 km,
 - **Layout.** Arrays are chunked by row (1 × 3856), DEFLATE. The files don't use HDF5
   paged aggregation, unlike NISAR's, and their metadata (with a long ISO XML
   attribute) is spread through the file.
-- **No georeferencing.** The dimensions are unnamed and GDAL finds only ground
-  control points, so `smap.py` places the grid from EASE-Grid 2.0's constants:
+- **No georeferencing.** The dimensions are unnamed, there's no CF grid mapping, and
+  `/Metadata/GridSpatialRepresentation` names the grid only in prose. `latitude` and
+  `longitude` are −9999 wherever there's no retrieval, so GDAL finds only scattered
+  ground control points. `smap.py` places the grid from EASE-Grid 2.0's constants, as
+  NSIDC's own tutorials do (`NSIDC-Data-Tutorials/notebooks/SMAP`):
   upper-left corner (−17367530.44516138, 7314540.83063540) m and 9008.055210146 m
   cells. Cell centers from these match the files' own `latitude` and `longitude`
   (checked 2026-11-11 on a 2025-09-01 file).
@@ -122,130 +125,126 @@ pystac Item: its temporal range, first bounding rectangle, `ProductionDateTime` 
 
 ## Reads
 
-> **Prototype (branch `smap-dmrpp`).** `smap.py` here reads through each file's DMR++
-> sidecar (`<file>.dmrpp`, NSIDC's OPeNDAP chunk index, 35.5 MB of XML a day) with
-> VirtualiZarr's public `DMRPPParser`, instead of GDAL; the GDAL notes below are the
-> `smap` branch's. `smap.Granule` is the store the parser reads through: it fetches
-> the `.dmrpp` once with the token (`head`, `get`, `get_ranges`), and reads chunks
-> from the signed CloudFront URL in aligned 1 MiB blocks, each fetched once
-> (`get_range_async`). `open_arrays` calls the parser once per group (it makes one
-> group per call), skipping the arrays not asked for (`smap.ARRAYS`). The first
-> file is opened once, for both `describe` and its read. No libhdf5, so threads,
-> not worker processes, and no `gdal` bindings.
->
-> - **Public API.** VirtualiZarr PR #902 (open) moves the parser's core,
->   `virtualizarr.parsers.dmrpp.DMRParser`, into pydap, keeping `DMRPPParser` as the
->   wrapper. Calling the wrapper costs a second parse of the XML per file (0.4 s,
->   holding the GIL).
->
-> - **Why not `earthaccess.virtualize`.** It works, but its `HTTPStore` sends the
->   token with every chunk, and each request then takes NSIDC's 303 to CloudFront
->   (about 1 s, against 0.15 s for the signed URL), one request per 1 × 3856 row
->   chunk: CONUS took 361 s (zarr's async concurrency 10 or 64 alike). VirtualiZarr's
->   `ManifestStore` drops a URL's query and obstore escapes `?`, hence a store of our
->   own for the signed URL. Zarr requests the chunks concurrently (4,736 over CONUS,
->   16 blocks in flight); the blocks turn them into about 22 requests. `virtualize`
->   also fetches and parses the `.dmrpp` once per group.
-> - **Quirks.** VirtualiZarr leaves Zarr's `fill_value` at 0; the real one is the
->   `_FillValue` attribute, base64 of a float64 for the floats (`smap.fill_value`).
->   Units are an attribute. `tb_time_utc` (strings) can't be parsed, with a warning.
->
-> Reading the 16 default arrays of `SMAP_L3_SM_P_E_20250901_R19240_001.h5`, one fresh
-> process each, from Seattle, 2026-11-11 (values identical to GDAL's, 16/16):
->
-> | AOI | DMR++, signed blocks | `earthaccess`-style (token per chunk) | GDAL multidimensional |
-> |---|---|---|---|
-> | Paradise | 5.8–6.4 s | 8.8 s | 10.9–12.2 s |
-> | CONUS | 6.7–7.0 s | 361 s | 17.5 s |
->
-> The DMR++ column is `smap.load(...).compute()` for 2025-09-01. Of CONUS's 6.7 s:
->
-> - signing 1.5 s, the `.dmrpp` download 1.8 s, two XML parses 0.8 s, the
->   manifests about 0.6 s;
-> - search and provenance 0.6 s;
-> - reading the 16 arrays' chunks 0.8–1.1 s.
->
-> Staging 6 days over CONUS through `runner.stage` (8 files), in threads: 23.0 s and
-> 23.4 s, against 113–126 s in worker processes below.
+Each file is read through its **DMR++ sidecar**, `<file URL>.dmrpp`. It's NSIDC's
+OPeNDAP index of the file's HDF5 layout: every array's dtype, attributes and filters,
+and each chunk's byte offset and size. One day's file has 35.5 MB of it. With the
+index, chunks are plain HTTP byte ranges: no libhdf5, so no worker processes and no
+`gdal` bindings.
 
-`earthdata.sign` gets each file a CloudFront URL signed for an hour (NSIDC answers the
-token with a 303, as ASF does), all before anything is read. GDAL's multidimensional
-API, from the `gdal` Python bindings, then reads them anonymously:
-
-1. `smap.window` turns the AOI's bounds into the grid's rows and columns, plus one on
-   each side so rioxarray finds the grid's spacing; `io.clip_to_aoi` drops the extra
+1. `earthdata.sign` gets each file a CloudFront URL signed for an hour (NSIDC answers
+   the token with a 303, as ASF does), all before anything is read.
+2. `smap.window` turns the AOI's bounds into the grid's rows and columns, plus one on
+   each side so rioxarray finds the grid's spacing. `io.clip_to_aoi` drops the extra
    ones.
-2. `smap.describe` opens the first file in the main process for each array's dtype,
-   fill value and attributes.
-3. `smap.read` is one dask task per file: one open
-   (`gdal.OpenEx("/vsicurl/<signed url>", gdal.OF_MULTIDIM_RASTER)`), then each
-   array's window (`ReadAsArray(array_start_idx=…, count=…)`). The open, which reads
-   the file's metadata, is the slow part, so one task reads all of a file's arrays.
-4. GDAL settings are `io.py`'s for remote files: no HEAD requests (the signed URLs
-   answer GETs only), HTTP/1.1, no directory listing.
+3. `smap.open_arrays` calls VirtualiZarr's `DMRPPParser` once per group, since it
+   makes one group per call. It skips the arrays not asked for (`smap.ARRAYS` lists
+   every array in a group) and opens the result with zarr. `smap.Granule` is the
+   store it reads through:
+   - `head`, `get` and `get_ranges` serve the `.dmrpp`, fetched once with the token;
+   - `get_range_async` reads chunks from the signed URL in aligned 1 MiB blocks
+     (`smap.BLOCK`), each fetched once, in a pool of 32 threads.
+4. The first file is opened in the main process for each array's dtype, fill value
+   and attributes (`smap.describe`), and that open is reused for its read. Each other
+   file is one dask task (`smap.read_file`): open, then read every array's window at
+   once. Zarr requests a window's chunks concurrently: over CONUS, 4,736 one-row
+   chunks, which the blocks turn into about 22 requests.
 
-GDAL reads HDF5 two ways. **HDF5 driver subdatasets** (`nisar-gcov`'s reader) open each
-array as its own raster, `HDF5:"/vsicurl/<url>"://<group>/<array>`, and every open
-walks the whole file's metadata; in return rasterio and odc-stac can use them, with
-georeferencing read from CF attributes. The **multidimensional API** opens the file
-once and reads only the arrays asked for, as plain arrays. SMAP needs neither rasterio
-nor that georeferencing (GDAL finds none in these files), so it takes the cheaper
-API: one open for its 16 arrays rather than 16.
+- **Not `earthaccess.virtualize`.** It works, but its `HTTPStore` sends the token with
+  every chunk request, and each request then takes NSIDC's 303 to CloudFront: about
+  1 s, against 0.15 s for the signed URL. CONUS took 361 s, at zarr's async
+  concurrency 10 or 64 alike. It also fetches and parses the `.dmrpp` once per group.
+  Installing earthaccess 0.19 needed the `boto3>=1.43.127` pin loosened.
+- **Why a store of our own.** VirtualiZarr's `ManifestStore` drops the query from a
+  chunk's URL, and obstore escapes `?` in a path, so a signed URL can't be registered
+  as is. Sending the signature as CloudFront cookies instead gets a 403, because it
+  also covers the URL's `A-userid` and `backend_params`.
+- **Public API.** VirtualiZarr PR #902 (open as of 2026-11) moves the parser's core,
+  `virtualizarr.parsers.dmrpp.DMRParser`, into pydap. It keeps `DMRPPParser` as the
+  wrapper, which is what `smap.py` calls. The wrapper parses the XML once per group,
+  so twice per file (0.4 s each, holding the GIL); calling `DMRParser` directly would
+  parse it once.
+- **Quirks.**
+  - VirtualiZarr leaves Zarr's `fill_value` at 0. The real one is the `_FillValue`
+    attribute, base64 of a float64 for the floats, which `smap.fill_value` decodes.
+  - Units are an attribute.
+  - `tb_time_utc` (strings) can't be parsed; the warning is silenced.
+- **Every file needs a `.dmrpp`.** Checked for the 8 files from 2025-09-01 to
+  2025-09-08; a missing one is an error. TODO: say so clearly, or fall back.
+- **Ruled out**, following [nisar-gcov.md](nisar-gcov.md):
+  - h5py or h5netcdf over fsspec: an HDF5 read path, subject to libhdf5's lock, that
+    reads the file's metadata request by request (below).
+  - Downloading whole files.
+  - Reading from S3 (`s3://nsidc-cumulus-prod-protected`, with temporary credentials
+    from `data.nsidc.earthdatacloud.nasa.gov/s3credentials`): it works only from AWS
+    us-west-2.
 
-Reading the 16 default arrays (8 variables, both passes) of
-`SMAP_L3_SM_P_E_20250901_R19240_001.h5` (688 MB) with GDAL 3.13.3 and 16 kB
-`/vsicurl/` blocks (both methods' best), one fresh process per read, from Seattle over
-HTTPS, 2026-11-11; requests counted from `CPL_DEBUG`:
+### Measurements
 
-| AOI (window of 9 km cells) | multidimensional API | HDF5 driver subdatasets |
+The 16 default arrays (8 variables, both passes) of
+`SMAP_L3_SM_P_E_20250901_R19240_001.h5` (688 MB). One fresh process per run, from
+Seattle over HTTPS, 2026-11-11. Values were identical to GDAL's for all 16 arrays.
+
+| | DMR++ (`smap.load(...).compute()`) | GDAL multidimensional API (reads only) |
+|---|---|---|
+| Paradise, Mt Rainier | 5.8–6.4 s | 10.9–12.2 s |
+| CONUS | 6.7–7.0 s | 17.5 s |
+| global | not measured | 37.0 s |
+| 6 days over CONUS, `runner.stage` (8 files with the padding) | 23.0 s, 23.4 s (threads) | 113–126 s (4 worker processes; 163 s in threads) |
+
+- **One CONUS day** breaks down as: signing 1.5 s, the `.dmrpp` 1.8 s, two XML
+  parses 0.8 s, the manifests about 0.6 s, search and provenance 0.6 s, the chunks
+  0.8–1.1 s.
+- **The `.dmrpp` is each file's floor**, whatever the AOI: about 13 GB of XML for a
+  year of files.
+- **Without zarr**, fetching the needed byte ranges directly (merged): 3.5–4.1 s for
+  Paradise, 3.6–3.9 s for CONUS.
+- **TODO:** measure a global read.
+
+### Before: GDAL's multidimensional API
+
+PR #76 (merged 2026-11-12) read the files with GDAL's multidimensional API, from the
+`gdal` Python bindings. Each file was one
+`gdal.OpenEx("/vsicurl/<signed url>", gdal.OF_MULTIDIM_RASTER)`, then a read of each
+array's window (`ReadAsArray(array_start_idx=…, count=…)`). Reads ran in 4 worker
+processes (`PROCESS_ENV`, with 16 kB `CPL_VSIL_CURL_CHUNK_SIZE`), since libhdf5 makes
+one process's calls one at a time. See `smap.py` and this file at commit `76d8b7e`.
+
+GDAL reads HDF5 two ways, both through libhdf5 (GDAL 3.13.3, `frmts/hdf5`):
+
+- **HDF5 driver subdatasets** (`HDF5:"/vsicurl/<url>"://<group>/<array>`, as
+  `nisar-gcov` reads).
+  - Every open walks the whole file (`ReadGlobalAttributes`): each group and dataset
+    is opened and each attribute read.
+  - Finding no CF grid mapping, it then reads 2-D latitude and longitude whole, for a
+    lattice of GCPs (`CreateProjections`).
+  - Opening one SMAP array took 11.8 s, 146 requests, 14.8 MB. Walking the 204 arrays
+    was about 10 s and 108 requests of that; latitude and longitude were 2.8 s,
+    35 requests, 12.8 MB.
+- **The multidimensional API.**
+  - It opens the file and root group (3 requests), then only what's asked for: the
+    groups on an array's path, the array's header, its attributes on request, and
+    the chunks that intersect the window.
+  - That's still about 110 requests per file. They're each array's header and chunk
+    index (a B-tree over 1,624 row chunks), scattered through a file without paged
+    aggregation, and fetched one after another.
+
+| AOI (window of 9 km cells), 16 kB blocks | multidimensional API | HDF5 driver subdatasets |
 |---|---|---|
 | Paradise, Mt Rainier (5 × 6) | 12.2 s · 113 requests · 2.3 MB | 22.8 s · 197 requests · 16 MB |
 | CONUS (285 × 625) | 17.5 s · 157 requests · 14 MB | 27.9 s · 241 requests · 28 MB |
 | global (1624 × 3856) | 37.0 s · 252 requests · 66 MB | 133.8 s · 1,236 requests · 166 MB |
 
-The multidimensional API would gain little reading one array, or from a file with few
-arrays, and it's no use where a reader needs a GDAL raster, as `nisar-gcov` does to
-mosaic frames across UTM zones with odc-stac.
-
-- **Ruled out**, following [nisar-gcov.md](nisar-gcov.md):
-  - h5py or h5netcdf over fsspec: a second HDF5 read path, subject to the same
-    libhdf5 lock.
-  - Downloading whole files.
-  - Reading from S3 (`s3://nsidc-cumulus-prod-protected`, temporary credentials from
-    `data.nsidc.earthdatacloud.nasa.gov/s3credentials`): it works only from AWS
-    us-west-2.
-
-### Worker processes
-
-`PROCESS_ENV` has the runner read the dataset in 4 worker processes
-(`io.compute_in_processes`), as `nisar-gcov` does, since libhdf5 makes one process's
-calls one at a time. The runner starts workers only for a non-empty `PROCESS_ENV`, so
-it spells out GDAL's default 16 kB `CPL_VSIL_CURL_CHUNK_SIZE`; NISAR's 4 MiB matches
-its files' HDF5 pages, and these files aren't paged.
-
-Staging 6 days over CONUS (8 files with the padding, 65 MB written) through
-`runner.stage`, 2026-11-11:
-
-| reads | total | reading |
-|---|---|---|
-| threads (`PROCESS_ENV = None`) | 163 s | about 150 s |
-| 4 worker processes | 113 s, 126 s (two runs) | 104 s |
-
-The search, signing and `describe` took about 9 s in both, the write 0.1 s. Workers
-are only about 1.4× faster (`nisar-gcov` measured 2.8×): 104 s for 2 rounds of 4 files
-is about 52 s per file, against about 18 s for one file read alone (the CONUS row
-above).
-
-- **TODO:** find why a file takes about 3 times as long when 4 are read at once: the
-  server or the bandwidth limiting 4 connections, or dask's process scheduler (it
-  returns every task's result to the main process). 4 concurrent `smap.read` calls
-  without dask would tell them apart.
+NISAR's files gain little from the multidimensional API: 3.0 s against 3.7–4.2 s for
+a frame's 3 arrays over Paradise, with the same 11 requests. With paged aggregation
+and 4 MiB requests, their whole metadata is a few requests. NISAR has no DMR++
+sidecar.
 
 ## Tests
 
-`tests/test_smap.py` builds stand-in files as in-memory GDAL multidimensional
-datasets (the MEM driver) with the files' groups and arrays, and patches
-`smap.open_file` to return them, so the reads, windows and fill values run through
-the same code as the real files. The AOI is near the grid's upper-left corner, so the
-stand-ins need only its first rows and columns. `tests/test_online.py` stages a day
-over the Columbia Basin from NSIDC (needs `EARTHDATA_TOKEN`).
+`tests/test_smap.py` builds stand-in files as in-memory zarr arrays, with the
+attributes VirtualiZarr gives the real ones (units, base64 `_FillValue`). It patches
+`smap.open_arrays` to return them, so the windows, fill values and flags run through
+`smap.load`. `smap.Granule` and `smap.fill_value` have tests of their own: the
+`.dmrpp` is fetched once with the token, and each block once. `open_arrays` itself,
+with the parser and the real files, is covered by `tests/test_online.py`, which
+stages a day over the Columbia Basin from NSIDC (needs `EARTHDATA_TOKEN`).
