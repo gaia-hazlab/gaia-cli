@@ -26,6 +26,7 @@ from . import (
     seismic,
     sentinel1_rtc,
     sentinel2,
+    smap,
     soil,
     stage4,
     synoptic,
@@ -48,6 +49,7 @@ DATASETS: dict[str, ModuleType] = {
     "sentinel2": sentinel2,
     "opera-rtc": opera_rtc,
     "nisar-gcov": nisar_gcov,
+    "smap": smap,
     "seismic": seismic,
     "infrasound": infrasound,
 }

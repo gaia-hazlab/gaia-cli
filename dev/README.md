@@ -11,7 +11,7 @@ published at <https://gaia-hazlab.github.io/gaia-cli/>.
 | [provenance-metadata.md](provenance-metadata.md) | provenance attributes in each store |
 | [stac-catalog.md](stac-catalog.md) | STAC Items and `gaia catalog rebuild` |
 | [browser-viewers.md](browser-viewers.md) | the Source Cooperative zarr-viewer, and opening it from stac-browser |
-| [prism.md](prism.md), [hrrr.md](hrrr.md), [era5.md](era5.md), [stage4.md](stage4.md), [stations.md](stations.md), [precip-timing.md](precip-timing.md), [dem.md](dem.md), [soil.md](soil.md), [burn-severity.md](burn-severity.md), [sentinel1-rtc.md](sentinel1-rtc.md), [sentinel2.md](sentinel2.md), [opera-rtc.md](opera-rtc.md), [nisar-gcov.md](nisar-gcov.md), [seismic.md](seismic.md), [infrasound.md](infrasound.md) | per-dataset details: sources, grids, time conventions, caveats |
+| [prism.md](prism.md), [hrrr.md](hrrr.md), [era5.md](era5.md), [stage4.md](stage4.md), [stations.md](stations.md), [precip-timing.md](precip-timing.md), [dem.md](dem.md), [soil.md](soil.md), [burn-severity.md](burn-severity.md), [sentinel1-rtc.md](sentinel1-rtc.md), [sentinel2.md](sentinel2.md), [opera-rtc.md](opera-rtc.md), [nisar-gcov.md](nisar-gcov.md), [smap.md](smap.md), [seismic.md](seismic.md), [infrasound.md](infrasound.md) | per-dataset details: sources, grids, time conventions, caveats |
 | [soil-moisture.md](soil-moisture.md) | soil moisture sources: NRCS, Synoptic, USCRN, AgriMet, satellites; what gaia stages |
 | [backblaze.md](backblaze.md) | Backblaze B2 setup |
 | [huggingface.md](huggingface.md) | Hugging Face bucket setup (S3 gateway, monthly scratch wipe) |

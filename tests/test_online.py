@@ -348,6 +348,55 @@ datasets:
     )
 
 
+@pytest.mark.skipif(
+    not os.environ.get("EARTHDATA_TOKEN"), reason="needs EARTHDATA_TOKEN"
+)
+def test_smap_days_over_the_columbia_basin(tmp_path):
+    # Read remotely from each day's HDF5 in worker processes; the token must not
+    # reach the store. Over this AOI the 2025-08-31 morning pass and the
+    # 2025-09-01 evening pass have retrievals; the other passes missed it
+    config = tmp_path / "stage.yaml"
+    config.write_text(
+        """
+name: columbia-basin-smap
+aoi: {bbox: [-119.5, 46.5, -118.5, 47.0]}
+window: 2025-09-01/2025-09-01
+datasets:
+  smap: {}
+"""
+    )
+    runner.stage(config=str(config), output_path=str(tmp_path / "out"))
+
+    tree = xr.open_datatree(
+        tmp_path / "out" / "columbia-basin-smap.zarr", engine="zarr"
+    )
+    ds = tree["rasters/smap"].to_dataset()
+    # The window and a day beyond each end
+    assert [str(t)[:10] for t in ds.time.values] == [
+        "2025-08-31",
+        "2025-09-01",
+        "2025-09-02",
+    ]
+    assert ds.rio.crs.to_epsg() == 6933
+    assert ds.rio.resolution() == pytest.approx((9008.055210146, -9008.055210146))
+    am = ds.tb_v_corrected.sel(time="2025-08-31")
+    pm = ds.tb_v_corrected_pm.sel(time="2025-09-01")
+    assert am.notnull().all() and pm.notnull().all()
+    assert 150 < float(am.min()) <= float(pm.max()) < 330
+    assert ds.tb_v_corrected.attrs["units"] == "K"
+    sm = ds.soil_moisture.values
+    assert np.all((sm[np.isfinite(sm)] >= 0.02) & (sm[np.isfinite(sm)] <= 0.5))
+    assert ds.soil_moisture.attrs["units"] == "m3 m-3"
+    assert ds.surface_flag.encoding["dtype"] == np.uint16
+    assert ds.surface_flag.attrs["flag_masks"][0] == 1
+    token = os.environ["EARTHDATA_TOKEN"]
+    assert not any(
+        token in p.read_text(errors="ignore")
+        for p in (tmp_path / "out").rglob("*")
+        if p.is_file()
+    )
+
+
 def test_sentinel2_after_the_event_is_snow_covered():
     # The paper notes snowfall right after the event; the clear 2023-09-24 pass
     # over the source is mostly snow: bright in the visible, dark at 1.6 um

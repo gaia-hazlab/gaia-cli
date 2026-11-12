@@ -17,6 +17,7 @@ title: Datasets
 | [`sentinel1-rtc`](#sentinel1-rtc) | Sentinel-1 radar backscatter | global, 2014-10 on | 10 m | each pass | `rasters/sentinel1-rtc` |
 | [`opera-rtc`](#opera-rtc) | OPERA Sentinel-1 radar backscatter (NASA Earthdata) | land north of 60° S, 2016-04 on | 30 m | each pass | `rasters/opera-rtc` |
 | [`nisar-gcov`](#nisar-gcov) | NISAR L-band radar backscatter (NASA Earthdata) | global, 2025-11 on | 10–20 m | each pass | `rasters/nisar-gcov` |
+| [`smap`](#smap) | SMAP L-band brightness temperature and soil moisture (NASA Earthdata) | global to 85°, 2015-03-31 on | 9 km | daily, AM and PM passes | `rasters/smap` |
 | [`sentinel2`](#sentinel2) | Sentinel-2 surface reflectance | global, 2015-06 on | 10 m | each pass | `rasters/sentinel2` |
 | [`seismic`](#seismic) | seismic waveforms (EarthScope FDSN) | global | stations | native rate, raw counts | `waveforms/seismic/<rate>hz` |
 | [`infrasound`](#infrasound) | infrasound waveforms (EarthScope FDSN) | global | sensors | native rate, raw counts | `waveforms/infrasound/<rate>hz` |
@@ -300,6 +301,40 @@ Needs `EARTHDATA_TOKEN`, as `opera-rtc` does.
 ```bash
 gaia stage nisar-gcov -i aoi.geojson -s 2026-10-21 -e 2026-11-08 -o out
 gaia stage nisar-gcov -i aoi.geojson -s 2026-07-01 -e 2026-10-20 -o out --maturity provisional --relative-orbit 172
+```
+
+(smap)=
+## SMAP
+
+L-band (1.4 GHz) radiometer brightness temperature and the soil moisture retrieved
+from it, from NASA's [SMAP](https://nsidc.org/data/spl3smp_e/versions/6) mission:
+NSIDC DAAC's enhanced Level-3 product (`SPL3SMP_E`, version 6), 9 km on EASE-Grid 2.0
+Global (EPSG:6933). Needs `EARTHDATA_TOKEN`, as `opera-rtc` does.
+
+- Default variables: `soil_moisture` and `soil_moisture_error` (m³ m⁻³, about the top
+  5 cm), `tb_v_corrected` and `tb_h_corrected` (brightness temperature, K, with water
+  bodies removed), and the bit flags `retrieval_qual_flag`, `tb_qual_flag_v`,
+  `tb_qual_flag_h` and `surface_flag`. `--variables` takes any other grid of the files,
+  e.g. `soil_moisture_scah`, `tb_v_uncorrected`, `surface_temperature`,
+  `vegetation_opacity`; see `gaia stage smap --help`.
+- Each variable comes twice: the morning (6 AM, descending) pass as named, the evening
+  (6 PM, ascending) pass with `_pm`, e.g. `soil_moisture_pm`. `--orbit-state
+  descending` or `ascending` reads one of them.
+- One time step per UTC day, with `time_bounds` covering the day. Each cell is a
+  snapshot taken when a swath crossed it, so over a large AOI one day's cells can be
+  hours apart. SMAP sees a mid-latitude AOI every 2–3 days: on other days its cells
+  are NaN.
+- No quality masking: −9999 is NaN, and the flags (uint16, 65534 where missing) are
+  for you to apply, with their `flag_masks` and `flag_meanings` attributes. Days
+  missing from the archive are NaN, with a warning.
+- Soil moisture has the CF standard name `volume_fraction_of_condensed_water_in_soil`,
+  as `era5`'s `swvl1` and `swvl2` and `nrcs`'s `SMS` do:
+  `ds.cf[["volume_fraction_of_condensed_water_in_soil"]]` selects both passes'.
+- License: CC0-1.0 (NASA Earthdata data use policy).
+
+```bash
+gaia stage smap -i aoi.geojson -s 2025-09-01 -e 2025-09-10 -o out
+gaia stage smap -i aoi.geojson -s 2025-09-01 -e 2025-09-10 -o out --orbit-state descending --variables soil_moisture
 ```
 
 (sentinel2)=
