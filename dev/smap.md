@@ -124,18 +124,27 @@ pystac Item: its temporal range, first bounding rectangle, `ProductionDateTime` 
 
 > **Prototype (branch `smap-dmrpp`).** `smap.py` here reads through each file's DMR++
 > sidecar (`<file>.dmrpp`, NSIDC's OPeNDAP chunk index, 35.5 MB of XML a day) with
-> VirtualiZarr's `DMRParser`, instead of GDAL; the GDAL notes below are the `smap`
-> branch's. `open_arrays` fetches the `.dmrpp` with the token and parses only the
-> arrays asked for (`skip_variables`); `SignedRanges` reads their chunks from the
-> signed CloudFront URL in aligned 1 MiB blocks, each fetched once. No libhdf5, so
-> threads, not worker processes, and no `gdal` bindings.
+> VirtualiZarr's public `DMRPPParser`, instead of GDAL; the GDAL notes below are the
+> `smap` branch's. `smap.Granule` is the store the parser reads through: it fetches
+> the `.dmrpp` once with the token (`head`, `get`, `get_ranges`), and reads chunks
+> from the signed CloudFront URL in aligned 1 MiB blocks, each fetched once
+> (`get_range_async`). `open_arrays` calls the parser once per group (it makes one
+> group per call), skipping the arrays not asked for (`smap.ARRAYS`). The first
+> file is opened once, for both `describe` and its read. No libhdf5, so threads,
+> not worker processes, and no `gdal` bindings.
+>
+> - **Public API.** VirtualiZarr PR #902 (open) moves the parser's core,
+>   `virtualizarr.parsers.dmrpp.DMRParser`, into pydap, keeping `DMRPPParser` as the
+>   wrapper. Calling the wrapper costs a second parse of the XML per file (0.4 s,
+>   holding the GIL).
 >
 > - **Why not `earthaccess.virtualize`.** It works, but its `HTTPStore` sends the
 >   token with every chunk, and each request then takes NSIDC's 303 to CloudFront
 >   (about 1 s, against 0.15 s for the signed URL), one request per 1 × 3856 row
 >   chunk: CONUS took 361 s (zarr's async concurrency 10 or 64 alike). VirtualiZarr's
 >   `ManifestStore` drops a URL's query and obstore escapes `?`, hence a store of our
->   own for the signed URL; zarr reads chunk by chunk, hence its blocks. `virtualize`
+>   own for the signed URL. Zarr requests the chunks concurrently (4,736 over CONUS,
+>   16 blocks in flight); the blocks turn them into about 22 requests. `virtualize`
 >   also fetches and parses the `.dmrpp` once per group.
 > - **Quirks.** VirtualiZarr leaves Zarr's `fill_value` at 0; the real one is the
 >   `_FillValue` attribute, base64 of a float64 for the floats (`smap.fill_value`).
@@ -146,11 +155,18 @@ pystac Item: its temporal range, first bounding rectangle, `ProductionDateTime` 
 >
 > | AOI | DMR++, signed blocks | `earthaccess`-style (token per chunk) | GDAL multidimensional |
 > |---|---|---|---|
-> | Paradise | 5.5–5.7 s | 8.8 s | 10.9–12.2 s |
-> | CONUS | 8.6 s | 361 s | 17.5 s |
+> | Paradise | 5.8–6.4 s | 8.8 s | 10.9–12.2 s |
+> | CONUS | 6.7–7.0 s | 361 s | 17.5 s |
 >
-> Staging 6 days over CONUS through `runner.stage` (8 files, 67.5 MB written), in
-> threads: 21.4 s and 22.3 s, against 113–126 s in worker processes below.
+> The DMR++ column is `smap.load(...).compute()` for 2025-09-01. Of CONUS's 6.7 s:
+>
+> - signing 1.5 s, the `.dmrpp` download 1.8 s, two XML parses 0.8 s, the
+>   manifests about 0.6 s;
+> - search and provenance 0.6 s;
+> - reading the 16 arrays' chunks 0.8–1.1 s.
+>
+> Staging 6 days over CONUS through `runner.stage` (8 files), in threads: 23.0 s and
+> 23.4 s, against 113–126 s in worker processes below.
 
 `earthdata.sign` gets each file a CloudFront URL signed for an hour (NSIDC answers the
 token with a 303, as ASF does), all before anything is read. GDAL's multidimensional

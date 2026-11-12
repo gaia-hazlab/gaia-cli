@@ -126,6 +126,7 @@ def nsidc(monkeypatch):
         "records": [record("2025-09-01"), record("2025-09-02"), record("2025-09-03")],
         "values": {},
         "searches": [],
+        "opened": [],
     }
 
     def search(concept_id, aoi, start=None, end=None):
@@ -133,6 +134,7 @@ def nsidc(monkeypatch):
         return stand_in["records"]
 
     def open_arrays(url, signed, paths):
+        stand_in["opened"].append(url)
         day = url.rsplit("_E_", 1)[1][:8]
         arrays = day_file(stand_in["values"].get(url, int(day[-2:]) / 10))
         return {p: arrays[p] for p in paths}
@@ -174,6 +176,9 @@ def test_load_reads_both_passes_of_each_day(nsidc):
     assert ds.soil_moisture.dtype == np.float32
     flags = ds.surface_flag_pm.sel(time="2025-09-02")
     assert flags.dtype == np.uint16 and set(np.unique(flags.values)) == {2}
+    # Each file opened once: the first's attributes come from its read's open
+    assert sorted(nsidc["opened"]) == sorted(set(nsidc["opened"]))
+    assert len(nsidc["opened"]) == 3
 
 
 def test_load_is_on_the_ease_grid(nsidc):
@@ -379,7 +384,28 @@ def test_fill_values_from_virtualizarr():
     assert smap.fill_value({"_FillValue": 65534}, np.dtype(np.uint16)) == 65534
 
 
-def test_signed_ranges_fetch_each_block_once(monkeypatch):
+def test_granule_fetches_its_dmrpp_once_with_the_token(monkeypatch):
+    calls = []
+
+    def get(url, headers):
+        calls.append((url, headers))
+        return type(
+            "R", (), {"raise_for_status": lambda self: None, "content": b"<xml/>"}
+        )()
+
+    monkeypatch.setenv(earthdata.TOKEN, "t")
+    monkeypatch.setattr(fetch, "get", get)
+    store = smap.Granule("https://nsidc/f.h5", "https://cdn/f.h5?Signature=x")
+    assert store.head("f.h5.dmrpp") == {"size": 6}
+    assert bytes(store.get("f.h5.dmrpp").buffer()) == b"<xml/>"
+    assert store.get_ranges("f.h5.dmrpp", starts=[0, 4], lengths=[2, 2]) == [
+        b"<x",
+        b"/>",
+    ]
+    assert calls == [("https://nsidc/f.h5.dmrpp", {"Authorization": "Bearer t"})]
+
+
+def test_granule_fetches_each_block_once(monkeypatch):
     data = bytes(range(256)) * 64  # 16 kB
     calls = []
 
@@ -394,7 +420,7 @@ def test_signed_ranges_fetch_each_block_once(monkeypatch):
 
     monkeypatch.setattr(smap, "BLOCK", 1000)
     monkeypatch.setattr(fetch, "get", get)
-    store = smap.SignedRanges("https://cdn/f.h5?Signature=x")
+    store = smap.Granule("https://nsidc/f.h5", "https://cdn/f.h5?Signature=x")
 
     async def reads():
         return await asyncio.gather(

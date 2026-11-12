@@ -20,9 +20,9 @@ import logging
 import math
 import threading
 import warnings
-import xml.etree.ElementTree as ET
+from collections.abc import Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
-from typing import Any, Literal, cast
+from typing import Any, Literal, cast, get_args
 
 import dask
 import dask.array
@@ -127,6 +127,19 @@ VARIABLES: tuple[Variable, ...] = (
     "tb_qual_flag_h",
     "surface_flag",
 )
+# Every array in a pass's group, by its AM name: the grids and the cells'
+# coordinates and times (the parser skips the ones not asked for)
+ARRAYS = (
+    *get_args(Variable),
+    "latitude",
+    "longitude",
+    "latitude_centroid",
+    "longitude_centroid",
+    "EASE_row_index",
+    "EASE_column_index",
+    "tb_time_seconds",
+    "tb_time_utc",
+)
 
 # The files' units in UDUNITS
 UNITS = {"Kelvin": "K", "cm**3/cm**3": "m3 m-3"}
@@ -145,9 +158,6 @@ STANDARD_NAMES = {
 # Chunks of whole time steps, as many as fit in 10 MB (the size io stores as
 # one chunk); a time step larger than that is split into bands of rows
 CHUNK_BYTES = 10 * 1024**2
-
-# Element names in a DMR++ file
-DAP = "{http://xml.opendap.org/ns/DAP/4.0#}"
 
 
 def window(aoi: gpd.GeoDataFrame) -> tuple[slice, slice]:
@@ -184,23 +194,68 @@ def chunks(ny: int, nx: int) -> dict[str, int]:
     return {"time": 1, "y": CHUNK_BYTES // (4 * nx), "x": -1}
 
 
-class SignedRanges:
-    """Byte ranges of one file at a signed URL, for VirtualiZarr's chunk reads.
+class _Bytes:
+    """What obspec's ``get`` returns, for bytes already in memory."""
 
-    VirtualiZarr reads a chunk with ``get_range_async(path, start=, end=)``; its
-    ManifestStore drops the query from a chunk's URL, and obstore escapes one in
-    a path, so a signed URL needs a store of its own. Each aligned
-    :data:`BLOCK` is fetched once, and the reads share it.
+    def __init__(self, data: bytes):
+        self.data = data
+
+    def buffer(self) -> bytes:
+        return self.data
+
+
+class Granule:
+    """One file as an obspec store for VirtualiZarr's ``DMRPPParser``.
+
+    The parser reads ``<url>.dmrpp`` with ``head`` and ``get`` or
+    ``get_ranges``: it's fetched once, with the token, and kept, so each group
+    parsed reuses it. The chunks are read with ``get_range_async``, as byte
+    ranges of the *signed* URL: VirtualiZarr's ManifestStore drops a URL's
+    query, and obstore escapes one in a path, so a signed URL needs a store of
+    its own. Each aligned :data:`BLOCK` is fetched once, and the reads share it.
     """
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, signed: str):
         self.url = url
+        self.signed = signed
+        self.dmrpp: bytes | None = None
         self.blocks: dict[int, Future] = {}
         self.lock = threading.Lock()
 
+    def _dmrpp(self) -> bytes:
+        with self.lock:
+            if self.dmrpp is None:
+                resp = fetch.get(
+                    f"{self.url}.dmrpp",
+                    headers={"Authorization": f"Bearer {earthdata.token()}"},
+                )
+                resp.raise_for_status()
+                self.dmrpp = resp.content
+            return self.dmrpp
+
+    def head(self, path: str) -> dict:
+        return {"size": len(self._dmrpp())}
+
+    def get(self, path: str) -> _Bytes:
+        return _Bytes(self._dmrpp())
+
+    def get_ranges(
+        self,
+        path: str,
+        *,
+        starts: Sequence[int],
+        ends: Sequence[int] | None = None,
+        lengths: Sequence[int] | None = None,
+    ) -> list[bytes]:
+        if ends is None:
+            assert lengths is not None
+            ends = [s + n for s, n in zip(starts, lengths, strict=True)]
+        data = self._dmrpp()
+        return [data[s:e] for s, e in zip(starts, ends, strict=True)]
+
     def _get(self, block: int) -> bytes:
         headers = {"Range": f"bytes={block * BLOCK}-{(block + 1) * BLOCK - 1}"}
-        resp = fetch.get(self.url, headers=headers)
+        resp = fetch.get(self.signed, headers=headers)
         resp.raise_for_status()
         return resp.content
 
@@ -227,34 +282,29 @@ class SignedRanges:
 
 def open_arrays(url: str, signed: str, paths: list[str]) -> dict[str, zarr.Array]:
     """The arrays at *paths* of the file at *url*, read through its DMR++
-    sidecar (``<url>.dmrpp``, fetched with the token) from its *signed* URL."""
-    from virtualizarr.parsers.dmrpp import DMRParser
+    sidecar (``<url>.dmrpp``, fetched once with the token) from its *signed*
+    URL. VirtualiZarr's parser makes one group per call."""
+    from obspec_utils.registry import ObjectStoreRegistry
+    from virtualizarr.parsers import DMRPPParser
 
-    resp = fetch.get(
-        f"{url}.dmrpp", headers={"Authorization": f"Bearer {earthdata.token()}"}
-    )
-    resp.raise_for_status()
-    root = ET.fromstring(resp.content)
-    store = SignedRanges(signed)
+    store = Granule(url, signed)
+    # The file and its .dmrpp, by their folder
+    registry = ObjectStoreRegistry({url.rsplit("/", 1)[0]: cast(Any, store)})
     groups: dict[str, list[str]] = {}
     for path in paths:
         group, name = path.strip("/").split("/")
         groups.setdefault(group, []).append(name)
+    suffixes = dict(GROUPS.values())
     out = {}
     for group, names in groups.items():
         # Only the arrays asked for: the parser skips the others' chunk lists
-        others = [
-            v.attrib["name"]
-            for g in root.iter(f"{DAP}Group")
-            if g.get("name") == group
-            for v in g
-            if "name" in v.attrib and v.attrib["name"] not in names
-        ]
-        parser = DMRParser(root=root, data_filepath=url, skip_variables=others)
+        others = [f"{a}{suffixes[group]}" for a in ARRAYS]
+        parser = DMRPPParser(
+            group=group, skip_variables=[a for a in others if a not in names]
+        )
         with warnings.catch_warnings():  # e.g. the string arrays it can't parse
             warnings.simplefilter("ignore")
-            # SignedRanges has the one method the reads use
-            manifest = parser.parse_dataset(object_store=cast(Any, store), group=group)
+            manifest = parser(f"{url}.dmrpp", registry)
         z = zarr.open_group(manifest, mode="r", zarr_format=3)
         out.update({f"/{group}/{n}": cast(zarr.Array, z[n]) for n in names})
     return out
@@ -288,24 +338,31 @@ def cf_attrs(attrs: dict) -> dict:
 
 
 def describe(
-    url: str, signed: str, paths: list[str]
+    arrays: dict[str, zarr.Array],
 ) -> dict[str, tuple[np.dtype, float, dict]]:
-    """The dtype, fill value and attributes of each array at *paths*."""
+    """The dtype, fill value and attributes of each of *arrays*."""
     out = {}
-    for path, array in open_arrays(url, signed, paths).items():
+    for path, array in arrays.items():
         attrs = dict(array.attrs)
         out[path] = (array.dtype, fill_value(attrs, array.dtype), cf_attrs(attrs))
     return out
 
 
 def read(
+    arrays: dict[str, zarr.Array], paths: list[str], rows: slice, cols: slice
+) -> list[np.ndarray]:
+    """*rows* and *cols* of each of *arrays* at *paths*, their chunks all at
+    once."""
+    with ThreadPoolExecutor(len(paths)) as pool:
+        return list(pool.map(lambda p: np.asarray(arrays[p][rows, cols]), paths))
+
+
+def read_file(
     url: str, signed: str, paths: list[str], rows: slice, cols: slice
 ) -> list[np.ndarray]:
     """*rows* and *cols* of each array at *paths* in the file at *url*: one
-    DMR++ fetch, then the arrays' chunks, all at once."""
-    arrays = open_arrays(url, signed, paths)
-    with ThreadPoolExecutor(len(paths)) as pool:
-        return list(pool.map(lambda p: np.asarray(arrays[p][rows, cols]), paths))
+    DMR++ fetch, then the arrays' chunks."""
+    return read(open_arrays(url, signed, paths), paths, rows, cols)
 
 
 def file_day(item: pystac.Item) -> pd.Timestamp:
@@ -403,12 +460,16 @@ def load(
     urls = {file_day(it): it.assets["data"].href for it in items}
     earthdata.sign(items, ["data"])
     signed = {file_day(it): it.assets["data"].href for it in items}
+    # The first file, opened once: its attributes, then its reads
     first = file_day(items[0])
-    meta = describe(urls[first], signed[first], list(paths.values()))
+    first_arrays = open_arrays(urls[first], signed[first], list(paths.values()))
+    meta = describe(first_arrays)
 
     # One read of each day's file gives all its arrays
     reads = {
-        day: dask.delayed(read)(
+        day: dask.delayed(read)(first_arrays, list(paths.values()), rows, cols)
+        if day == first
+        else dask.delayed(read_file)(
             urls[day], signed[day], list(paths.values()), rows, cols
         )
         for day in urls

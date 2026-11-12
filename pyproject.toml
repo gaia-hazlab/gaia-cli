@@ -16,6 +16,7 @@ dependencies = [
   "geopandas>=1.2.0,<2",
   "icechunk>=2.3",
   "numpy",
+  "obspec-utils>=0.9",
   "obstore>=0.11",
   "odc-stac>=0.5.3",
   "pandas",
@@ -137,3 +138,4 @@ scipy = ">=1.18.1,<2"
 asf_search-base = ">=14.1.0,<15"
 libgdal-hdf5 = ">=3.13.3,<4"
 virtualizarr = ">=2.8.0,<3"
+obspec_utils = ">=0.9.0,<0.10"

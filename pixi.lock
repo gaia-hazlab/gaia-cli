@@ -11369,6 +11369,7 @@ packages:
   - geopandas>=1.2.0,<2
   - icechunk>=2.3
   - numpy
+  - obspec-utils>=0.9
   - obstore>=0.11
   - odc-stac>=0.5.3
   - pandas
