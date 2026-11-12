@@ -229,6 +229,14 @@ class Granule:
                     f"{self.url}.dmrpp",
                     headers={"Authorization": f"Bearer {earthdata.token()}"},
                 )
+                if resp.status_code == 404:
+                    # Every file sampled had one (dev/smap.md#reads)
+                    name = self.url.rsplit("/", 1)[-1]
+                    raise RuntimeError(
+                        f"NSIDC has no DMR++ index for {name} ({name}.dmrpp, "
+                        "HTTP 404), which smap reads it through; leave its day "
+                        "out of the window"
+                    )
                 resp.raise_for_status()
                 self.dmrpp = resp.content
             return self.dmrpp

@@ -168,8 +168,11 @@ index, chunks are plain HTTP byte ranges: no libhdf5, so no worker processes and
     attribute, base64 of a float64 for the floats, which `smap.fill_value` decodes.
   - Units are an attribute.
   - `tb_time_utc` (strings) can't be parsed; the warning is silenced.
-- **Every file needs a `.dmrpp`.** Checked for the 8 files from 2025-09-01 to
-  2025-09-08; a missing one is an error. TODO: say so clearly, or fall back.
+- **Every file needs a `.dmrpp`.** Every 10th day of the archive has one: 416 of
+  416 sampled, 2015-03-31 to 2026-11-11, all one processing (CRID `R19240`), with one
+  byte of each fetched (2026-11-12). A missing one stops the read with an error naming
+  the file (`smap.Granule`), rather than falling back to an HDF5 reader, which would
+  keep the `gdal` bindings for a case not seen.
 - **Ruled out**, following [nisar-gcov.md](nisar-gcov.md):
   - h5py or h5netcdf over fsspec: an HDF5 read path, subject to libhdf5's lock, that
     reads the file's metadata request by request (below).
@@ -188,7 +191,7 @@ Seattle over HTTPS, 2026-11-11. Values were identical to GDAL's for all 16 array
 |---|---|---|
 | Paradise, Mt Rainier | 5.8–6.4 s | 10.9–12.2 s |
 | CONUS | 6.7–7.0 s | 17.5 s |
-| global | not measured | 37.0 s |
+| global | 8.7 s (alone); 8.9–10.0 s (alongside other requests), 2026-11-12 | 37.0 s |
 | 6 days over CONUS, `runner.stage` (8 files with the padding) | 23.0 s, 23.4 s (threads) | 113–126 s (4 worker processes; 163 s in threads) |
 
 - **One CONUS day** breaks down as: signing 1.5 s, the `.dmrpp` 1.8 s, two XML
@@ -198,7 +201,10 @@ Seattle over HTTPS, 2026-11-11. Values were identical to GDAL's for all 16 array
   year of files.
 - **Without zarr**, fetching the needed byte ranges directly (merged): 3.5–4.1 s for
   Paradise, 3.6–3.9 s for CONUS.
-- **TODO:** measure a global read.
+- **A global day** (1624 × 3856, 827,024 soil moisture cells): about 5 s for the
+  search, signing and the `.dmrpp`, then 3.4–3.8 s for the chunks. Peak memory
+  1.6–1.7 GB: the blocks hold the arrays' compressed bytes until the read ends, beside
+  the 16 decoded arrays.
 
 ### Before: GDAL's multidimensional API
 

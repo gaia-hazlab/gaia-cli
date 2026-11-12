@@ -390,7 +390,13 @@ def test_granule_fetches_its_dmrpp_once_with_the_token(monkeypatch):
     def get(url, headers):
         calls.append((url, headers))
         return type(
-            "R", (), {"raise_for_status": lambda self: None, "content": b"<xml/>"}
+            "R",
+            (),
+            {
+                "status_code": 200,
+                "raise_for_status": lambda self: None,
+                "content": b"<xml/>",
+            },
         )()
 
     monkeypatch.setenv(earthdata.TOKEN, "t")
@@ -403,6 +409,17 @@ def test_granule_fetches_its_dmrpp_once_with_the_token(monkeypatch):
         b"/>",
     ]
     assert calls == [("https://nsidc/f.h5.dmrpp", {"Authorization": "Bearer t"})]
+
+
+def test_a_file_without_a_dmrpp_is_a_clear_error(monkeypatch):
+    def get(url, headers):
+        return type("R", (), {"status_code": 404})()
+
+    monkeypatch.setenv(earthdata.TOKEN, "t")
+    monkeypatch.setattr(fetch, "get", get)
+    store = smap.Granule("https://nsidc/SMAP_E_20250901.h5", "https://cdn/f.h5?S=x")
+    with pytest.raises(RuntimeError, match=r"no DMR\+\+ index for SMAP_E_20250901\.h5"):
+        store.head("SMAP_E_20250901.h5.dmrpp")
 
 
 def test_granule_fetches_each_block_once(monkeypatch):
