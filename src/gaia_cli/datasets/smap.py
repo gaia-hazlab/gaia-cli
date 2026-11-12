@@ -14,9 +14,15 @@ Examples
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import logging
 import math
-from typing import Literal
+import threading
+import warnings
+import xml.etree.ElementTree as ET
+from concurrent.futures import Future, ThreadPoolExecutor
+from typing import Any, Literal, cast
 
 import dask
 import dask.array
@@ -25,13 +31,12 @@ import numpy as np
 import pandas as pd
 import pystac
 import xarray as xr
-from osgeo import gdal, gdal_array
+import zarr
 
-from .. import earthdata, io, provenance, regrid
+from .. import earthdata, fetch, io, provenance, regrid
 from .sentinel1_rtc import OrbitState
 
 log = logging.getLogger(__name__)
-gdal.UseExceptions()
 
 # SPL3SMP_E version 006 in NSIDC's cloud, pinned
 CONCEPT_ID = "C2938664763-NSIDC_CPRD"
@@ -45,11 +50,12 @@ KIND = "raster"
 # `gaia align` default for the measurements; the integer flags use nearest (load)
 REGRID_METHOD = "average"
 TOKENS = earthdata.TOKENS
-# Read in worker processes: libhdf5 makes a process's reads one at a time. The
-# runner uses workers only for a PROCESS_ENV, so this spells out GDAL's default
-# 16 kB requests: unlike NISAR's, these files aren't paged, and larger requests
-# fetch far more of them than an AOI needs
-PROCESS_ENV = {"CPL_VSIL_CURL_CHUNK_SIZE": str(16 * 1024)}
+# Each file's chunk index comes from its DMR++ sidecar (<file>.dmrpp, OPeNDAP),
+# and its chunks are read as byte ranges in threads: no libhdf5, so no worker
+# processes. Ranges are fetched in aligned blocks, each once, so neighboring
+# rows (each array's chunks sit together in the file) share a request
+BLOCK = 2**20
+FETCHES = ThreadPoolExecutor(32)
 
 # EASE-Grid 2.0 Global at 9 km: its upper-left corner and cell size (m), and
 # its rows and columns
@@ -140,13 +146,8 @@ STANDARD_NAMES = {
 # one chunk); a time step larger than that is split into bands of rows
 CHUNK_BYTES = 10 * 1024**2
 
-# As io.py sets for odc-stac's reads: the signed URLs answer GETs only, and
-# over HTTP/1.1
-GDAL_OPTIONS = {
-    "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
-    "CPL_VSIL_CURL_USE_HEAD": "NO",
-    "GDAL_HTTP_VERSION": "1.1",
-}
+# Element names in a DMR++ file
+DAP = "{http://xml.opendap.org/ns/DAP/4.0#}"
 
 
 def window(aoi: gpd.GeoDataFrame) -> tuple[slice, slice]:
@@ -183,17 +184,95 @@ def chunks(ny: int, nx: int) -> dict[str, int]:
     return {"time": 1, "y": CHUNK_BYTES // (4 * nx), "x": -1}
 
 
-def open_file(href: str) -> gdal.Dataset:
-    """The HDF5 file at *href*, through GDAL's multidimensional API."""
-    return gdal.OpenEx(
-        f"/vsicurl/{href}", gdal.OF_MULTIDIM_RASTER, allowed_drivers=["HDF5"]
+class SignedRanges:
+    """Byte ranges of one file at a signed URL, for VirtualiZarr's chunk reads.
+
+    VirtualiZarr reads a chunk with ``get_range_async(path, start=, end=)``; its
+    ManifestStore drops the query from a chunk's URL, and obstore escapes one in
+    a path, so a signed URL needs a store of its own. Each aligned
+    :data:`BLOCK` is fetched once, and the reads share it.
+    """
+
+    def __init__(self, url: str):
+        self.url = url
+        self.blocks: dict[int, Future] = {}
+        self.lock = threading.Lock()
+
+    def _get(self, block: int) -> bytes:
+        headers = {"Range": f"bytes={block * BLOCK}-{(block + 1) * BLOCK - 1}"}
+        resp = fetch.get(self.url, headers=headers)
+        resp.raise_for_status()
+        return resp.content
+
+    async def get_range_async(
+        self,
+        path: str,
+        *,
+        start: int,
+        end: int | None = None,
+        length: int | None = None,
+    ) -> bytes:
+        if end is None:
+            assert length is not None
+            end = start + length
+        first, last = start // BLOCK, (end - 1) // BLOCK
+        with self.lock:
+            for b in range(first, last + 1):
+                if b not in self.blocks:
+                    self.blocks[b] = FETCHES.submit(self._get, b)
+            futures = [self.blocks[b] for b in range(first, last + 1)]
+        data = b"".join([await asyncio.wrap_future(f) for f in futures])
+        return data[start - first * BLOCK : end - first * BLOCK]
+
+
+def open_arrays(url: str, signed: str, paths: list[str]) -> dict[str, zarr.Array]:
+    """The arrays at *paths* of the file at *url*, read through its DMR++
+    sidecar (``<url>.dmrpp``, fetched with the token) from its *signed* URL."""
+    from virtualizarr.parsers.dmrpp import DMRParser
+
+    resp = fetch.get(
+        f"{url}.dmrpp", headers={"Authorization": f"Bearer {earthdata.token()}"}
     )
+    resp.raise_for_status()
+    root = ET.fromstring(resp.content)
+    store = SignedRanges(signed)
+    groups: dict[str, list[str]] = {}
+    for path in paths:
+        group, name = path.strip("/").split("/")
+        groups.setdefault(group, []).append(name)
+    out = {}
+    for group, names in groups.items():
+        # Only the arrays asked for: the parser skips the others' chunk lists
+        others = [
+            v.attrib["name"]
+            for g in root.iter(f"{DAP}Group")
+            if g.get("name") == group
+            for v in g
+            if "name" in v.attrib and v.attrib["name"] not in names
+        ]
+        parser = DMRParser(root=root, data_filepath=url, skip_variables=others)
+        with warnings.catch_warnings():  # e.g. the string arrays it can't parse
+            warnings.simplefilter("ignore")
+            # SignedRanges has the one method the reads use
+            manifest = parser.parse_dataset(object_store=cast(Any, store), group=group)
+        z = zarr.open_group(manifest, mode="r", zarr_format=3)
+        out.update({f"/{group}/{n}": cast(zarr.Array, z[n]) for n in names})
+    return out
 
 
-def cf_attrs(array: gdal.MDArray) -> dict:
-    """*array*'s attributes for the store: units in UDUNITS, and its bit flags'
-    masks as numbers."""
-    attrs = {a.GetName(): a.Read() for a in array.GetAttributes()}
+def fill_value(attrs: dict, dtype: np.dtype) -> float:
+    """The array's ``_FillValue``: VirtualiZarr leaves the floats' as base64 of
+    their bytes (its Zarr fill_value is 0)."""
+    fill = attrs["_FillValue"]
+    if isinstance(fill, str):
+        raw = base64.b64decode(fill)
+        fill = np.frombuffer(raw, "<f8" if len(raw) == 8 else dtype)[0]
+    return float(fill)
+
+
+def cf_attrs(attrs: dict) -> dict:
+    """An array's attributes for the store: units in UDUNITS, and its bit
+    flags' masks as numbers."""
     out = {
         k: attrs[k]
         for k in ("long_name", "valid_min", "valid_max", "flag_meanings")
@@ -203,38 +282,30 @@ def cf_attrs(array: gdal.MDArray) -> dict:
         out["flag_masks"] = [
             int(m.strip().removesuffix("s")) for m in attrs["flag_masks"].split(",")
         ]
-    if unit := array.GetUnit():
+    if unit := attrs.get("units"):
         out["units"] = UNITS.get(unit, unit)
     return out
 
 
-def describe(href: str, paths: list[str]) -> dict[str, tuple[np.dtype, float, dict]]:
-    """The dtype, fill value and attributes of each array at *paths* in the
-    file at *href*."""
-    with gdal.config_options(GDAL_OPTIONS), open_file(href) as ds:
-        root = ds.GetRootGroup()
-        out = {}
-        for path in paths:
-            array = root.OpenMDArrayFromFullname(path)
-            code = array.GetDataType().GetNumericDataType()
-            dtype = np.dtype(gdal_array.GDALTypeCodeToNumericTypeCode(code))
-            out[path] = (dtype, array.GetNoDataValueAsDouble(), cf_attrs(array))
-        return out
+def describe(
+    url: str, signed: str, paths: list[str]
+) -> dict[str, tuple[np.dtype, float, dict]]:
+    """The dtype, fill value and attributes of each array at *paths*."""
+    out = {}
+    for path, array in open_arrays(url, signed, paths).items():
+        attrs = dict(array.attrs)
+        out[path] = (array.dtype, fill_value(attrs, array.dtype), cf_attrs(attrs))
+    return out
 
 
-def read(href: str, paths: list[str], rows: slice, cols: slice) -> list[np.ndarray]:
-    """*rows* and *cols* of each array at *paths* in the file at *href*, from
-    one open (an open reads the file's metadata, the slow part)."""
-    start = [rows.start, cols.start]
-    count = [rows.stop - rows.start, cols.stop - cols.start]
-    with gdal.config_options(GDAL_OPTIONS), open_file(href) as ds:
-        root = ds.GetRootGroup()
-        return [
-            root.OpenMDArrayFromFullname(path).ReadAsArray(
-                array_start_idx=start, count=count
-            )
-            for path in paths
-        ]
+def read(
+    url: str, signed: str, paths: list[str], rows: slice, cols: slice
+) -> list[np.ndarray]:
+    """*rows* and *cols* of each array at *paths* in the file at *url*: one
+    DMR++ fetch, then the arrays' chunks, all at once."""
+    arrays = open_arrays(url, signed, paths)
+    with ThreadPoolExecutor(len(paths)) as pool:
+        return list(pool.map(lambda p: np.asarray(arrays[p][rows, cols]), paths))
 
 
 def file_day(item: pystac.Item) -> pd.Timestamp:
@@ -328,15 +399,19 @@ def load(
             len(days),
             f"{missing[0]:%Y-%m-%d}",
         )
+    # Each file's URL (its .dmrpp is next to it) and the URL signed for its chunks
+    urls = {file_day(it): it.assets["data"].href for it in items}
     earthdata.sign(items, ["data"])
-    meta = describe(items[0].assets["data"].href, list(paths.values()))
+    signed = {file_day(it): it.assets["data"].href for it in items}
+    first = file_day(items[0])
+    meta = describe(urls[first], signed[first], list(paths.values()))
 
     # One read of each day's file gives all its arrays
     reads = {
-        file_day(it): dask.delayed(read)(
-            it.assets["data"].href, list(paths.values()), rows, cols
+        day: dask.delayed(read)(
+            urls[day], signed[day], list(paths.values()), rows, cols
         )
-        for it in items
+        for day in urls
     }
     shape = (rows.stop - rows.start, cols.stop - cols.start)
     parts = []

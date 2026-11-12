@@ -122,6 +122,36 @@ pystac Item: its temporal range, first bounding rectangle, `ProductionDateTime` 
 
 ## Reads
 
+> **Prototype (branch `smap-dmrpp`).** `smap.py` here reads through each file's DMR++
+> sidecar (`<file>.dmrpp`, NSIDC's OPeNDAP chunk index, 35.5 MB of XML a day) with
+> VirtualiZarr's `DMRParser`, instead of GDAL; the GDAL notes below are the `smap`
+> branch's. `open_arrays` fetches the `.dmrpp` with the token and parses only the
+> arrays asked for (`skip_variables`); `SignedRanges` reads their chunks from the
+> signed CloudFront URL in aligned 1 MiB blocks, each fetched once. No libhdf5, so
+> threads, not worker processes, and no `gdal` bindings.
+>
+> - **Why not `earthaccess.virtualize`.** It works, but its `HTTPStore` sends the
+>   token with every chunk, and each request then takes NSIDC's 303 to CloudFront
+>   (about 1 s, against 0.15 s for the signed URL), one request per 1 × 3856 row
+>   chunk: CONUS took 361 s (zarr's async concurrency 10 or 64 alike). VirtualiZarr's
+>   `ManifestStore` drops a URL's query and obstore escapes `?`, hence a store of our
+>   own for the signed URL; zarr reads chunk by chunk, hence its blocks. `virtualize`
+>   also fetches and parses the `.dmrpp` once per group.
+> - **Quirks.** VirtualiZarr leaves Zarr's `fill_value` at 0; the real one is the
+>   `_FillValue` attribute, base64 of a float64 for the floats (`smap.fill_value`).
+>   Units are an attribute. `tb_time_utc` (strings) can't be parsed, with a warning.
+>
+> Reading the 16 default arrays of `SMAP_L3_SM_P_E_20250901_R19240_001.h5`, one fresh
+> process each, from Seattle, 2026-11-11 (values identical to GDAL's, 16/16):
+>
+> | AOI | DMR++, signed blocks | `earthaccess`-style (token per chunk) | GDAL multidimensional |
+> |---|---|---|---|
+> | Paradise | 5.5–5.7 s | 8.8 s | 10.9–12.2 s |
+> | CONUS | 8.6 s | 361 s | 17.5 s |
+>
+> Staging 6 days over CONUS through `runner.stage` (8 files, 67.5 MB written), in
+> threads: 21.4 s and 22.3 s, against 113–126 s in worker processes below.
+
 `earthdata.sign` gets each file a CloudFront URL signed for an hour (NSIDC answers the
 token with a 303, as ASF does), all before anything is read. GDAL's multidimensional
 API, from the `gdal` Python bindings, then reads them anonymously:
