@@ -141,11 +141,22 @@ def run(
                 e = e.__cause__
             log.error("%s: failed: %s", req.name, e)
             log.debug("%s: traceback", req.name, exc_info=True)
-            failures[req.name] = f"{type(e).__name__}: {e}"
+            failures[req.name] = _reason(e)
     # Close cached remote GDAL handles before interpreter shutdown, where their
     # cleanup can crash sys.excepthook on Python 3.14
     FILE_CACHE.clear()
     return failures
+
+
+def _reason(e: BaseException) -> str:
+    """*e* and its causes: rasterio's "Read failed. See previous exception for
+    details." has GDAL's own error (e.g. the HTTP status) as its cause."""
+    reasons = []
+    cause: BaseException | None = e
+    while cause is not None:
+        reasons.append(f"{type(cause).__name__}: {cause}")
+        cause = cause.__cause__
+    return "; caused by ".join(reasons)
 
 
 def _nodes(path: str, obj: xr.Dataset | xr.DataTree) -> dict[str, xr.Dataset]:

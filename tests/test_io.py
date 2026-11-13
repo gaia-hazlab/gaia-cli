@@ -202,6 +202,12 @@ def test_save_datatree_is_readable_by_gdal(tmp_path, monkeypatch, single_chunk):
     assert back.sbs.rio.crs.to_epsg() == 32610
 
 
+def test_gdal_http_settings_are_in_the_environment():
+    # For reads outside odc-stac and in worker processes too
+    for key in io.GDAL_HTTP:
+        assert os.environ[key]
+
+
 def _env_value(block):
     """A block of the worker's GAIA_TEST_ENV (0 if unset)."""
     return np.full(block.shape, int(os.environ.get("GAIA_TEST_ENV", "0")))
