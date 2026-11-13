@@ -13,10 +13,10 @@ dependencies = [
   "cf-xarray>=0.10",
   "cyclopts>=5.2.0,<6",
   "exactextract",
-  "gdal>=3.13.3",
   "geopandas>=1.2.0,<2",
   "icechunk>=2.3",
   "numpy",
+  "obspec-utils>=0.9",
   "obstore>=0.11",
   "odc-stac>=0.5.3",
   "pandas",
@@ -32,6 +32,7 @@ dependencies = [
   "scipy",
   "shapely>=2",
   "unlzw3",
+  "virtualizarr>=2.8",
   "xarray",
   "xvec>=0.5.2,<0.6",
   "zarr",
@@ -136,4 +137,5 @@ pymseed = ">=1.0.1,<2"
 scipy = ">=1.18.1,<2"
 asf_search-base = ">=14.1.0,<15"
 libgdal-hdf5 = ">=3.13.3,<4"
-gdal = ">=3.13.3,<4"
+virtualizarr = ">=2.8.0,<3"
+obspec_utils = ">=0.9.0,<0.10"

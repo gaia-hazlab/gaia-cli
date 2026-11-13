@@ -1,3 +1,5 @@
+import asyncio
+import base64
 import logging
 
 import geopandas as gpd
@@ -6,7 +8,7 @@ import pandas as pd
 import pytest
 import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
-from osgeo import gdal
+import zarr
 from shapely.geometry import box
 
 from gaia_cli import earthdata, fetch, io, regrid
@@ -34,49 +36,42 @@ COLLECTION = {
     "links": [{"rel": "license", "href": "https://www.earthdata.nasa.gov/"}],
 }
 FLAGS = {"flag_masks": "1s, 2s, 4s, 8s", "flag_meanings": "a b c d"}
-# AM name -> (type, unit, attributes) of the stand-ins' arrays
+# As VirtualiZarr gives the floats' _FillValue: base64 of a float64's bytes
+FLOAT_FILL = base64.b64encode(np.float64(-9999).tobytes()).decode()
+# AM name -> (dtype, attributes) of the stand-ins' arrays, as VirtualiZarr
+# gives them from a DMR++ file
+CM3 = {"units": "cm**3/cm**3", "_FillValue": FLOAT_FILL}
+KELVIN = {"units": "Kelvin", "_FillValue": FLOAT_FILL}
+FLAG = {**FLAGS, "_FillValue": 65534}
 ARRAYS = {
-    "soil_moisture": (gdal.GDT_Float32, "cm**3/cm**3", {"long_name": "soil moisture"}),
-    "soil_moisture_error": (gdal.GDT_Float32, "cm**3/cm**3", {}),
-    "tb_v_corrected": (gdal.GDT_Float32, "Kelvin", {"valid_min": 0, "valid_max": 330}),
-    "tb_h_corrected": (gdal.GDT_Float32, "Kelvin", {}),
-    "retrieval_qual_flag": (gdal.GDT_UInt16, "", FLAGS),
-    "tb_qual_flag_v": (gdal.GDT_UInt16, "", FLAGS),
-    "tb_qual_flag_h": (gdal.GDT_UInt16, "", FLAGS),
-    "surface_flag": (gdal.GDT_UInt16, "", FLAGS),
+    "soil_moisture": (np.float32, {**CM3, "long_name": "soil moisture"}),
+    "soil_moisture_error": (np.float32, CM3),
+    "tb_v_corrected": (np.float32, {**KELVIN, "valid_min": 0, "valid_max": 330}),
+    "tb_h_corrected": (np.float32, KELVIN),
+    "retrieval_qual_flag": (np.uint16, FLAG),
+    "tb_qual_flag_v": (np.uint16, FLAG),
+    "tb_qual_flag_h": (np.uint16, FLAG),
+    "surface_flag": (np.uint16, FLAG),
 }
 
 
-def day_file(value: float) -> gdal.Dataset:
-    """A stand-in for one day's file: every array of both passes, floats
-    *value* (PM: *value* + 0.5) but -9999 at cell (1, 1), flags 1 (PM: 2)."""
-    ds = gdal.GetDriverByName("MEM").CreateMultiDimensional("smap")
-    root = ds.GetRootGroup()
+def day_file(value: float) -> dict[str, zarr.Array]:
+    """A stand-in for one day's file: every array of both passes, by path,
+    floats *value* (PM: *value* + 0.5) but -9999 at cell (1, 1), flags 1
+    (PM: 2)."""
+    out = {}
     for (group, suffix), offset in zip(smap.GROUPS.values(), (0, 1), strict=True):
-        g = root.CreateGroup(group)
-        dims = [g.CreateDimension(f"dim{i}", None, None, CELLS) for i in (0, 1)]
-        for name, (kind, unit, attrs) in ARRAYS.items():
-            array = g.CreateMDArray(
-                f"{name}{suffix}", dims, gdal.ExtendedDataType.Create(kind)
-            )
-            if kind == gdal.GDT_Float32:
-                values = np.full((CELLS, CELLS), value + offset / 2, np.float32)
+        for name, (dtype, attrs) in ARRAYS.items():
+            if dtype == np.float32:
+                values = np.full((CELLS, CELLS), value + offset / 2, dtype)
                 values[1, 1] = -9999
-                array.SetNoDataValueDouble(-9999)
             else:
-                values = np.full((CELLS, CELLS), 1 + offset, np.uint16)
-                array.SetNoDataValueDouble(65534)
-            array.Write(values)
-            if unit:
-                array.SetUnit(unit)
-            for key, v in attrs.items():
-                kind = (
-                    gdal.ExtendedDataType.CreateString()
-                    if isinstance(v, str)
-                    else gdal.ExtendedDataType.Create(gdal.GDT_Float64)
-                )
-                array.CreateAttribute(key, [], kind).Write(v)
-    return ds
+                values = np.full((CELLS, CELLS), 1 + offset, dtype)
+            # Zarr's own fill value stays 0, as VirtualiZarr leaves it
+            out[f"/{group}/{name}{suffix}"] = zarr.create_array(
+                zarr.storage.MemoryStore(), data=values, attributes=attrs
+            )
+    return out
 
 
 def record(day: str, produced: str = "2025-09-02T11:33:38.529Z") -> dict:
@@ -131,15 +126,18 @@ def nsidc(monkeypatch):
         "records": [record("2025-09-01"), record("2025-09-02"), record("2025-09-03")],
         "values": {},
         "searches": [],
+        "opened": [],
     }
 
     def search(concept_id, aoi, start=None, end=None):
         stand_in["searches"].append((concept_id, start, end))
         return stand_in["records"]
 
-    def open_file(href):
-        day = href.rsplit("_E_", 1)[1][:8]
-        return day_file(stand_in["values"].get(href, int(day[-2:]) / 10))
+    def open_arrays(url, signed, paths):
+        stand_in["opened"].append(url)
+        day = url.rsplit("_E_", 1)[1][:8]
+        arrays = day_file(stand_in["values"].get(url, int(day[-2:]) / 10))
+        return {p: arrays[p] for p in paths}
 
     def get(url, **kwargs):
         assert url.startswith(smap.STAC)
@@ -151,7 +149,7 @@ def nsidc(monkeypatch):
 
     monkeypatch.setattr(earthdata, "cmr_search", search)
     monkeypatch.setattr(earthdata, "sign", lambda items, assets: None)
-    monkeypatch.setattr(smap, "open_file", open_file)
+    monkeypatch.setattr(smap, "open_arrays", open_arrays)
     monkeypatch.setattr(fetch, "get", get)
     return stand_in
 
@@ -178,6 +176,9 @@ def test_load_reads_both_passes_of_each_day(nsidc):
     assert ds.soil_moisture.dtype == np.float32
     flags = ds.surface_flag_pm.sel(time="2025-09-02")
     assert flags.dtype == np.uint16 and set(np.unique(flags.values)) == {2}
+    # Each file opened once: the first's attributes come from its read's open
+    assert sorted(nsidc["opened"]) == sorted(set(nsidc["opened"]))
+    assert len(nsidc["opened"]) == 3
 
 
 def test_load_is_on_the_ease_grid(nsidc):
@@ -352,7 +353,7 @@ def test_cli_flags(tmp_path, capsys):
     assert "orbit_state: descending" in out and "variables: [soil_moisture]" in out
 
 
-def test_the_runner_reads_it_in_processes_and_writes_it(nsidc, tmp_path, monkeypatch):
+def test_the_runner_reads_it_in_threads_and_writes_it(nsidc, tmp_path, monkeypatch):
     calls = []
 
     def compute(tree, env):
@@ -367,8 +368,7 @@ def test_the_runner_reads_it_in_processes_and_writes_it(nsidc, tmp_path, monkeyp
         + ["-o", str(tmp_path / "o")],
         result_action="return_value",
     )
-    assert calls == [smap.PROCESS_ENV]
-    assert calls[0]["CPL_VSIL_CURL_CHUNK_SIZE"] == "16384"
+    assert calls == []  # no libhdf5: no worker processes
     (store,) = (tmp_path / "o").glob("*.zarr")
     ds = xr.open_datatree(store, engine="zarr")["rasters/smap"].to_dataset()
     # Stored as uint16 with its fill value (read back as float with NaN)
@@ -377,3 +377,79 @@ def test_the_runner_reads_it_in_processes_and_writes_it(nsidc, tmp_path, monkeyp
     assert ds.soil_moisture.attrs[regrid.METHOD_ATTR] == "average"
     assert ds.surface_flag.attrs[regrid.METHOD_ATTR] == "nearest"
     assert float(ds.tb_v_corrected.max()) == pytest.approx(0.3)
+
+
+def test_fill_values_from_virtualizarr():
+    assert smap.fill_value({"_FillValue": FLOAT_FILL}, np.dtype(np.float32)) == -9999
+    assert smap.fill_value({"_FillValue": 65534}, np.dtype(np.uint16)) == 65534
+
+
+def test_granule_fetches_its_dmrpp_once_with_the_token(monkeypatch):
+    calls = []
+
+    def get(url, headers):
+        calls.append((url, headers))
+        return type(
+            "R",
+            (),
+            {
+                "status_code": 200,
+                "raise_for_status": lambda self: None,
+                "content": b"<xml/>",
+            },
+        )()
+
+    monkeypatch.setenv(earthdata.TOKEN, "t")
+    monkeypatch.setattr(fetch, "get", get)
+    store = smap.Granule("https://nsidc/f.h5", "https://cdn/f.h5?Signature=x")
+    assert store.head("f.h5.dmrpp") == {"size": 6}
+    assert bytes(store.get("f.h5.dmrpp").buffer()) == b"<xml/>"
+    assert store.get_ranges("f.h5.dmrpp", starts=[0, 4], lengths=[2, 2]) == [
+        b"<x",
+        b"/>",
+    ]
+    assert calls == [("https://nsidc/f.h5.dmrpp", {"Authorization": "Bearer t"})]
+
+
+def test_a_file_without_a_dmrpp_is_a_clear_error(monkeypatch):
+    def get(url, headers):
+        return type("R", (), {"status_code": 404})()
+
+    monkeypatch.setenv(earthdata.TOKEN, "t")
+    monkeypatch.setattr(fetch, "get", get)
+    store = smap.Granule("https://nsidc/SMAP_E_20250901.h5", "https://cdn/f.h5?S=x")
+    with pytest.raises(RuntimeError, match=r"no DMR\+\+ index for SMAP_E_20250901\.h5"):
+        store.head("SMAP_E_20250901.h5.dmrpp")
+
+
+def test_granule_fetches_each_block_once(monkeypatch):
+    data = bytes(range(256)) * 64  # 16 kB
+    calls = []
+
+    def get(url, headers):
+        start, end = map(int, headers["Range"].removeprefix("bytes=").split("-"))
+        calls.append((url, start))
+        return type(
+            "R",
+            (),
+            {"raise_for_status": lambda self: None, "content": data[start : end + 1]},
+        )()
+
+    monkeypatch.setattr(smap, "BLOCK", 1000)
+    monkeypatch.setattr(fetch, "get", get)
+    store = smap.Granule("https://nsidc/f.h5", "https://cdn/f.h5?Signature=x")
+
+    async def reads():
+        return await asyncio.gather(
+            store.get_range_async("ignored", start=10, end=20),
+            store.get_range_async("ignored", start=990, length=20),  # 2 blocks
+            store.get_range_async("ignored", start=1500, end=1600),
+        )
+
+    a, b, c = asyncio.run(reads())
+    assert (a, b, c) == (data[10:20], data[990:1010], data[1500:1600])
+    # Blocks 0 and 1, each once, from the signed URL with its query
+    assert sorted(calls) == [
+        ("https://cdn/f.h5?Signature=x", 0),
+        ("https://cdn/f.h5?Signature=x", 1000),
+    ]
