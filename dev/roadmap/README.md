@@ -26,6 +26,7 @@ is an MVP, their authors can decide whether to depend on gaia-cli.
 | [03-storage.md](03-storage.md) | Should everything go into one Zarr store, or should timeseries go to Parquet or Iceberg? How does the STAC catalog fit? |
 | [04-datasets.md](04-datasets.md) | Which minimal set of datasets and providers covers all three workflows, and where do they work? |
 | [05-pr-sequence.md](05-pr-sequence.md) | In what order, one reviewable PR at a time? |
+| [07-plugins.md](07-plugins.md) | Should outside packages provide datasets, and what must a dataset meet for `gaia align` to work? |
 | [obspy-dependency.md](obspy-dependency.md) | Can we stage seismic and infrasound data without obspy? |
 
 ## Design goals
