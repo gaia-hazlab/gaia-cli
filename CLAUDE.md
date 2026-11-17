@@ -52,6 +52,7 @@ src/gaia_cli/
   earthdata.py    # NASA Earthdata: asf_search to pystac Items, ASF-signed COG URLs (EARTHDATA_TOKEN)
   catalog.py      # "gaia catalog rebuild"
   align.py        # "gaia align": time aggregation and regridding onto one grid
+  check.py        # "gaia check": summarize a store's groups; report what align can't use
   regrid.py       # per-array spatial regridding methods
   presets/        # built-in stage files (conus-precip)
   stations.py     # ragged-array helpers for station data: to_dataframe, to_grid
