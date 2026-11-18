@@ -254,6 +254,80 @@ of the L4_SM land model, into which SMAP's brightness temperatures are assimilat
 Unlike Level 3 it has every land cell at every step, and soil moisture below the
 surface.
 
+- **Model.** NASA GMAO's GEOS Catchment land surface model, with an L-band
+  radiative transfer model, on the 9 km grid, merged with SMAP by a spatially
+  distributed ensemble Kalman filter every 3 hours (0z, 3z, …). The only
+  observations assimilated are `SPL1CTB` version 6 (R19) brightness temperatures,
+  both polarizations and both passes, as anomalies from a seasonal and diurnal
+  climatology. They're skipped where the model has heavy rain, frozen soil or snow.
+  The forcing is GEOS-FP's hourly 0.25° surface meteorology. Its precipitation is
+  corrected to daily totals from CPC Unified gauges in North America (south to
+  13° N since Version 8, 20° N before) and from IMERG V07 elsewhere, with the
+  corrections tapering between 50° and 60° N/S. Where IMERG-Final's half-hourly
+  rates disagree with its gauge-constrained monthly product, mostly in snowfall,
+  only the monthly total is matched. Not ERA5 or NLDAS. Version 8's radiative
+  transfer model switched to `SPL2SMP_E`'s Mironov dielectric mixing and takes its
+  scattering albedo, roughness, vegetation opacity and polarization mixing from
+  `SPL2SMP_E` version 6, so Level 3 and Level 4 share more than their brightness
+  temperatures.
+- **Science versions.** The file name's `Vv80nn` is the algorithm version, and the
+  precipitation inputs change with it (from NSIDC's L4 version history workbook;
+  spot-checked against CMR's granule names on 2026-11-18):
+
+  | science version | data dates | precipitation |
+  |---|---|---|
+  | `Vv8010` | 2015-03-31 to 2023-07 | IMERG-Final daily corrections |
+  | `Vv8011` | 2024-10-01 to 2025-09 | IMERG-Late. Obsolete, superseded by `Vv8012`/`Vv8013` |
+  | `Vv8012` | 2023-08 to 2025-09 | IMERG-Final, continued from `Vv8010`. Also adds Tb QC (Tb error ≤ 1.3 K) |
+  | `Vv8013` | 2025-10-01 on | no IMERG: CPC Unified in North America only |
+
+  Each date is in exactly one science version: `Vv8012` and `Vv8013` reprocessed
+  from 2023-08-01 on, replacing `Vv8011`, and `Vv8010` still covers everything
+  before. So which version a request gets depends only on its dates. In North
+  America, none of this matters for precipitation: every version corrects GEOS-FP to
+  CPC Unified daily gauge totals there, after scaling both to an IMERG-Final (or
+  GPCP v2.3, poleward of IMERG's coverage) seasonal climatology (Reichle & Liu 2021,
+  [NASA/TM-2021-104606 Vol. 59](https://gmao.gsfc.nasa.gov/media/publications/zbly36ziNFDFbmYmvhQeVqPhUo/Reichle1344.pdf),
+  §3, written for Version 6; nothing since says it changed). Outside North America
+  the IMERG inputs do change with the version.
+
+  For `Vv8013`, NSIDC's [announcement](https://nsidc.org/data/user-resources/data-announcements/data-set-updates-smap-level-4)
+  (2026-10-23) says only "improvements to L1C_TB quality control, IMERG late inputs,
+  and a geolocation issue fix", and the workbook only "Discontinues use of daily
+  precipitation corrections based on IMERG-Final". The workbook marks `Vv8010`–`Vv8013` "to be updated once new
+  documentation is available" (last updated 2026-10-20). The user guide's §2.3–2.4
+  still list IMERG-Late as an input, but that text dates from `Vv8011`, which has been
+  withdrawn. The files themselves say more: `/Metadata/Config/L4_SM_PRECIP_version`
+  names the corrected precipitation each one was forced with (read from the
+  `.dmrpp`s on 2026-11-18):
+
+  | file | science version | `L4_SM_PRECIP_version` |
+  |---|---|---|
+  | 2016-06, 2021-06 | `Vv8010` | `IMGv7BFnCPCUcorrv3` |
+  | 2023-09, 2025-06 | `Vv8012` | `IMGv7BFnCPCUcorrv3` |
+  | 2025-11 | `Vv8013` | `CPCULLK_fp_v2` |
+  | 2026-11 | `Vv8013` | `CPCUFLK_fp_v2` |
+  | 2022-06 | `Vv7030` (Version 7, IMERG-Late) | `CPCUFLK_IMERGLateV06c_fp_v1` |
+  | 2024-06 | `Vv7031` (Version 7, IMERG dropped) | `CPCUFLK_fp_v1` |
+
+  `Vv8013`'s input has no IMERG component and has the same form as `Vv7031`'s, which
+  "did not use any precipitation observations outside of North America" (assessment
+  report, §IV). So outside North America `Vv8013` is forced with GEOS-FP's own
+  precipitation. Two things are undocumented: whether it is still rescaled to the
+  IMERG climatology (Version 6 on), and what `LLK`/`FLK` mean. A web search for
+  either string turned up nothing (2026-11-18). The files'
+  `L4_SM_PRECIP_description` ("CPCU/IMERG Corrected Precipitation") and
+  `/Metadata/Source/GEOS5_lfo_corr/description` (CPC Unified only) are the same in
+  every file, so they say nothing about which version a file is.
+
+  A store's `links` name every granule, so they show which versions it mixes.
+  Sources: the [Version 8 User Guide](https://nsidc.org/sites/default/files/documents/user-guide/multi_spl4smau-v008-userguide.pdf)
+  (§2.3–2.4, version history), the [Product Specification
+  Document](https://nsidc.org/sites/default/files/documents/technical-reference/smap_l4_sm_psd_v17_for_l4sm_version_8.pdf)
+  (GMAO Office Note 10 v1.7, §1.5), the [Version 8 assessment
+  report](https://nsidc.org/sites/default/files/documents/technical-reference/igarss2026_reichle_et_al_v3_for_nsidc.pdf)
+  (Reichle et al., IGARSS 2026, §II.B) and the [version history
+  workbook](https://nsidc.org/sites/default/files/documents/other/smap_l4_versionhistory_0725.xlsx).
 - **Collection.** `C3480440870-NSIDC_CPRD`, pinned; on CMR STAC as `SPL4SMGP_008`. From
   2015-03-31.
 - **Granules.** One HDF5 file per 3 hours, about 144 MB, named by the interval's
