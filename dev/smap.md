@@ -304,30 +304,32 @@ to `smap/<product>`. `seismic` and `infrasound`, two datasets over one reader
 
 ### Level 4 measurements
 
-One day, 2025-09-01, of each product's default variables: Level 3's 16 arrays (8
-variables, both passes) from 1 file, Level 4's 3 from 8 files. `load(...).compute()`,
+Each product's default variables from 2025-09-01: Level 3's 16 arrays (8 variables,
+both passes) from 1 file a day, Level 4's 3 from 8 files a day. `load(...).compute()`,
 one fresh process per run, two runs each, from Seattle over HTTPS, 2026-11-17. Bytes
 are every response's body, counted at `fetch.get`.
 
 | AOI (9 km cells) | product | total, 2 runs | reads (`compute`) | downloaded: `.dmrpp` + chunks | peak memory |
 |---|---|---|---|---|---|
-| Paradise (3 × 4) | L3 | 7.7 s, 66.2 s | 2.1–2.3 s | 50.2 MB: 35.5 + 14.7 | 0.5–0.7 GB |
-| | L4 | 12.5 s, 64.7 s | 8.7–9.6 s | 133.3 MB: 2.1 + 131.1 | 0.6 GB |
-| CONUS (282 × 621) | L3 | 8.3 s, 31.9 s | 2.5–3.0 s | 58.6 MB: 35.5 + 23.1 | 0.6–0.7 GB |
-| | L4 | 63.7 s, 65.3 s | 9.1–9.2 s | 133.3 MB: 2.1 + 131.1 | 0.6–0.7 GB |
-| global (1624 × 3856) | L3 | 108.5 s, 91.5 s | 6.7–6.9 s | 101.6 MB: 35.5 + 66.1 | 1.3 GB |
-| | L4 | 10.5 s, 18.7 s | 8.3–10.0 s | 133.3 MB: 2.1 + 131.1 | 1.4–1.5 GB |
+| 1 day, Paradise (3 × 4) | L3 | 23.1 s, 10.2 s | 2.6–2.7 s | 50.2 MB: 35.5 + 14.7 | 0.6–0.7 GB |
+| | L4 | 14.1 s, 15.2 s | 11.2–11.3 s | 133.3 MB: 2.1 + 131.1 | 0.5–0.6 GB |
+| 1 day, CONUS (282 × 621) | L3 | 26.0 s, 20.6 s | 3.4–3.5 s | 58.6 MB: 35.5 + 23.1 | 0.6–0.7 GB |
+| | L4 | 19.5 s, 15.1 s | 10.6–10.9 s | 133.3 MB: 2.1 + 131.1 | 0.5–0.7 GB |
+| 1 day, global (1624 × 3856) | L3 | 17.5 s, 15.0 s | 8.2–8.6 s | 101.6 MB: 35.5 + 66.1 | 1.3–1.4 GB |
+| | L4 | 17.7 s, 13.9 s | 11.6–11.7 s | 133.3 MB: 2.1 + 131.1 | 1.2–1.3 GB |
+| 6 days, CONUS | L3 | 71.9 s, 36.6 s | 30.8–31.0 s | 356.8 MB: 213.1 + 143.7 | 1.0–1.1 GB |
+| | L4 | 72.5 s, 82.8 s | 54.9–61.5 s | 789.0 MB: 12.8 + 776.0 | 0.6–0.7 GB |
 
-- **Level 4 downloads the same 133 MB for any AOI**: 8 steps × 3 whole-globe chunks
-  of about 4.3 MB, plus 8 small `.dmrpp`s. Level 3's `.dmrpp` (35.5 MB) is most of
-  what a small AOI costs.
+- **Level 4 downloads the same 133 MB a day for any AOI**: 8 steps × 3 whole-globe
+  chunks of about 4.3 MB, plus 8 small `.dmrpp`s. Level 3's `.dmrpp` (35.5 MB) is most
+  of what a small AOI costs.
 - **The rest of the total is setup**: `load()` before `compute`, i.e. the CMR search,
-  the CMR STAC collection (provenance) and the first file's `.dmrpp`. At best that's
-  5.3 s for Level 3 and 2.2 s for Level 4. That day both CMR services were slow and
-  flaky: the same granule search took 0.2–32 s, and the STAC collection 0.5 s or a 503
-  after 29 s (which `fetch` retries), so setup ranged from 2.2 s to 102 s whatever the
-  product or AOI.
-- Reads run 8 files' tasks in dask's threads; the signing (8 requests) is inside them.
+  the CMR STAC collection (provenance) and the first file's `.dmrpp`: 2.2–41 s, mostly
+  CMR. Its services were slow and flaky that day: the same granule search took
+  0.2–32 s, and the STAC collection 0.5 s or a 503 after 29 s (which `fetch` retries).
+- **Level 3 is no slower for the refactor**: 6 days over CONUS read in 26.9–31.8 s
+  with `main`'s code (#78) and 28.9–31.8 s with this one, run alternately.
+- Reads run each file's task in dask's threads; its signing is inside it.
 
 ## Tests
 
