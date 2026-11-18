@@ -18,6 +18,7 @@ title: Datasets
 | [`opera-rtc`](#opera-rtc) | OPERA Sentinel-1 radar backscatter (NASA Earthdata) | land north of 60° S, 2016-04 on | 30 m | each pass | `rasters/opera-rtc` |
 | [`nisar-gcov`](#nisar-gcov) | NISAR L-band radar backscatter (NASA Earthdata) | global, 2025-11 on | 10–20 m | each pass | `rasters/nisar-gcov` |
 | [`smap`](#smap) | SMAP L-band brightness temperature and soil moisture (NASA Earthdata) | global to 85°, 2015-03-31 on | 9 km | daily, AM and PM passes | `rasters/smap` |
+| [`smap-l4`](#smap-l4) | SMAP Level-4 surface and root-zone soil moisture, model-assimilated (NASA Earthdata) | global to 85°, 2015-03-31 on | 9 km | 3-hourly means | `rasters/smap-l4` |
 | [`sentinel2`](#sentinel2) | Sentinel-2 surface reflectance | global, 2015-06 on | 10 m | each pass | `rasters/sentinel2` |
 | [`seismic`](#seismic) | seismic waveforms (EarthScope FDSN) | global | stations | native rate, raw counts | `waveforms/seismic/<rate>hz` |
 | [`infrasound`](#infrasound) | infrasound waveforms (EarthScope FDSN) | global | sensors | native rate, raw counts | `waveforms/infrasound/<rate>hz` |
@@ -335,6 +336,34 @@ Global (EPSG:6933). Needs `EARTHDATA_TOKEN`, as `opera-rtc` does.
 ```bash
 gaia stage smap -i aoi.geojson -s 2025-09-01 -e 2025-09-10 -o out
 gaia stage smap -i aoi.geojson -s 2025-09-01 -e 2025-09-10 -o out --orbit-state descending --variables soil_moisture
+```
+
+(smap-l4)=
+## SMAP Level 4
+
+Surface and root-zone soil moisture from NASA's
+[SMAP Level-4](https://nsidc.org/data/spl4smgp/versions/8) product (`SPL4SMGP`,
+version 8): SMAP's brightness temperatures assimilated into a land model, as 3-hour
+means of every land cell, on `smap`'s 9 km EASE-Grid 2.0. Needs `EARTHDATA_TOKEN`.
+
+- Default variables: `sm_surface` (0–5 cm), `sm_rootzone` (0–100 cm) and `sm_profile`
+  (to the model's bedrock), all m³ m⁻³. `--variables` takes any other of the files' 45
+  grids, e.g. `snow_mass`, `surface_temp`, `soil_temp_layer1`,
+  `precipitation_total_surface_flux`, `sm_rootzone_wetness`; see
+  `gaia stage smap-l4 --help`.
+- Eight time steps a day, each the mean of the 3 hours ending at it (`time_bounds`,
+  `cell_methods: "time: mean"`). Steps missing from the archive are NaN, with a warning.
+- Each file stores each variable as one global chunk, so any AOI downloads all of it:
+  about 4.3 MB per soil moisture variable and step, roughly 100 MB a day for the
+  defaults. Long windows over small AOIs cost as much as global ones.
+- Only `sm_surface` has the standard name `volume_fraction_of_condensed_water_in_soil`
+  (its depth is `smap`'s `soil_moisture`'s); the deeper layers' `long_name` gives their
+  depth.
+- License: CC0-1.0 (NASA Earthdata data use policy).
+
+```bash
+gaia stage smap-l4 -i aoi.geojson -s 2025-07-01 -e 2025-07-03 -o out
+gaia stage smap-l4 -i aoi.geojson -s 2025-07-01 -e 2025-07-03 -o out --variables sm_surface snow_mass
 ```
 
 (sentinel2)=

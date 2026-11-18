@@ -50,6 +50,7 @@ src/gaia_cli/
   provenance.py   # provenance attributes and STAC Items
   stac.py         # Planetary Computer STAC search, SAS signing, odc-stac loading; scene grouping and selection
   earthdata.py    # NASA Earthdata: asf_search to pystac Items, ASF-signed COG URLs (EARTHDATA_TOKEN)
+  dmrpp.py        # HDF5 reads through DAACs' DMR++ sidecars (VirtualiZarr), each file signed when read: smap, smap-l4
   catalog.py      # "gaia catalog rebuild"
   align.py        # "gaia align": time aggregation and regridding onto one grid
   regrid.py       # per-array spatial regridding methods
@@ -68,6 +69,8 @@ src/gaia_cli/
     sentinel1_rtc.py  # Sentinel-1 RTC gamma0 per pass (Planetary Computer, via stac.py)
     sentinel2.py  # Sentinel-2 L2A reflectance and SCL per pass (Planetary Computer, via stac.py)
     opera_rtc.py  # OPERA RTC-S1 gamma0 bursts per pass, plus static layers (ASF, via earthdata.py)
+    smap.py       # SMAP L3 (SPL3SMP_E) daily 9 km; EASE-Grid, CMR search and dataset assembly shared with smap_l4
+    smap_l4.py    # SMAP L4 (SPL4SMGP) 3-hourly surface and root-zone soil moisture (via dmrpp.py, smap.py)
     seismic.py    # EarthScope FDSN waveforms, raw counts per sample rate (uses waveforms.py)
     infrasound.py # EarthScope FDSN pressure, the same layout; array elements kept per position
     nlcd.py, dem.py, soil.py, burn_severity.py   # static layers

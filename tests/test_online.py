@@ -352,8 +352,8 @@ datasets:
     not os.environ.get("EARTHDATA_TOKEN"), reason="needs EARTHDATA_TOKEN"
 )
 def test_smap_days_over_the_columbia_basin(tmp_path):
-    # Read remotely from each day's HDF5 in worker processes; the token must not
-    # reach the store. Over this AOI the 2025-08-31 morning pass and the
+    # Read remotely from each day's HDF5 through its DMR++ index; the token must
+    # not reach the store. Over this AOI the 2025-08-31 morning pass and the
     # 2025-09-01 evening pass have retrievals; the other passes missed it
     config = tmp_path / "stage.yaml"
     config.write_text(
@@ -389,6 +389,47 @@ datasets:
     assert ds.soil_moisture.attrs["units"] == "m3 m-3"
     assert ds.surface_flag.encoding["dtype"] == np.uint16
     assert ds.surface_flag.attrs["flag_masks"][0] == 1
+    token = os.environ["EARTHDATA_TOKEN"]
+    assert not any(
+        token in p.read_text(errors="ignore")
+        for p in (tmp_path / "out").rglob("*")
+        if p.is_file()
+    )
+
+
+@pytest.mark.skipif(
+    not os.environ.get("EARTHDATA_TOKEN"), reason="needs EARTHDATA_TOKEN"
+)
+def test_smap_l4_steps_over_the_columbia_basin(tmp_path):
+    # Each step's whole-globe chunk read through its DMR++ index: one variable,
+    # 6 hours and a day beyond each end, 18 files
+    config = tmp_path / "stage.yaml"
+    config.write_text(
+        """
+name: columbia-basin-smap-l4
+aoi: {bbox: [-119.5, 46.5, -118.5, 47.0]}
+window: 2025-07-01T00:00:00Z/2025-07-01T06:00:00Z
+datasets:
+  smap-l4: {variables: [sm_surface]}
+"""
+    )
+    runner.stage(config=str(config), output_path=str(tmp_path / "out"))
+
+    tree = xr.open_datatree(
+        tmp_path / "out" / "columbia-basin-smap-l4.zarr", engine="zarr"
+    )
+    ds = tree["rasters/smap-l4"].to_dataset()
+    times = pd.to_datetime(ds.time.values)
+    assert times[0] == pd.Timestamp("2025-06-30T00:00")
+    assert times[-1] == pd.Timestamp("2025-07-02T03:00")
+    assert (times[1:] - times[:-1] == pd.Timedelta(hours=3)).all()
+    assert ds.rio.crs.to_epsg() == 6933
+    # A model product: every land cell, every step
+    sm = ds.sm_surface
+    assert sm.notnull().all()
+    assert 0.0 < float(sm.min()) <= float(sm.max()) < 0.6
+    assert sm.attrs["units"] == "m3 m-3"
+    assert sm.attrs["cell_methods"] == "time: mean"
     token = os.environ["EARTHDATA_TOKEN"]
     assert not any(
         token in p.read_text(errors="ignore")

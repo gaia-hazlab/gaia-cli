@@ -1,8 +1,9 @@
 # SMAP
 
-Module: `src/gaia_cli/datasets/smap.py` · Command: `gaia stage smap` ·
-Earthdata helper: `src/gaia_cli/earthdata.py` (shared with [opera-rtc.md](opera-rtc.md)
-and [nisar-gcov.md](nisar-gcov.md))
+Modules: `src/gaia_cli/datasets/smap.py` (Level 3) and `smap_l4.py` (Level 4,
+[below](#level-4-smap-l4)) · Commands: `gaia stage smap`, `gaia stage smap-l4` · Reader:
+`src/gaia_cli/dmrpp.py` · Earthdata helper: `src/gaia_cli/earthdata.py` (shared with
+[opera-rtc.md](opera-rtc.md) and [nisar-gcov.md](nisar-gcov.md))
 
 ## Source
 
@@ -27,9 +28,8 @@ retrieved from them, one file a day.
 - **Not used.**
   - `SPL1CTB(_E)` (brightness temperature) and `SPL2SMP(_E)` (soil moisture) hold each
     half orbit as a list of cells (`cell_row`, `cell_column`), not a grid.
-  - `SPL4SMGP` (Level-4, model-assimilated, with root-zone soil moisture) stores each
-    variable as one whole-globe chunk, so any AOI reads all of it, and GDAL finds no
-    transform in it.
+  - `SPL4SMGP` (Level-4, model-assimilated, with root-zone soil moisture) is its own
+    dataset, `smap-l4` ([below](#level-4-smap-l4)).
 - **License.** CC0-1.0 per the STAC collection (NASA Earthdata data use policy).
 
 ## Grids (`/Soil_Moisture_Retrieval_Data_AM/`, `/…_PM/`)
@@ -131,21 +131,22 @@ and each chunk's byte offset and size. One day's file has 35.5 MB of it. With th
 index, chunks are plain HTTP byte ranges: no libhdf5, so no worker processes and no
 `gdal` bindings.
 
-1. `earthdata.sign` gets each file a CloudFront URL signed for an hour (NSIDC answers
-   the token with a 303, as ASF does), all before anything is read.
+1. `earthdata.signed_url` gets each file a CloudFront URL signed for an hour (NSIDC
+   answers the token with a 303, as ASF does) when its first chunk is read, so no URL
+   expires however long the window (a year of `smap-l4` is 2,920 files).
 2. `smap.window` turns the AOI's bounds into the grid's rows and columns, plus one on
    each side so rioxarray finds the grid's spacing. `io.clip_to_aoi` drops the extra
    ones.
-3. `smap.open_arrays` calls VirtualiZarr's `DMRPPParser` once per group, since it
-   makes one group per call. It skips the arrays not asked for (`smap.ARRAYS` lists
-   every array in a group) and opens the result with zarr. `smap.Granule` is the
-   store it reads through:
+3. `dmrpp.open_arrays` calls VirtualiZarr's `DMRPPParser` once per group, since it
+   makes one group per call. It skips the arrays not asked for (each dataset lists
+   every array of its groups: `smap.GROUP_ARRAYS`, `smap_l4.ARRAYS`) and opens the
+   result with zarr. `dmrpp.Granule` is the store it reads through:
    - `head`, `get` and `get_ranges` serve the `.dmrpp`, fetched once with the token;
    - `get_range_async` reads chunks from the signed URL in aligned 1 MiB blocks
-     (`smap.BLOCK`), each fetched once, in a pool of 32 threads.
+     (`dmrpp.BLOCK`), each fetched once, in a pool of 32 threads.
 4. The first file is opened in the main process for each array's dtype, fill value
    and attributes (`smap.describe`), and that open is reused for its read. Each other
-   file is one dask task (`smap.read_file`): open, then read every array's window at
+   file is one dask task (`dmrpp.read_file`): open, then read every array's window at
    once. Zarr requests a window's chunks concurrently: over CONUS, 4,736 one-row
    chunks, which the blocks turn into about 22 requests.
 
@@ -165,13 +166,13 @@ index, chunks are plain HTTP byte ranges: no libhdf5, so no worker processes and
   parse it once.
 - **Quirks.**
   - VirtualiZarr leaves Zarr's `fill_value` at 0. The real one is the `_FillValue`
-    attribute, base64 of a float64 for the floats, which `smap.fill_value` decodes.
+    attribute, base64 of a float64 for the floats, which `dmrpp.fill_value` decodes.
   - Units are an attribute.
   - `tb_time_utc` (strings) can't be parsed; the warning is silenced.
 - **Every file needs a `.dmrpp`.** Every 10th day of the archive has one: 416 of
   416 sampled, 2015-03-31 to 2026-11-11, all one processing (CRID `R19240`), with one
   byte of each fetched (2026-11-12). A missing one stops the read with an error naming
-  the file (`smap.Granule`), rather than falling back to an HDF5 reader, which would
+  the file (`dmrpp.Granule`), rather than falling back to an HDF5 reader, which would
   keep the `gdal` bindings for a case not seen.
 - **Ruled out**, following [nisar-gcov.md](nisar-gcov.md):
   - h5py or h5netcdf over fsspec: an HDF5 read path, subject to libhdf5's lock, that
@@ -245,12 +246,98 @@ a frame's 3 arrays over Paradise, with the same 11 requests. With paged aggregat
 and 4 MiB requests, their whole metadata is a few requests. NISAR has no DMR++
 sidecar.
 
+## Level 4 (`smap-l4`)
+
+[SMAP L4 Global 3-hourly 9 km EASE-Grid Surface and Root Zone Soil Moisture Geophysical
+Data](https://nsidc.org/data/spl4smgp/versions/8) (`SPL4SMGP`), version 8: 3-hour means
+of the L4_SM land model, into which SMAP's brightness temperatures are assimilated.
+Unlike Level 3 it has every land cell at every step, and soil moisture below the
+surface.
+
+- **Collection.** `C3480440870-NSIDC_CPRD`, pinned; on CMR STAC as `SPL4SMGP_008`. From
+  2015-03-31.
+- **Granules.** One HDF5 file per 3 hours, about 144 MB, named by the interval's
+  center: `SMAP_L4_SM_gph_<YYYYMMDD>T<HHMMSS>_<version>_<counter>.h5`, e.g.
+  `…_20250701T013000_Vv8012_001.h5` for 00:00–03:00 UTC. Each granule also lists a
+  `.qa` report as a download, so `earthdata.cmr_item` takes the URL ending `.h5`.
+- **Not read.** `SPL4SMAU` (Analysis Update: 3-hourly snapshots of the assimilation's
+  observations, forecasts, analyses and diagnostics) and `SPL4SMLM` (Land Model
+  Constants: one static file of the model's parameters).
+
+**Grids.** `/Geophysical_Data/` holds 45 float32 arrays on the same EASE-Grid 2.0
+Global 9 km grid as Level 3; the files' own `x` and `y` match `smap.py`'s constants to
+within 1 m (checked 2026-11-17 on the file above). The root's `cell_lat`, `cell_lon`,
+`time` and `EASE2_global_projection` aren't read. −9999 is NaN. Units are already UDUNITS
+but `dimensionless`, which becomes `1`. `long_name` gives each layer's depth: 0–5 cm
+(`sm_surface`), 0–100 cm (`sm_rootzone`), to the model's bedrock (`sm_profile`). Default
+variables: `sm_surface`, `sm_rootzone`, `sm_profile`.
+
+**Layout.** Each array is one whole-globe chunk (1624 × 3856, DEFLATE), about 4.3 MB
+compressed for the soil moisture and temperature grids and 0.5 MB for `snow_mass`. Any
+AOI reads all of it, and decodes 25 MB per array before the window is cut. The `.dmrpp`
+is 0.27 MB (35.5 MB for a Level 3 file), so a file's fixed cost is small, but each step
+of each variable costs its whole chunk: about 100 MB a day for the default three, 38 GB
+a year, whatever the AOI.
+
+**Time.** Each value is the mean of the 3 hours ending at its time step (stamped at the
+end, as ERA5, HRRR and Stage IV are): `io.with_time_bounds(da, -3, 0, "time: mean")`,
+with the file found by its CMR `end_datetime`. The window's steps follow ERA5's
+`sel(time=slice(start, end))`: from `start` through `end`, a date-only end including
+its whole day (`smap_l4.steps`). The search starts 3 hours before the first step, and
+the files that only touch the window are dropped. `PAD` is the default day, 16 more
+files per stage.
+
+**Standard names.** CF's carry no depth, so a name several layers would share isn't
+given: `sm_surface` is `volume_fraction_of_condensed_water_in_soil` (its 0–5 cm is
+Level 3's `soil_moisture`'s), `sm_rootzone` and `sm_profile` have none, nor have
+`soil_temp_layer1` to `6`. Single quantities get theirs, e.g. `surface_snow_amount`,
+`precipitation_flux`, `surface_upward_latent_heat_flux`.
+
+**Why its own dataset** rather than a `product` variant of `smap`: variant datasets
+(`dem`, `soil`, `stage4`) take no option but the variant, which the stage file's
+checks rely on. Level 3 and Level 4 differ in their variables (different names and
+defaults) and options (`orbit_state` is Level 3's), which a shared `load()` would
+check only once reading; and a variant would move Level 3's group from `rasters/smap`
+to `smap/<product>`. `seismic` and `infrasound`, two datasets over one reader
+(`waveforms.py`), are the precedent followed: the shared parts are `dmrpp.py` and
+`smap.py`'s grid, search (`smap.find_files`) and assembly (`smap.stack`).
+
+### Level 4 measurements
+
+One day, 2025-09-01, of each product's default variables: Level 3's 16 arrays (8
+variables, both passes) from 1 file, Level 4's 3 from 8 files. `load(...).compute()`,
+one fresh process per run, two runs each, from Seattle over HTTPS, 2026-11-17. Bytes
+are every response's body, counted at `fetch.get`.
+
+| AOI (9 km cells) | product | total, 2 runs | reads (`compute`) | downloaded: `.dmrpp` + chunks | peak memory |
+|---|---|---|---|---|---|
+| Paradise (3 × 4) | L3 | 7.7 s, 66.2 s | 2.1–2.3 s | 50.2 MB: 35.5 + 14.7 | 0.5–0.7 GB |
+| | L4 | 12.5 s, 64.7 s | 8.7–9.6 s | 133.3 MB: 2.1 + 131.1 | 0.6 GB |
+| CONUS (282 × 621) | L3 | 8.3 s, 31.9 s | 2.5–3.0 s | 58.6 MB: 35.5 + 23.1 | 0.6–0.7 GB |
+| | L4 | 63.7 s, 65.3 s | 9.1–9.2 s | 133.3 MB: 2.1 + 131.1 | 0.6–0.7 GB |
+| global (1624 × 3856) | L3 | 108.5 s, 91.5 s | 6.7–6.9 s | 101.6 MB: 35.5 + 66.1 | 1.3 GB |
+| | L4 | 10.5 s, 18.7 s | 8.3–10.0 s | 133.3 MB: 2.1 + 131.1 | 1.4–1.5 GB |
+
+- **Level 4 downloads the same 133 MB for any AOI**: 8 steps × 3 whole-globe chunks
+  of about 4.3 MB, plus 8 small `.dmrpp`s. Level 3's `.dmrpp` (35.5 MB) is most of
+  what a small AOI costs.
+- **The rest of the total is setup**: `load()` before `compute`, i.e. the CMR search,
+  the CMR STAC collection (provenance) and the first file's `.dmrpp`. At best that's
+  5.3 s for Level 3 and 2.2 s for Level 4. That day both CMR services were slow and
+  flaky: the same granule search took 0.2–32 s, and the STAC collection 0.5 s or a 503
+  after 29 s (which `fetch` retries), so setup ranged from 2.2 s to 102 s whatever the
+  product or AOI.
+- Reads run 8 files' tasks in dask's threads; the signing (8 requests) is inside them.
+
 ## Tests
 
-`tests/test_smap.py` builds stand-in files as in-memory zarr arrays, with the
-attributes VirtualiZarr gives the real ones (units, base64 `_FillValue`). It patches
-`smap.open_arrays` to return them, so the windows, fill values and flags run through
-`smap.load`. `smap.Granule` and `smap.fill_value` have tests of their own: the
-`.dmrpp` is fetched once with the token, and each block once. `open_arrays` itself,
-with the parser and the real files, is covered by `tests/test_online.py`, which
-stages a day over the Columbia Basin from NSIDC (needs `EARTHDATA_TOKEN`).
+`tests/test_smap.py` and `tests/test_smap_l4.py` build stand-in files as in-memory
+zarr arrays, with the attributes VirtualiZarr gives the real ones (units, base64
+`_FillValue`). They patch `dmrpp.open_arrays` to return them, so the windows, fill
+values, flags and time steps run through each `load`. `tests/test_dmrpp.py` tests the
+reader itself: the `.dmrpp` is fetched once with the token, the file signed once when
+its first chunk is read, each block fetched once, and the parser told to skip the
+arrays not asked for. The parser with the real files is covered by
+`tests/test_online.py`, which stages a day of Level 3 and 6 hours of Level 4 (18 files
+with the padding, one variable) over the Columbia Basin from NSIDC (needs
+`EARTHDATA_TOKEN`).
