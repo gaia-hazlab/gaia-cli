@@ -1,4 +1,3 @@
-import asyncio
 import base64
 import logging
 
@@ -11,7 +10,7 @@ import xarray as xr
 import zarr
 from shapely.geometry import box
 
-from gaia_cli import earthdata, fetch, io, regrid
+from gaia_cli import dmrpp, earthdata, fetch, io, regrid
 from gaia_cli.cli import stage_app
 from gaia_cli.datasets import smap
 from gaia_cli.datasets.sentinel1_rtc import OrbitState
@@ -133,7 +132,8 @@ def nsidc(monkeypatch):
         stand_in["searches"].append((concept_id, start, end))
         return stand_in["records"]
 
-    def open_arrays(url, signed, paths):
+    def open_arrays(url, paths, arrays):
+        assert set(arrays) == set(smap.GROUP_ARRAYS)
         stand_in["opened"].append(url)
         day = url.rsplit("_E_", 1)[1][:8]
         arrays = day_file(stand_in["values"].get(url, int(day[-2:]) / 10))
@@ -148,8 +148,7 @@ def nsidc(monkeypatch):
         )()
 
     monkeypatch.setattr(earthdata, "cmr_search", search)
-    monkeypatch.setattr(earthdata, "sign", lambda items, assets: None)
-    monkeypatch.setattr(smap, "open_arrays", open_arrays)
+    monkeypatch.setattr(dmrpp, "open_arrays", open_arrays)
     monkeypatch.setattr(fetch, "get", get)
     return stand_in
 
@@ -226,7 +225,8 @@ def test_missing_days_are_filled_with_a_warning(nsidc, caplog):
     nsidc["records"] = [record("2025-09-01"), record("2025-09-03")]
     ds = smap.load(AOI, "2025-09-01", "2025-09-03").compute()
     assert (
-        "1 of 3 day(s) are missing from the archive (first 2025-09-02)" in caplog.text
+        "1 of 3 time step(s) are missing from the archive (first 2025-09-02T00:00:00)"
+        in caplog.text
     )
     assert ds.sizes["time"] == 3
     assert ds.soil_moisture.sel(time="2025-09-02").isnull().all()
@@ -377,79 +377,3 @@ def test_the_runner_reads_it_in_threads_and_writes_it(nsidc, tmp_path, monkeypat
     assert ds.soil_moisture.attrs[regrid.METHOD_ATTR] == "average"
     assert ds.surface_flag.attrs[regrid.METHOD_ATTR] == "nearest"
     assert float(ds.tb_v_corrected.max()) == pytest.approx(0.3)
-
-
-def test_fill_values_from_virtualizarr():
-    assert smap.fill_value({"_FillValue": FLOAT_FILL}, np.dtype(np.float32)) == -9999
-    assert smap.fill_value({"_FillValue": 65534}, np.dtype(np.uint16)) == 65534
-
-
-def test_granule_fetches_its_dmrpp_once_with_the_token(monkeypatch):
-    calls = []
-
-    def get(url, headers):
-        calls.append((url, headers))
-        return type(
-            "R",
-            (),
-            {
-                "status_code": 200,
-                "raise_for_status": lambda self: None,
-                "content": b"<xml/>",
-            },
-        )()
-
-    monkeypatch.setenv(earthdata.TOKEN, "t")
-    monkeypatch.setattr(fetch, "get", get)
-    store = smap.Granule("https://nsidc/f.h5", "https://cdn/f.h5?Signature=x")
-    assert store.head("f.h5.dmrpp") == {"size": 6}
-    assert bytes(store.get("f.h5.dmrpp").buffer()) == b"<xml/>"
-    assert store.get_ranges("f.h5.dmrpp", starts=[0, 4], lengths=[2, 2]) == [
-        b"<x",
-        b"/>",
-    ]
-    assert calls == [("https://nsidc/f.h5.dmrpp", {"Authorization": "Bearer t"})]
-
-
-def test_a_file_without_a_dmrpp_is_a_clear_error(monkeypatch):
-    def get(url, headers):
-        return type("R", (), {"status_code": 404})()
-
-    monkeypatch.setenv(earthdata.TOKEN, "t")
-    monkeypatch.setattr(fetch, "get", get)
-    store = smap.Granule("https://nsidc/SMAP_E_20250901.h5", "https://cdn/f.h5?S=x")
-    with pytest.raises(RuntimeError, match=r"no DMR\+\+ index for SMAP_E_20250901\.h5"):
-        store.head("SMAP_E_20250901.h5.dmrpp")
-
-
-def test_granule_fetches_each_block_once(monkeypatch):
-    data = bytes(range(256)) * 64  # 16 kB
-    calls = []
-
-    def get(url, headers):
-        start, end = map(int, headers["Range"].removeprefix("bytes=").split("-"))
-        calls.append((url, start))
-        return type(
-            "R",
-            (),
-            {"raise_for_status": lambda self: None, "content": data[start : end + 1]},
-        )()
-
-    monkeypatch.setattr(smap, "BLOCK", 1000)
-    monkeypatch.setattr(fetch, "get", get)
-    store = smap.Granule("https://nsidc/f.h5", "https://cdn/f.h5?Signature=x")
-
-    async def reads():
-        return await asyncio.gather(
-            store.get_range_async("ignored", start=10, end=20),
-            store.get_range_async("ignored", start=990, length=20),  # 2 blocks
-            store.get_range_async("ignored", start=1500, end=1600),
-        )
-
-    a, b, c = asyncio.run(reads())
-    assert (a, b, c) == (data[10:20], data[990:1010], data[1500:1600])
-    # Blocks 0 and 1, each once, from the signed URL with its query
-    assert sorted(calls) == [
-        ("https://cdn/f.h5?Signature=x", 0),
-        ("https://cdn/f.h5?Signature=x", 1000),
-    ]

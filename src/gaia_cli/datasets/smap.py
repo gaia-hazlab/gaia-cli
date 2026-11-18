@@ -4,7 +4,8 @@ Each day in the window is a time step of NSIDC's enhanced Level-3 radiometer
 product (SPL3SMP_E version 006): the day's morning (descending) and evening
 (ascending) passes on the 9 km EASE-Grid 2.0, the evening's variables with the
 files' ``_pm`` suffix. Days missing from the archive are NaN, with a warning.
-Read remotely from each day's HDF5 file. Needs EARTHDATA_TOKEN.
+Read remotely from each day's HDF5 file through its DMR++ index (``dmrpp``).
+Needs EARTHDATA_TOKEN.
 
 Examples
 --------
@@ -14,15 +15,10 @@ Examples
 
 from __future__ import annotations
 
-import asyncio
-import base64
 import logging
 import math
-import threading
-import warnings
-from collections.abc import Sequence
-from concurrent.futures import Future, ThreadPoolExecutor
-from typing import Any, Literal, cast, get_args
+from collections.abc import Callable, Mapping, Sequence
+from typing import Literal, get_args
 
 import dask
 import dask.array
@@ -33,7 +29,7 @@ import pystac
 import xarray as xr
 import zarr
 
-from .. import earthdata, fetch, io, provenance, regrid
+from .. import dmrpp, earthdata, io, provenance, regrid
 from .sentinel1_rtc import OrbitState
 
 log = logging.getLogger(__name__)
@@ -50,12 +46,6 @@ KIND = "raster"
 # `gaia align` default for the measurements; the integer flags use nearest (load)
 REGRID_METHOD = "average"
 TOKENS = earthdata.TOKENS
-# Each file's chunk index comes from its DMR++ sidecar (<file>.dmrpp, OPeNDAP),
-# and its chunks are read as byte ranges in threads: no libhdf5, so no worker
-# processes. Ranges are fetched in aligned blocks, each once, so neighboring
-# rows (each array's chunks sit together in the file) share a request
-BLOCK = 2**20
-FETCHES = ThreadPoolExecutor(32)
 
 # EASE-Grid 2.0 Global at 9 km: its upper-left corner and cell size (m), and
 # its rows and columns
@@ -128,7 +118,7 @@ VARIABLES: tuple[Variable, ...] = (
     "surface_flag",
 )
 # Every array in a pass's group, by its AM name: the grids and the cells'
-# coordinates and times (the parser skips the ones not asked for)
+# coordinates and times (the reader skips the ones not asked for)
 ARRAYS = (
     *get_args(Variable),
     "latitude",
@@ -140,9 +130,12 @@ ARRAYS = (
     "tb_time_seconds",
     "tb_time_utc",
 )
+GROUP_ARRAYS = {
+    group: [f"{a}{suffix}" for a in ARRAYS] for group, suffix in GROUPS.values()
+}
 
 # The files' units in UDUNITS
-UNITS = {"Kelvin": "K", "cm**3/cm**3": "m3 m-3"}
+UNITS = {"Kelvin": "K", "cm**3/cm**3": "m3 m-3", "dimensionless": "1"}
 SOIL_MOISTURE = "volume_fraction_of_condensed_water_in_soil"
 STANDARD_NAMES = {
     "soil_moisture": SOIL_MOISTURE,
@@ -194,140 +187,6 @@ def chunks(ny: int, nx: int) -> dict[str, int]:
     return {"time": 1, "y": CHUNK_BYTES // (4 * nx), "x": -1}
 
 
-class _Bytes:
-    """What obspec's ``get`` returns, for bytes already in memory."""
-
-    def __init__(self, data: bytes):
-        self.data = data
-
-    def buffer(self) -> bytes:
-        return self.data
-
-
-class Granule:
-    """One file as an obspec store for VirtualiZarr's ``DMRPPParser``.
-
-    The parser reads ``<url>.dmrpp`` with ``head`` and ``get`` or
-    ``get_ranges``: it's fetched once, with the token, and kept, so each group
-    parsed reuses it. The chunks are read with ``get_range_async``, as byte
-    ranges of the *signed* URL: VirtualiZarr's ManifestStore drops a URL's
-    query, and obstore escapes one in a path, so a signed URL needs a store of
-    its own. Each aligned :data:`BLOCK` is fetched once, and the reads share it.
-    """
-
-    def __init__(self, url: str, signed: str):
-        self.url = url
-        self.signed = signed
-        self.dmrpp: bytes | None = None
-        self.blocks: dict[int, Future] = {}
-        self.lock = threading.Lock()
-
-    def _dmrpp(self) -> bytes:
-        with self.lock:
-            if self.dmrpp is None:
-                resp = fetch.get(
-                    f"{self.url}.dmrpp",
-                    headers={"Authorization": f"Bearer {earthdata.token()}"},
-                )
-                if resp.status_code == 404:
-                    # Every file sampled had one (dev/smap.md#reads)
-                    name = self.url.rsplit("/", 1)[-1]
-                    raise RuntimeError(
-                        f"NSIDC has no DMR++ index for {name} ({name}.dmrpp, "
-                        "HTTP 404), which smap reads it through; leave its day "
-                        "out of the window"
-                    )
-                resp.raise_for_status()
-                self.dmrpp = resp.content
-            return self.dmrpp
-
-    def head(self, path: str) -> dict:
-        return {"size": len(self._dmrpp())}
-
-    def get(self, path: str) -> _Bytes:
-        return _Bytes(self._dmrpp())
-
-    def get_ranges(
-        self,
-        path: str,
-        *,
-        starts: Sequence[int],
-        ends: Sequence[int] | None = None,
-        lengths: Sequence[int] | None = None,
-    ) -> list[bytes]:
-        if ends is None:
-            assert lengths is not None
-            ends = [s + n for s, n in zip(starts, lengths, strict=True)]
-        data = self._dmrpp()
-        return [data[s:e] for s, e in zip(starts, ends, strict=True)]
-
-    def _get(self, block: int) -> bytes:
-        headers = {"Range": f"bytes={block * BLOCK}-{(block + 1) * BLOCK - 1}"}
-        resp = fetch.get(self.signed, headers=headers)
-        resp.raise_for_status()
-        return resp.content
-
-    async def get_range_async(
-        self,
-        path: str,
-        *,
-        start: int,
-        end: int | None = None,
-        length: int | None = None,
-    ) -> bytes:
-        if end is None:
-            assert length is not None
-            end = start + length
-        first, last = start // BLOCK, (end - 1) // BLOCK
-        with self.lock:
-            for b in range(first, last + 1):
-                if b not in self.blocks:
-                    self.blocks[b] = FETCHES.submit(self._get, b)
-            futures = [self.blocks[b] for b in range(first, last + 1)]
-        data = b"".join([await asyncio.wrap_future(f) for f in futures])
-        return data[start - first * BLOCK : end - first * BLOCK]
-
-
-def open_arrays(url: str, signed: str, paths: list[str]) -> dict[str, zarr.Array]:
-    """The arrays at *paths* of the file at *url*, read through its DMR++
-    sidecar (``<url>.dmrpp``, fetched once with the token) from its *signed*
-    URL. VirtualiZarr's parser makes one group per call."""
-    from obspec_utils.registry import ObjectStoreRegistry
-    from virtualizarr.parsers import DMRPPParser
-
-    store = Granule(url, signed)
-    # The file and its .dmrpp, by their folder
-    registry = ObjectStoreRegistry({url.rsplit("/", 1)[0]: cast(Any, store)})
-    groups: dict[str, list[str]] = {}
-    for path in paths:
-        group, name = path.strip("/").split("/")
-        groups.setdefault(group, []).append(name)
-    suffixes = dict(GROUPS.values())
-    out = {}
-    for group, names in groups.items():
-        # Only the arrays asked for: the parser skips the others' chunk lists
-        others = [f"{a}{suffixes[group]}" for a in ARRAYS]
-        parser = DMRPPParser(
-            group=group, skip_variables=[a for a in others if a not in names]
-        )
-        with warnings.catch_warnings():  # e.g. the string arrays it can't parse
-            warnings.simplefilter("ignore")
-            manifest = parser(f"{url}.dmrpp", registry)
-        z = zarr.open_group(manifest, mode="r", zarr_format=3)
-        out.update({f"/{group}/{n}": cast(zarr.Array, z[n]) for n in names})
-    return out
-
-
-def fill_value(attrs: dict, dtype: np.dtype) -> float:
-    """The array's ``_FillValue``: VirtualiZarr leaves the floats' as base64 of
-    their bytes (its Zarr fill_value is 0)."""
-    fill = attrs["_FillValue"]
-    if isinstance(fill, str):
-        raw = base64.b64decode(fill)
-        fill = np.frombuffer(raw, "<f8" if len(raw) == 8 else dtype)[0]
-    return float(fill)
-
-
 def cf_attrs(attrs: dict) -> dict:
     """An array's attributes for the store: units in UDUNITS, and its bit
     flags' masks as numbers."""
@@ -346,31 +205,115 @@ def cf_attrs(attrs: dict) -> dict:
 
 
 def describe(
-    arrays: dict[str, zarr.Array],
+    arrays: Mapping[str, zarr.Array],
 ) -> dict[str, tuple[np.dtype, float, dict]]:
     """The dtype, fill value and attributes of each of *arrays*."""
     out = {}
     for path, array in arrays.items():
         attrs = dict(array.attrs)
-        out[path] = (array.dtype, fill_value(attrs, array.dtype), cf_attrs(attrs))
+        fill = dmrpp.fill_value(attrs, array.dtype)
+        out[path] = (array.dtype, fill, cf_attrs(attrs))
     return out
 
 
-def read(
-    arrays: dict[str, zarr.Array], paths: list[str], rows: slice, cols: slice
-) -> list[np.ndarray]:
-    """*rows* and *cols* of each of *arrays* at *paths*, their chunks all at
-    once."""
-    with ThreadPoolExecutor(len(paths)) as pool:
-        return list(pool.map(lambda p: np.asarray(arrays[p][rows, cols]), paths))
+def find_files(
+    concept_id: str,
+    product: str,
+    aoi: gpd.GeoDataFrame,
+    start: str,
+    end: str,
+    steps: pd.DatetimeIndex,
+    key: Callable[[pystac.Item], pd.Timestamp],
+    suffix: str = "",
+) -> dict[pd.Timestamp, pystac.Item]:
+    """The newest processing of the file of each of *steps* (its time step:
+    *key*) in the collection *concept_id*, searched from *start* to *end*.
+    Steps missing from the archive get a warning; none at all is an error."""
+    records = earthdata.cmr_search(concept_id, aoi, start, end)
+    items = [earthdata.cmr_item(r, suffix) for r in records]
+    found = earthdata.newest(items, key=key)
+    if older := len(records) - len(found):
+        log.info("SMAP %s: skipped %d older processing(s)", product, older)
+    # The search also finds files that only touch the window
+    files = {key(it): it for it in found if key(it) in steps}
+    if not files:
+        raise ValueError(f"No SMAP {product} files for {start} to {end}")
+    if missing := [step for step in steps if step not in files]:
+        log.warning(
+            "SMAP %s: %d of %d time step(s) are missing from the archive "
+            "(first %s); filled with NaN",
+            product,
+            len(missing),
+            len(steps),
+            missing[0].isoformat(),
+        )
+    return dict(sorted(files.items()))
 
 
-def read_file(
-    url: str, signed: str, paths: list[str], rows: slice, cols: slice
-) -> list[np.ndarray]:
-    """*rows* and *cols* of each array at *paths* in the file at *url*: one
-    DMR++ fetch, then the arrays' chunks."""
-    return read(open_arrays(url, signed, paths), paths, rows, cols)
+def stack(
+    files: Mapping[pd.Timestamp, pystac.Item],
+    steps: pd.DatetimeIndex,
+    paths: Mapping[str, str],
+    arrays: Mapping[str, Sequence[str]],
+    aoi: gpd.GeoDataFrame,
+    standard_names: Mapping[str, str],
+    time_bounds: tuple[float, float, str],
+) -> xr.Dataset:
+    """The arrays at *paths* (by variable name) of each of *files* over *aoi*,
+    lazily, along ``(time, y, x)``: one time step per file, and a step of
+    NaN (an integer array's fill value) for each of *steps* without one.
+    *arrays* names every array in the files' groups (``dmrpp.open_arrays``),
+    and *time_bounds* is ``io.with_time_bounds``' hours and cell methods."""
+    rows, cols = window(aoi)
+    urls = {step: it.assets["data"].href for step, it in files.items()}
+    # The first file, opened once: its attributes, then its read
+    first = next(iter(urls))
+    first_arrays = dmrpp.open_arrays(urls[first], list(paths.values()), arrays)
+    meta = describe(first_arrays)
+
+    # One read of each file gives all its arrays
+    reads = {
+        step: dask.delayed(dmrpp.read)(first_arrays, list(paths.values()), rows, cols)
+        if step == first
+        else dask.delayed(dmrpp.read_file)(
+            url, list(paths.values()), arrays, rows, cols
+        )
+        for step, url in urls.items()
+    }
+    shape = (rows.stop - rows.start, cols.stop - cols.start)
+    parts = []
+    for i, (name, path) in enumerate(paths.items()):
+        dtype, fill, attrs = meta[path]
+        values = [
+            dask.array.from_delayed(reads[step][i], shape, dtype=dtype)
+            if step in reads
+            else dask.array.full(shape, fill, dtype=dtype)
+            for step in steps
+        ]
+        da = xr.DataArray(
+            dask.array.stack(values),
+            dims=("time", "y", "x"),
+            coords={"time": steps, **coords(rows, cols)},
+            name=name,
+        ).rio.write_crs(CRS)
+        floats = np.issubdtype(dtype, np.floating)
+        if floats:
+            da = da.where(da != fill)
+        # The clip fills the cells outside the AOI with the nodata value
+        nodata = np.nan if floats else dtype.type(fill)
+        da = io.clip_to_aoi(da.rio.write_nodata(nodata), aoi)
+        # Replaced, not merged: rioxarray's nodata is a _FillValue attribute
+        da.attrs = dict(attrs)
+        if not floats:
+            da.encoding["_FillValue"] = int(fill)
+            # TODO: teach `gaia align` CF flag_masks (bit flags), as it does flag_values
+            da.attrs[regrid.METHOD_ATTR] = "nearest"
+        if standard_name := standard_names.get(name):
+            da.attrs["standard_name"] = standard_name
+        parts.append(io.with_time_bounds(da, *time_bounds))
+    # The parts share their time_bounds and grid
+    ds = xr.merge(parts, compat="override")
+    return ds.chunk(chunks(ds.sizes["y"], ds.sizes["x"]))
 
 
 def file_day(item: pystac.Item) -> pd.Timestamp:
@@ -445,84 +388,25 @@ def load(
         for group, suffix in (GROUPS[p] for p in passes)
         for name in variables
     }
-    rows, cols = window(aoi)
     days = pd.date_range(start_date, end_date, freq="D", normalize=True)
-
-    records = earthdata.cmr_search(CONCEPT_ID, aoi, start_date, end_date)
-    found = earthdata.newest([earthdata.cmr_item(r) for r in records], key=file_day)
-    if older := len(records) - len(found):
-        log.info("SMAP: skipped %d older processing(s)", older)
-    files = {file_day(it): it for it in found}
-    items = [files[day] for day in days if day in files]
-    if not items:
-        raise ValueError(f"No SMAP SPL3SMP_E files for {start_date} to {end_date}")
-    if missing := [day for day in days if day not in files]:
-        log.warning(
-            "SMAP: %d of %d day(s) are missing from the archive (first %s); "
-            "filled with NaN",
-            len(missing),
-            len(days),
-            f"{missing[0]:%Y-%m-%d}",
-        )
-    # Each file's URL (its .dmrpp is next to it) and the URL signed for its chunks
-    urls = {file_day(it): it.assets["data"].href for it in items}
-    earthdata.sign(items, ["data"])
-    signed = {file_day(it): it.assets["data"].href for it in items}
-    # The first file, opened once: its attributes, then its reads
-    first = file_day(items[0])
-    first_arrays = open_arrays(urls[first], signed[first], list(paths.values()))
-    meta = describe(first_arrays)
-
-    # One read of each day's file gives all its arrays
-    reads = {
-        day: dask.delayed(read)(first_arrays, list(paths.values()), rows, cols)
-        if day == first
-        else dask.delayed(read_file)(
-            urls[day], signed[day], list(paths.values()), rows, cols
-        )
-        for day in urls
+    files = find_files(
+        CONCEPT_ID, "SPL3SMP_E", aoi, start_date, end_date, days, file_day
+    )
+    standard_names = {
+        name: sn
+        for name in paths
+        if (sn := STANDARD_NAMES.get(name.removesuffix("_pm")))
     }
-    shape = (rows.stop - rows.start, cols.stop - cols.start)
-    parts = []
-    for i, (name, path) in enumerate(paths.items()):
-        dtype, fill, attrs = meta[path]
-        steps = [
-            dask.array.from_delayed(reads[day][i], shape, dtype=dtype)
-            if day in reads
-            else dask.array.full(shape, fill, dtype=dtype)
-            for day in days
-        ]
-        da = xr.DataArray(
-            dask.array.stack(steps),
-            dims=("time", "y", "x"),
-            coords={"time": days, **coords(rows, cols)},
-            name=name,
-        ).rio.write_crs(CRS)
-        floats = np.issubdtype(dtype, np.floating)
-        if floats:
-            da = da.where(da != fill)
-        # The clip fills the cells outside the AOI with the nodata value
-        nodata = np.nan if floats else dtype.type(fill)
-        da = io.clip_to_aoi(da.rio.write_nodata(nodata), aoi)
-        # Replaced, not merged: rioxarray's nodata is a _FillValue attribute
-        da.attrs = dict(attrs)
-        if not floats:
-            da.encoding["_FillValue"] = int(fill)
-            # TODO: teach `gaia align` CF flag_masks (bit flags), as it does flag_values
-            da.attrs[regrid.METHOD_ATTR] = "nearest"
-        if standard_name := STANDARD_NAMES.get(name.removesuffix("_pm")):
-            da.attrs["standard_name"] = standard_name
-        # Each value is one snapshot within its UTC day
-        parts.append(io.with_time_bounds(da, 0, 24, "time: point"))
-    # The parts share their time_bounds and grid
-    ds = xr.merge(parts, compat="override")
-    ds = ds.chunk(chunks(ds.sizes["y"], ds.sizes["x"]))
+    # Each value is one snapshot within its UTC day
+    ds = stack(
+        files, days, paths, GROUP_ARRAYS, aoi, standard_names, (0, 24, "time: point")
+    )
     log.info(
         "SMAP: %d day(s) (%d file(s)), %d x %d cells of 9 km",
         len(days),
-        len(items),
+        len(files),
         ds.sizes["y"],
         ds.sizes["x"],
     )
-    ds.attrs = {**source_attrs(items), **provenance.time_extent(ds)}
+    ds.attrs = {**source_attrs(list(files.values())), **provenance.time_extent(ds)}
     return ds
