@@ -25,13 +25,29 @@ from . import provenance
 
 log = logging.getLogger(__name__)
 
+# GDAL's retries and timeouts (dev/http-retries.md), for every remote read: odc-stac's,
+# rasterio's and rioxarray's, in this process and in worker processes. A timeout, so
+# a stalled server can't hang a run (GDAL retries it), and 5 retries, which give up
+# after about 20 s. Set in the environment, so a user's own settings win
+GDAL_HTTP = {
+    "GDAL_HTTP_MAX_RETRY": "5",
+    "GDAL_HTTP_RETRY_DELAY": "0.5",
+    "GDAL_HTTP_CONNECTTIMEOUT": "10",
+    "GDAL_HTTP_TIMEOUT": "120",
+}
+for _key, _value in GDAL_HTTP.items():
+    os.environ.setdefault(_key, _value)
+
 # GDAL settings for odc-stac's remote reads (prism, stac.py), set only here: a
-# second call would replace them. No HEAD requests: ASF's signed URLs
-# (earthdata.py) answer GETs only. HTTP/1.1: over HTTP/2, ASF's CloudFront
-# occasionally drops a stream under parallel reads, and GDAL reads the empty
-# response (code 0, not retried) as a file in an unknown format
+# second call would replace them. Not odc-stac's cloud_defaults, whose 10 retries
+# would override the above. No HEAD requests: ASF's signed URLs (earthdata.py)
+# answer GETs only. HTTP/1.1: over HTTP/2, ASF's CloudFront occasionally drops a
+# stream under parallel reads, and GDAL reads the empty response (code 0, not
+# retried) as a file in an unknown format
 odc.stac.configure_rio(
-    cloud_defaults=True, CPL_VSIL_CURL_USE_HEAD="NO", GDAL_HTTP_VERSION="1.1"
+    GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR",
+    CPL_VSIL_CURL_USE_HEAD="NO",
+    GDAL_HTTP_VERSION="1.1",
 )
 
 # Processes reading a dataset that declares PROCESS_ENV (compute_in_processes):

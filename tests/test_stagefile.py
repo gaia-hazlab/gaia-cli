@@ -539,6 +539,23 @@ def test_failures_are_reported_and_retried_with_skip_existing(tmp_path, monkeypa
     assert tree.attrs["title"] == "Bolt Creek"
 
 
+def test_failures_report_their_causes(tmp_path, monkeypatch):
+    def load(aoi, start_date, end_date, variables=("ppt",)):
+        try:
+            raise OSError("HTTP response code: 503")
+        except OSError as e:
+            raise RuntimeError("Read failed. See previous exception") from e
+
+    monkeypatch.setattr(prism, "load", load)
+    config = write(tmp_path, CONUS + "  prism: {}\n")
+    with pytest.raises(SystemExit) as e:
+        runner.stage(config=config, output_path=str(tmp_path / "out"))
+    assert (
+        "prism: RuntimeError: Read failed. See previous exception; "
+        "caused by OSError: HTTP response code: 503"
+    ) in str(e.value)
+
+
 def _down(block):
     raise RuntimeError("prism read failed")
 
