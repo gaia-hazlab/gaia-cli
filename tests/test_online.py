@@ -8,12 +8,39 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
+import requests
 import xarray as xr
 from shapely.geometry import box
 
 from gaia_cli import align, io, runner, stations, waveforms
 
 pytestmark = pytest.mark.online
+
+
+def skip_if_down(name: str, url: str, timeout: float = 60) -> None:
+    """Skip when one request to ``url`` times out, can't connect or gets a 5xx.
+
+    The pipeline retries each request (``fetch.RETRY``), so a service that's down
+    can take many minutes to fail; this request isn't retried. Add a provider here
+    once it has an outage, not before.
+    """
+    try:
+        status = requests.get(url, timeout=(10, timeout)).status_code
+    except requests.RequestException as e:
+        pytest.skip(f"{name} is unavailable ({type(e).__name__})")
+    if status >= 500:
+        pytest.skip(f"{name} is unavailable (HTTP {status})")
+
+
+@pytest.fixture(scope="module")
+def earthscope_dataselect():
+    # 10 s of one channel; 204 (no data) would still mean the service is up
+    skip_if_down(
+        "EarthScope FDSN dataselect",
+        f"{waveforms.FDSN_URL}/dataselect/1/query?net=AK&sta=BPAW&cha=BHZ"
+        "&starttime=2023-09-14T02:06:00&endtime=2023-09-14T02:06:10",
+    )
+
 
 # Around the 2022 Bolt Creek fire and Stevens Pass, WA (~45 x 33 km).
 # The padded read, 2025-12-09 to 2025-12-11, is already in the PRISM cache (ppt, tmin,
@@ -427,6 +454,7 @@ datasets:
 """
 
 
+@pytest.mark.usefixtures("earthscope_dataselect")
 def test_seismic_bpaw(tmp_path):
     config = tmp_path / "stage.yaml"
     config.write_text(BPAW)
@@ -464,6 +492,7 @@ datasets:
 """
 
 
+@pytest.mark.usefixtures("earthscope_dataselect")
 def test_infrasound_keni_array(tmp_path):
     config = tmp_path / "stage.yaml"
     config.write_text(KENI)
