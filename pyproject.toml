@@ -101,7 +101,7 @@ docs-build = { cmd = "myst build --html --execute", cwd = "docs", depends-on = [
 
 [tool.pixi.feature.dev.tasks]
 test = { cmd = "pytest", description = "Run the test suite" }
-test-online = { cmd = "pytest -m online", description = "Run the network smoke tests (SYNOPTIC_TOKEN enables synoptic)" }
+test-online = { cmd = "pytest -m online -v -o console_output_style=times --durations=10 -rfEs", description = "Run the network smoke tests, with each test's time as it finishes, then the 10 slowest and why any were skipped (SYNOPTIC_TOKEN, ARRAYLAKE_TOKEN and EARTHDATA_TOKEN enable theirs)" }
 coverage = { cmd = "pytest --cov --cov-report=term-missing", description = "Run the tests and report line coverage of src/gaia_cli; fails below 90%" }
 typecheck = { cmd = "ty check src/", description = "Type-check src/ with ty" }
 lint = { cmd = "ruff check src tests --fix ; ruff format src tests", description = "Fix lint issues and format src/ and tests/" }
