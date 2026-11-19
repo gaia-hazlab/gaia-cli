@@ -7,6 +7,7 @@ title: CLI
 | [`gaia stage <dataset>`](#stage) | stage one dataset |
 | [`gaia stage --config`](#stage-files) | stage several datasets from a stage file or preset |
 | [`gaia align`](#align) | put staged rasters on one grid and time step, in a new store |
+| [`gaia check`](#check) | summarize a store and report what `gaia align` can't use |
 | [`gaia catalog rebuild`](#catalog) | build a STAC catalog of the stores under a prefix |
 | [`gaia prism fill`](#prism-cache) | fill the shared PRISM cache (maintainers) |
 
@@ -125,6 +126,34 @@ gaia align -i pioneer/pioneer.zarr -o pioneer-10m --aoi $AOI --crs utm --res 10 
 ```
 
 To write GeoTIFF or ESRI ASCII files from the result, use GDAL ([](gdal.md)).
+
+(check)=
+## `gaia check`
+
+`gaia check` describes each group of a store: its grid, its time steps (and the period
+each value covers) and its variables, with their units, `cell_methods`, regrid method
+and common name. It then lists the problems. It reads any Zarr v3 store, including one
+written by a fork or by another tool.
+
+```bash
+gaia check skagit/skagit.zarr
+```
+
+```
+rasters/prism: raster, 9 x 13 cells of 0.00833333° x 0.00833333°, EPSG:4269
+  time: 4 step(s), 2025-12-07 to 2025-12-10, every 1D, each covering (-12h, 12h] around its time
+    ppt  float32  mm  time: sum  conservative  precipitation
+0 error(s), 0 warning(s)
+```
+
+- **Errors** make `gaia align` skip a group or give wrong values. Examples: a raster
+  without a `spatial_ref` CRS, an irregular grid, time that isn't datetime64, and
+  values with time bounds but no `cell_methods`, which `align` would average rather
+  than sum.
+- **Warnings** are missing metadata: units, and the source's `title`, `license`,
+  `providers` and `links`.
+
+It exits 1 if there are errors, and with `--strict` also if there are warnings.
 
 (catalog)=
 ## `gaia catalog rebuild`

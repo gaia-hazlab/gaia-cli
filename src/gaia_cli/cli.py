@@ -10,6 +10,7 @@ import cyclopts
 
 from .align import run as align
 from .catalog import rebuild as catalog_rebuild
+from .check import run as check
 from .datasets import DATASETS
 from .datasets.prism import fill as prism_fill
 from .datasets.prism import rebuild_catalog as prism_rebuild_catalog
@@ -31,6 +32,9 @@ for name in DATASETS:
 
 # gaia align ...
 app.command(align, name="align")
+
+# gaia check ...
+app.command(check, name="check")
 
 # gaia catalog rebuild ...
 catalog_app = cyclopts.App(name="catalog", help="STAC catalog of staged stores.")
