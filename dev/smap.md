@@ -1,8 +1,9 @@
 # SMAP
 
-Module: `src/gaia_cli/datasets/smap.py` · Command: `gaia stage smap` ·
-Earthdata helper: `src/gaia_cli/earthdata.py` (shared with [opera-rtc.md](opera-rtc.md)
-and [nisar-gcov.md](nisar-gcov.md))
+Modules: `src/gaia_cli/datasets/smap.py` (Level 3) and `smap_l4.py` (Level 4,
+[below](#level-4-smap-l4)) · Commands: `gaia stage smap`, `gaia stage smap-l4` · Reader:
+`src/gaia_cli/dmrpp.py` · Earthdata helper: `src/gaia_cli/earthdata.py` (shared with
+[opera-rtc.md](opera-rtc.md) and [nisar-gcov.md](nisar-gcov.md))
 
 ## Source
 
@@ -27,9 +28,8 @@ retrieved from them, one file a day.
 - **Not used.**
   - `SPL1CTB(_E)` (brightness temperature) and `SPL2SMP(_E)` (soil moisture) hold each
     half orbit as a list of cells (`cell_row`, `cell_column`), not a grid.
-  - `SPL4SMGP` (Level-4, model-assimilated, with root-zone soil moisture) stores each
-    variable as one whole-globe chunk, so any AOI reads all of it, and GDAL finds no
-    transform in it.
+  - `SPL4SMGP` (Level-4, model-assimilated, with root-zone soil moisture) is its own
+    dataset, `smap-l4` ([below](#level-4-smap-l4)).
 - **License.** CC0-1.0 per the STAC collection (NASA Earthdata data use policy).
 
 ## Grids (`/Soil_Moisture_Retrieval_Data_AM/`, `/…_PM/`)
@@ -131,21 +131,22 @@ and each chunk's byte offset and size. One day's file has 35.5 MB of it. With th
 index, chunks are plain HTTP byte ranges: no libhdf5, so no worker processes and no
 `gdal` bindings.
 
-1. `earthdata.sign` gets each file a CloudFront URL signed for an hour (NSIDC answers
-   the token with a 303, as ASF does), all before anything is read.
+1. `earthdata.signed_url` gets each file a CloudFront URL signed for an hour (NSIDC
+   answers the token with a 303, as ASF does) when its first chunk is read, so no URL
+   expires however long the window (a year of `smap-l4` is 2,920 files).
 2. `smap.window` turns the AOI's bounds into the grid's rows and columns, plus one on
    each side so rioxarray finds the grid's spacing. `io.clip_to_aoi` drops the extra
    ones.
-3. `smap.open_arrays` calls VirtualiZarr's `DMRPPParser` once per group, since it
-   makes one group per call. It skips the arrays not asked for (`smap.ARRAYS` lists
-   every array in a group) and opens the result with zarr. `smap.Granule` is the
-   store it reads through:
+3. `dmrpp.open_arrays` calls VirtualiZarr's `DMRPPParser` once per group, since it
+   makes one group per call. It skips the arrays not asked for (each dataset lists
+   every array of its groups: `smap.GROUP_ARRAYS`, `smap_l4.ARRAYS`) and opens the
+   result with zarr. `dmrpp.Granule` is the store it reads through:
    - `head`, `get` and `get_ranges` serve the `.dmrpp`, fetched once with the token;
    - `get_range_async` reads chunks from the signed URL in aligned 1 MiB blocks
-     (`smap.BLOCK`), each fetched once, in a pool of 32 threads.
+     (`dmrpp.BLOCK`), each fetched once, in a pool of 32 threads.
 4. The first file is opened in the main process for each array's dtype, fill value
    and attributes (`smap.describe`), and that open is reused for its read. Each other
-   file is one dask task (`smap.read_file`): open, then read every array's window at
+   file is one dask task (`dmrpp.read_file`): open, then read every array's window at
    once. Zarr requests a window's chunks concurrently: over CONUS, 4,736 one-row
    chunks, which the blocks turn into about 22 requests.
 
@@ -165,13 +166,13 @@ index, chunks are plain HTTP byte ranges: no libhdf5, so no worker processes and
   parse it once.
 - **Quirks.**
   - VirtualiZarr leaves Zarr's `fill_value` at 0. The real one is the `_FillValue`
-    attribute, base64 of a float64 for the floats, which `smap.fill_value` decodes.
+    attribute, base64 of a float64 for the floats, which `dmrpp.fill_value` decodes.
   - Units are an attribute.
   - `tb_time_utc` (strings) can't be parsed; the warning is silenced.
 - **Every file needs a `.dmrpp`.** Every 10th day of the archive has one: 416 of
   416 sampled, 2015-03-31 to 2026-11-11, all one processing (CRID `R19240`), with one
   byte of each fetched (2026-11-12). A missing one stops the read with an error naming
-  the file (`smap.Granule`), rather than falling back to an HDF5 reader, which would
+  the file (`dmrpp.Granule`), rather than falling back to an HDF5 reader, which would
   keep the `gdal` bindings for a case not seen.
 - **Ruled out**, following [nisar-gcov.md](nisar-gcov.md):
   - h5py or h5netcdf over fsspec: an HDF5 read path, subject to libhdf5's lock, that
@@ -245,12 +246,174 @@ a frame's 3 arrays over Paradise, with the same 11 requests. With paged aggregat
 and 4 MiB requests, their whole metadata is a few requests. NISAR has no DMR++
 sidecar.
 
+## Level 4 (`smap-l4`)
+
+[SMAP L4 Global 3-hourly 9 km EASE-Grid Surface and Root Zone Soil Moisture Geophysical
+Data](https://nsidc.org/data/spl4smgp/versions/8) (`SPL4SMGP`), version 8: 3-hour means
+of the L4_SM land model, into which SMAP's brightness temperatures are assimilated.
+Unlike Level 3 it has every land cell at every step, and soil moisture below the
+surface.
+
+- **Model.** NASA GMAO's GEOS Catchment land surface model, with an L-band
+  radiative transfer model, on the 9 km grid, merged with SMAP by a spatially
+  distributed ensemble Kalman filter every 3 hours (0z, 3z, …). The only
+  observations assimilated are `SPL1CTB` version 6 (R19) brightness temperatures,
+  both polarizations and both passes, as anomalies from a seasonal and diurnal
+  climatology. They're skipped where the model has heavy rain, frozen soil or snow.
+  The forcing is GEOS-FP's hourly 0.25° surface meteorology. Its precipitation is
+  corrected to daily totals from CPC Unified gauges in North America (south to
+  13° N since Version 8, 20° N before) and from IMERG V07 elsewhere, with the
+  corrections tapering between 50° and 60° N/S. Where IMERG-Final's half-hourly
+  rates disagree with its gauge-constrained monthly product, mostly in snowfall,
+  only the monthly total is matched. Not ERA5 or NLDAS. Version 8's radiative
+  transfer model switched to `SPL2SMP_E`'s Mironov dielectric mixing and takes its
+  scattering albedo, roughness, vegetation opacity and polarization mixing from
+  `SPL2SMP_E` version 6, so Level 3 and Level 4 share more than their brightness
+  temperatures.
+- **Science versions.** The file name's `Vv80nn` is the algorithm version, and the
+  precipitation inputs change with it (from NSIDC's L4 version history workbook;
+  spot-checked against CMR's granule names on 2026-11-18):
+
+  | science version | data dates | precipitation |
+  |---|---|---|
+  | `Vv8010` | 2015-03-31 to 2023-07 | IMERG-Final daily corrections |
+  | `Vv8011` | 2024-10-01 to 2025-09 | IMERG-Late. Obsolete, superseded by `Vv8012`/`Vv8013` |
+  | `Vv8012` | 2023-08 to 2025-09 | IMERG-Final, continued from `Vv8010`. Also adds Tb QC (Tb error ≤ 1.3 K) |
+  | `Vv8013` | 2025-10-01 on | no IMERG: CPC Unified in North America only |
+
+  Each date is in exactly one science version: `Vv8012` and `Vv8013` reprocessed
+  from 2023-08-01 on, replacing `Vv8011`, and `Vv8010` still covers everything
+  before. So which version a request gets depends only on its dates. In North
+  America, none of this matters for precipitation: every version corrects GEOS-FP to
+  CPC Unified daily gauge totals there, after scaling both to an IMERG-Final (or
+  GPCP v2.3, poleward of IMERG's coverage) seasonal climatology (Reichle & Liu 2021,
+  [NASA/TM-2021-104606 Vol. 59](https://gmao.gsfc.nasa.gov/media/publications/zbly36ziNFDFbmYmvhQeVqPhUo/Reichle1344.pdf),
+  §3, written for Version 6; nothing since says it changed). Outside North America
+  the IMERG inputs do change with the version.
+
+  For `Vv8013`, NSIDC's [announcement](https://nsidc.org/data/user-resources/data-announcements/data-set-updates-smap-level-4)
+  (2026-10-23) says only "improvements to L1C_TB quality control, IMERG late inputs,
+  and a geolocation issue fix", and the workbook only "Discontinues use of daily
+  precipitation corrections based on IMERG-Final". The workbook marks `Vv8010`–`Vv8013` "to be updated once new
+  documentation is available" (last updated 2026-10-20). The user guide's §2.3–2.4
+  still list IMERG-Late as an input, but that text dates from `Vv8011`, which has been
+  withdrawn. The files themselves say more: `/Metadata/Config/L4_SM_PRECIP_version`
+  names the corrected precipitation each one was forced with (read from the
+  `.dmrpp`s on 2026-11-18):
+
+  | file | science version | `L4_SM_PRECIP_version` |
+  |---|---|---|
+  | 2016-06, 2021-06 | `Vv8010` | `IMGv7BFnCPCUcorrv3` |
+  | 2023-09, 2025-06 | `Vv8012` | `IMGv7BFnCPCUcorrv3` |
+  | 2025-11 | `Vv8013` | `CPCULLK_fp_v2` |
+  | 2026-11 | `Vv8013` | `CPCUFLK_fp_v2` |
+  | 2022-06 | `Vv7030` (Version 7, IMERG-Late) | `CPCUFLK_IMERGLateV06c_fp_v1` |
+  | 2024-06 | `Vv7031` (Version 7, IMERG dropped) | `CPCUFLK_fp_v1` |
+
+  `Vv8013`'s input has no IMERG component and has the same form as `Vv7031`'s, which
+  "did not use any precipitation observations outside of North America" (assessment
+  report, §IV). So outside North America `Vv8013` is forced with GEOS-FP's own
+  precipitation. Two things are undocumented: whether it is still rescaled to the
+  IMERG climatology (Version 6 on), and what `LLK`/`FLK` mean. A web search for
+  either string turned up nothing (2026-11-18). The files'
+  `L4_SM_PRECIP_description` ("CPCU/IMERG Corrected Precipitation") and
+  `/Metadata/Source/GEOS5_lfo_corr/description` (CPC Unified only) are the same in
+  every file, so they say nothing about which version a file is.
+
+  A store's `links` name every granule, so they show which versions it mixes.
+  Sources: the [Version 8 User Guide](https://nsidc.org/sites/default/files/documents/user-guide/multi_spl4smau-v008-userguide.pdf)
+  (§2.3–2.4, version history), the [Product Specification
+  Document](https://nsidc.org/sites/default/files/documents/technical-reference/smap_l4_sm_psd_v17_for_l4sm_version_8.pdf)
+  (GMAO Office Note 10 v1.7, §1.5), the [Version 8 assessment
+  report](https://nsidc.org/sites/default/files/documents/technical-reference/igarss2026_reichle_et_al_v3_for_nsidc.pdf)
+  (Reichle et al., IGARSS 2026, §II.B) and the [version history
+  workbook](https://nsidc.org/sites/default/files/documents/other/smap_l4_versionhistory_0725.xlsx).
+- **Collection.** `C3480440870-NSIDC_CPRD`, pinned; on CMR STAC as `SPL4SMGP_008`. From
+  2015-03-31.
+- **Granules.** One HDF5 file per 3 hours, about 144 MB, named by the interval's
+  center: `SMAP_L4_SM_gph_<YYYYMMDD>T<HHMMSS>_<version>_<counter>.h5`, e.g.
+  `…_20250701T013000_Vv8012_001.h5` for 00:00–03:00 UTC. Each granule also lists a
+  `.qa` report as a download, so `earthdata.cmr_item` takes the URL ending `.h5`.
+- **Not read.** `SPL4SMAU` (Analysis Update: 3-hourly snapshots of the assimilation's
+  observations, forecasts, analyses and diagnostics) and `SPL4SMLM` (Land Model
+  Constants: one static file of the model's parameters).
+
+**Grids.** `/Geophysical_Data/` holds 45 float32 arrays on the same EASE-Grid 2.0
+Global 9 km grid as Level 3; the files' own `x` and `y` match `smap.py`'s constants to
+within 1 m (checked 2026-11-17 on the file above). The root's `cell_lat`, `cell_lon`,
+`time` and `EASE2_global_projection` aren't read. −9999 is NaN. Units are already UDUNITS
+but `dimensionless`, which becomes `1`. `long_name` gives each layer's depth: 0–5 cm
+(`sm_surface`), 0–100 cm (`sm_rootzone`), to the model's bedrock (`sm_profile`). Default
+variables: `sm_surface`, `sm_rootzone`, `sm_profile`.
+
+**Layout.** Each array is one whole-globe chunk (1624 × 3856, DEFLATE), about 4.3 MB
+compressed for the soil moisture and temperature grids and 0.5 MB for `snow_mass`. Any
+AOI reads all of it, and decodes 25 MB per array before the window is cut. The `.dmrpp`
+is 0.27 MB (35.5 MB for a Level 3 file), so a file's fixed cost is small, but each step
+of each variable costs its whole chunk: about 100 MB a day for the default three, 38 GB
+a year, whatever the AOI.
+
+**Time.** Each value is the mean of the 3 hours ending at its time step (stamped at the
+end, as ERA5, HRRR and Stage IV are): `io.with_time_bounds(da, -3, 0, "time: mean")`,
+with the file found by its CMR `end_datetime`. The window's steps follow ERA5's
+`sel(time=slice(start, end))`: from `start` through `end`, a date-only end including
+its whole day (`smap_l4.steps`). The search starts 3 hours before the first step, and
+the files that only touch the window are dropped. `PAD` is the default day, 16 more
+files per stage.
+
+**Standard names.** CF's carry no depth, so a name several layers would share isn't
+given: `sm_surface` is `volume_fraction_of_condensed_water_in_soil` (its 0–5 cm is
+Level 3's `soil_moisture`'s), `sm_rootzone` and `sm_profile` have none, nor have
+`soil_temp_layer1` to `6`. Single quantities get theirs, e.g. `surface_snow_amount`,
+`precipitation_flux`, `surface_upward_latent_heat_flux`.
+
+**Why its own dataset** rather than a `product` variant of `smap`: variant datasets
+(`dem`, `soil`, `stage4`) take no option but the variant, which the stage file's
+checks rely on. Level 3 and Level 4 differ in their variables (different names and
+defaults) and options (`orbit_state` is Level 3's), which a shared `load()` would
+check only once reading; and a variant would move Level 3's group from `rasters/smap`
+to `smap/<product>`. `seismic` and `infrasound`, two datasets over one reader
+(`waveforms.py`), are the precedent followed: the shared parts are `dmrpp.py` and
+`smap.py`'s grid, search (`smap.find_files`) and assembly (`smap.stack`).
+
+### Level 4 measurements
+
+Each product's default variables from 2025-09-01: Level 3's 16 arrays (8 variables,
+both passes) from 1 file a day, Level 4's 3 from 8 files a day. `load(...).compute()`,
+one fresh process per run, two runs each, from Seattle over HTTPS, 2026-11-17. Bytes
+are every response's body, counted at `fetch.get`.
+
+| AOI (9 km cells) | product | total, 2 runs | reads (`compute`) | downloaded: `.dmrpp` + chunks | peak memory |
+|---|---|---|---|---|---|
+| 1 day, Paradise (3 × 4) | L3 | 23.1 s, 10.2 s | 2.6–2.7 s | 50.2 MB: 35.5 + 14.7 | 0.6–0.7 GB |
+| | L4 | 14.1 s, 15.2 s | 11.2–11.3 s | 133.3 MB: 2.1 + 131.1 | 0.5–0.6 GB |
+| 1 day, CONUS (282 × 621) | L3 | 26.0 s, 20.6 s | 3.4–3.5 s | 58.6 MB: 35.5 + 23.1 | 0.6–0.7 GB |
+| | L4 | 19.5 s, 15.1 s | 10.6–10.9 s | 133.3 MB: 2.1 + 131.1 | 0.5–0.7 GB |
+| 1 day, global (1624 × 3856) | L3 | 17.5 s, 15.0 s | 8.2–8.6 s | 101.6 MB: 35.5 + 66.1 | 1.3–1.4 GB |
+| | L4 | 17.7 s, 13.9 s | 11.6–11.7 s | 133.3 MB: 2.1 + 131.1 | 1.2–1.3 GB |
+| 6 days, CONUS | L3 | 71.9 s, 36.6 s | 30.8–31.0 s | 356.8 MB: 213.1 + 143.7 | 1.0–1.1 GB |
+| | L4 | 72.5 s, 82.8 s | 54.9–61.5 s | 789.0 MB: 12.8 + 776.0 | 0.6–0.7 GB |
+
+- **Level 4 downloads the same 133 MB a day for any AOI**: 8 steps × 3 whole-globe
+  chunks of about 4.3 MB, plus 8 small `.dmrpp`s. Level 3's `.dmrpp` (35.5 MB) is most
+  of what a small AOI costs.
+- **The rest of the total is setup**: `load()` before `compute`, i.e. the CMR search,
+  the CMR STAC collection (provenance) and the first file's `.dmrpp`: 2.2–41 s, mostly
+  CMR. Its services were slow and flaky that day: the same granule search took
+  0.2–32 s, and the STAC collection 0.5 s or a 503 after 29 s (which `fetch` retries).
+- **Level 3 is no slower for the refactor**: 6 days over CONUS read in 26.9–31.8 s
+  with `main`'s code (#78) and 28.9–31.8 s with this one, run alternately.
+- Reads run each file's task in dask's threads; its signing is inside it.
+
 ## Tests
 
-`tests/test_smap.py` builds stand-in files as in-memory zarr arrays, with the
-attributes VirtualiZarr gives the real ones (units, base64 `_FillValue`). It patches
-`smap.open_arrays` to return them, so the windows, fill values and flags run through
-`smap.load`. `smap.Granule` and `smap.fill_value` have tests of their own: the
-`.dmrpp` is fetched once with the token, and each block once. `open_arrays` itself,
-with the parser and the real files, is covered by `tests/test_online.py`, which
-stages a day over the Columbia Basin from NSIDC (needs `EARTHDATA_TOKEN`).
+`tests/test_smap.py` and `tests/test_smap_l4.py` build stand-in files as in-memory
+zarr arrays, with the attributes VirtualiZarr gives the real ones (units, base64
+`_FillValue`). They patch `dmrpp.open_arrays` to return them, so the windows, fill
+values, flags and time steps run through each `load`. `tests/test_dmrpp.py` tests the
+reader itself: the `.dmrpp` is fetched once with the token, the file signed once when
+its first chunk is read, each block fetched once, and the parser told to skip the
+arrays not asked for. The parser with the real files is covered by
+`tests/test_online.py`, which stages a day of Level 3 and 6 hours of Level 4 (18 files
+with the padding, one variable) over the Columbia Basin from NSIDC (needs
+`EARTHDATA_TOKEN`).

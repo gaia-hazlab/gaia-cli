@@ -51,30 +51,32 @@ def token() -> str:
     return value
 
 
-def sign(items: Sequence[pystac.Item], assets: Sequence[str]) -> None:
-    """Point *items*' *assets* at the CloudFront URLs their DAAC signs for them.
+def signed_url(href: str) -> str:
+    """The CloudFront URL the DAAC signs for the file at *href*: ASF and NSIDC
+    answer an authenticated request with a redirect to a URL signed for an
+    hour, which is then read anonymously."""
+    headers = {"Authorization": f"Bearer {token()}"}
+    resp = fetch.get(href, headers=headers, allow_redirects=False)
+    location = resp.headers.get("location", "")
+    if resp.status_code not in (302, 303) or "urs.earthdata" in location:
+        raise RuntimeError(
+            f"could not sign {href} (HTTP {resp.status_code}); "
+            f"is {TOKEN} current? {TOKENS[TOKEN]}"
+        )
+    return location
 
-    ASF and NSIDC answer an authenticated request with a redirect to a URL
-    signed for an hour, so GDAL then reads anonymously, like Planetary
+
+def sign(items: Sequence[pystac.Item], assets: Sequence[str]) -> None:
+    """Point *items*' *assets* at the CloudFront URLs their DAAC signs for them
+    (:func:`signed_url`), so GDAL then reads anonymously, like Planetary
     Computer's SAS-signed hrefs (``stac.sign``). The store must be written
     within that hour.
     """
-    headers = {"Authorization": f"Bearer {token()}"}
-
-    def resolve(href: str) -> str:
-        resp = fetch.get(href, headers=headers, allow_redirects=False)
-        location = resp.headers.get("location", "")
-        if resp.status_code not in (302, 303) or "urs.earthdata" in location:
-            raise RuntimeError(
-                f"could not sign {href} (HTTP {resp.status_code}); "
-                f"is {TOKEN} current? {TOKENS[TOKEN]}"
-            )
-        return location
-
+    token()  # a clear error before any request
     # Assets may share a file (NISAR's HDF5): one request each
     hrefs = list(dict.fromkeys(it.assets[a].href for it in items for a in assets))
     with ThreadPoolExecutor(16) as pool:
-        signed = dict(zip(hrefs, pool.map(resolve, hrefs), strict=True))
+        signed = dict(zip(hrefs, pool.map(signed_url, hrefs), strict=True))
     for it in items:
         for a in assets:
             it.assets[a].href = signed[it.assets[a].href]
@@ -147,9 +149,10 @@ def _cmr_time(t: str | None) -> str:
     return pd.Timestamp(_utc(t)).strftime("%Y-%m-%dT%H:%M:%SZ") if t else ""
 
 
-def cmr_item(record: dict) -> pystac.Item:
+def cmr_item(record: dict, suffix: str = "") -> pystac.Item:
     """A CMR granule *record* (UMM-G) as a pystac Item, with one ``data`` asset:
-    the file's HTTPS URL.
+    the HTTPS URL of its file ending in *suffix* (SPL4SMGP's granules also
+    list a ``.qa`` report).
 
     Its time is the granule's temporal range (``start_datetime`` to
     ``end_datetime``, ``datetime`` its start), its footprint the first
@@ -171,7 +174,9 @@ def cmr_item(record: dict) -> pystac.Item:
     href = next(
         u["URL"]
         for u in umm["RelatedUrls"]
-        if u["Type"] == "GET DATA" and u["URL"].startswith("https://")
+        if u["Type"] == "GET DATA"
+        and u["URL"].startswith("https://")
+        and u["URL"].endswith(suffix)
     )
     item = pystac.Item(
         id=umm["GranuleUR"],
