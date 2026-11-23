@@ -22,7 +22,7 @@ The other sources below are documented, not staged.
 | ISMN | harmonized archive of many networks (SCAN, SNOTEL, USCRN, …) | global | per network | free account | no |
 | ERA5 | reanalysis, 0.25°, hourly | global | layers 0–7, 7–28 cm (and 28–100, 100–289 cm, not staged) | `ARRAYLAKE_TOKEN` | **`era5`** (`swvl1`, `swvl2`) |
 | SMAP L3/L4 | satellite, 9–36 km; L4 adds root zone | global | ~5 cm; L4 0–100 cm | NASA Earthdata | no (roadmap, later) |
-| NISAR SME2 | satellite, 200 m, provisional | global | ~5 cm | NASA Earthdata | no |
+| NISAR SME2 | satellite, 200 m, provisional | global | ~5 cm | NASA Earthdata | **`nisar-sme2`** |
 
 ### How soil-moisture-fusion gets its data
 
@@ -95,9 +95,9 @@ Open Access program on 2026-11-02.
 - **ISMN** (International Soil Moisture Network): harmonized, quality-flagged in-situ
   data from many networks, worldwide; useful beyond the US, but it duplicates NRCS
   and USCRN here.
-- **Gridded**: ERA5 is staged. SMAP and NISAR need NASA Earthdata (see
-  [roadmap/04-datasets.md](roadmap/04-datasets.md)); soil-moisture-fusion processes
-  NISAR SME2 itself.
+- **Gridded**: ERA5 is staged, and so is NISAR SME2 (`nisar-sme2`, with
+  `EARTHDATA_TOKEN`; see [nisar-sme2.md](nisar-sme2.md)). soil-moisture-fusion
+  processes NISAR SME2 itself.
 
 ## Instruments and quantities
 
