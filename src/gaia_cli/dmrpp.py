@@ -44,16 +44,18 @@ class Granule:
     The parser reads ``<url>.dmrpp`` with ``head`` and ``get`` or
     ``get_ranges``: it's fetched once, with the token, and kept, so each group
     parsed reuses it. The chunks are read with ``get_range_async``, as byte
-    ranges of the URL the DAAC signs for the file, got with the first chunk:
-    signed URLs last an hour, so each file is signed when it's read.
+    ranges of the URL the DAAC signs for the file: *signed*, when the caller
+    signed a batch of files beforehand (``earthdata.signed_urls``, as
+    ``smap.stack`` does), or else got with the first chunk. Signed URLs last an hour, so a
+    batch must be read within it.
     VirtualiZarr's ManifestStore drops a URL's query, and obstore escapes one
     in a path, so a signed URL needs a store of its own. Each aligned
     :data:`BLOCK` is fetched once, and the reads share it.
     """
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, signed: str | None = None):
         self.url = url
-        self.signed: str | None = None
+        self.signed = signed
         self.dmrpp: bytes | None = None
         self.blocks: dict[int, Future] = {}
         self.lock = threading.Lock()
@@ -132,16 +134,20 @@ class Granule:
 
 
 def open_arrays(
-    url: str, paths: Sequence[str], arrays: Mapping[str, Sequence[str]]
+    url: str,
+    paths: Sequence[str],
+    arrays: Mapping[str, Sequence[str]],
+    signed: str | None = None,
 ) -> dict[str, zarr.Array]:
     """The arrays at *paths* (``/<group>/<name>``) of the file at *url*, read
     through its DMR++ sidecar. *arrays* names every array in each group, so
-    the parser skips the chunk lists of those not asked for. VirtualiZarr's
+    the parser skips the chunk lists of those not asked for; *signed* is the
+    file's signed URL when already got (see :class:`Granule`). VirtualiZarr's
     parser makes one group per call."""
     from obspec_utils.registry import ObjectStoreRegistry
     from virtualizarr.parsers import DMRPPParser
 
-    store = Granule(url)
+    store = Granule(url, signed)
     # The file and its .dmrpp, by their folder
     registry = ObjectStoreRegistry({url.rsplit("/", 1)[0]: cast(Any, store)})
     groups: dict[str, list[str]] = {}
@@ -185,7 +191,8 @@ def read_file(
     arrays: Mapping[str, Sequence[str]],
     rows: slice,
     cols: slice,
+    signed: str | None = None,
 ) -> list[np.ndarray]:
     """*rows* and *cols* of each array at *paths* in the file at *url*: one
     DMR++ fetch, then the arrays' chunks."""
-    return read(open_arrays(url, paths, arrays), paths, rows, cols)
+    return read(open_arrays(url, paths, arrays, signed), paths, rows, cols)

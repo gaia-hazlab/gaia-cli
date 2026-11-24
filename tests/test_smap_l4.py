@@ -123,15 +123,21 @@ def nsidc(monkeypatch):
         "values": {},
         "searches": [],
         "opened": [],
+        "signed": [],
     }
 
     def search(concept_id, aoi, start=None, end=None):
         stand_in["searches"].append((concept_id, start, end))
         return stand_in["records"]
 
-    def open_arrays(url, paths, arrays):
+    def signed_urls(hrefs):
+        stand_in["signed"].append(list(hrefs))
+        return {h: f"{h}?Signature=batch" for h in hrefs}
+
+    def open_arrays(url, paths, arrays, signed=None):
         assert url.endswith(".h5") and arrays == smap_l4.ARRAYS
         stand_in["opened"].append(url)
+        assert signed in (None, f"{url}?Signature=batch")
         hour = int(url.rsplit("T", 1)[1][:2]) + 2
         arrays = step_file(stand_in["values"].get(url, hour / 100))
         return {p: arrays[p] for p in paths}
@@ -145,6 +151,7 @@ def nsidc(monkeypatch):
         )()
 
     monkeypatch.setattr(earthdata, "cmr_search", search)
+    monkeypatch.setattr(earthdata, "signed_urls", signed_urls)
     monkeypatch.setattr(dmrpp, "open_arrays", open_arrays)
     monkeypatch.setattr(fetch, "get", get)
     return stand_in

@@ -126,15 +126,21 @@ def nsidc(monkeypatch):
         "values": {},
         "searches": [],
         "opened": [],
+        "signed": [],
     }
 
     def search(concept_id, aoi, start=None, end=None):
         stand_in["searches"].append((concept_id, start, end))
         return stand_in["records"]
 
-    def open_arrays(url, paths, arrays):
+    def signed_urls(hrefs):
+        stand_in["signed"].append(list(hrefs))
+        return {h: f"{h}?Signature=batch" for h in hrefs}
+
+    def open_arrays(url, paths, arrays, signed=None):
         assert set(arrays) == set(smap.GROUP_ARRAYS)
         stand_in["opened"].append(url)
+        assert signed in (None, f"{url}?Signature=batch")
         day = url.rsplit("_E_", 1)[1][:8]
         arrays = day_file(stand_in["values"].get(url, int(day[-2:]) / 10))
         return {p: arrays[p] for p in paths}
@@ -148,6 +154,7 @@ def nsidc(monkeypatch):
         )()
 
     monkeypatch.setattr(earthdata, "cmr_search", search)
+    monkeypatch.setattr(earthdata, "signed_urls", signed_urls)
     monkeypatch.setattr(dmrpp, "open_arrays", open_arrays)
     monkeypatch.setattr(fetch, "get", get)
     return stand_in
@@ -178,6 +185,14 @@ def test_load_reads_both_passes_of_each_day(nsidc):
     # Each file opened once: the first's attributes come from its read's open
     assert sorted(nsidc["opened"]) == sorted(set(nsidc["opened"]))
     assert len(nsidc["opened"]) == 3
+
+
+def test_the_files_after_the_first_are_signed_in_batches(nsidc, monkeypatch):
+    monkeypatch.setattr(smap, "SIGN_BATCH", 1)
+    smap.load(AOI, "2025-09-01", "2025-09-03").compute()
+    # The first is signed when read; the others each in a batch of one
+    urls = [r["umm"]["RelatedUrls"][1]["URL"] for r in nsidc["records"]]
+    assert sorted(nsidc["signed"]) == [[urls[1]], [urls[2]]]
 
 
 def test_load_is_on_the_ease_grid(nsidc):

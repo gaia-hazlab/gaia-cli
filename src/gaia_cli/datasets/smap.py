@@ -151,6 +151,9 @@ STANDARD_NAMES = {
 # Chunks of whole time steps, as many as fit in 10 MB (the size io stores as
 # one chunk); a time step larger than that is split into bands of rows
 CHUNK_BYTES = 10 * 1024**2
+# Files signed together, in one task their reads wait on: one round of
+# earthdata.signed_urls' 16 requests, read well within the signed URLs' hour
+SIGN_BATCH = 16
 
 
 def window(aoi: gpd.GeoDataFrame) -> tuple[slice, slice]:
@@ -271,12 +274,21 @@ def stack(
     first_arrays = dmrpp.open_arrays(urls[first], list(paths.values()), arrays)
     meta = describe(first_arrays)
 
+    # The others are signed in batches, each just before its files' reads (the
+    # first is signed when its first chunk is read)
+    rest = [url for step, url in urls.items() if step != first]
+    signed = {}
+    for i in range(0, len(rest), SIGN_BATCH):
+        batch = rest[i : i + SIGN_BATCH]
+        hrefs = dask.delayed(earthdata.signed_urls)(batch)
+        signed.update({url: hrefs[url] for url in batch})
+
     # One read of each file gives all its arrays
     reads = {
         step: dask.delayed(dmrpp.read)(first_arrays, list(paths.values()), rows, cols)
         if step == first
         else dask.delayed(dmrpp.read_file)(
-            url, list(paths.values()), arrays, rows, cols
+            url, list(paths.values()), arrays, rows, cols, signed[url]
         )
         for step, url in urls.items()
     }
