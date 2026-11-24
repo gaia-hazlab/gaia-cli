@@ -81,6 +81,24 @@ def test_granule_signs_its_file_once_and_fetches_each_block_once(monkeypatch):
     ]
 
 
+def test_granule_given_a_signed_url_reads_it_without_signing(monkeypatch):
+    calls = []
+
+    def signed_url(href):
+        raise AssertionError("signed again")
+
+    def get(url, headers):
+        calls.append(url)
+        return response(content=b"x" * 1000)
+
+    monkeypatch.setattr(dmrpp, "BLOCK", 1000)
+    monkeypatch.setattr(earthdata, "signed_url", signed_url)
+    monkeypatch.setattr(fetch, "get", get)
+    store = dmrpp.Granule("https://nsidc/f.h5", "https://cdn/f.h5?Signature=batch")
+    assert asyncio.run(store.get_range_async("ignored", start=0, end=10)) == b"x" * 10
+    assert calls == ["https://cdn/f.h5?Signature=batch"]
+
+
 def test_open_arrays_skips_the_other_arrays_of_each_group(monkeypatch):
     import virtualizarr.parsers
 

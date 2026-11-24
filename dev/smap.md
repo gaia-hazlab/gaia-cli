@@ -132,8 +132,15 @@ index, chunks are plain HTTP byte ranges: no libhdf5, so no worker processes and
 `gdal` bindings.
 
 1. `earthdata.signed_url` gets each file a CloudFront URL signed for an hour (NSIDC
-   answers the token with a 303, as ASF does) when its first chunk is read, so no URL
-   expires however long the window (a year of `smap-l4` is 2,920 files).
+   answers the token with a 303, as ASF does). `smap.stack` signs the files in
+   batches of `SIGN_BATCH` (16, one round of `earthdata.signed_urls`' 16 requests),
+   each batch one dask task that its files' reads wait on. The first file, opened
+   for the attributes, is signed when its first chunk is read. Dask runs each batch
+   just before its reads, so no URL expires however long the window: for a year of
+   `smap-l4` (2,920 files, network stubbed), at most 118 files were read between a
+   file's signing and its read (median 9), about 25 s at a week's 0.21 s a file
+   ([Signing in batches](#signing-in-batches)). Batches of 200 let that reach 1,318
+   (about 5 minutes), and their reads would wait on 13 rounds of signing, not one.
 2. `smap.window` turns the AOI's bounds into the grid's rows and columns, plus one on
    each side so rioxarray finds the grid's spacing. `io.clip_to_aoi` drops the extra
    ones.
@@ -403,16 +410,38 @@ are every response's body, counted at `fetch.get`.
   0.2–32 s, and the STAC collection 0.5 s or a 503 after 29 s (which `fetch` retries).
 - **Level 3 is no slower for the refactor**: 6 days over CONUS read in 26.9–31.8 s
   with `main`'s code (#78) and 28.9–31.8 s with this one, run alternately.
-- Reads run each file's task in dask's threads; its signing is inside it.
+- Reads ran each file's task in dask's threads, its signing inside it; files are now
+  signed in batches (below).
+
+### Signing in batches
+
+`gaia stage smap` and `gaia stage smap-l4` over CONUS (`runner.stage_dataset`, with
+the day of padding each side and the Zarr write), default variables, from 2025-09-01:
+each file signed as its first chunk is read (the previous commit, b0de4d4) against
+signed in batches of 16 beforehand. One fresh process per run, two runs each, the two
+alternating, from Seattle over HTTPS, 2026-11-24. Setup is `load()` (the CMR search,
+provenance and the first `.dmrpp`); the rest is the reads and the write.
+
+| stage | files signed | downloaded | setup | reads + write, per file | reads + write, batches |
+|---|---|---|---|---|---|
+| L3, 1 day | 3 | 0.18 GB | 3.9–4.6 s | 6.9–7.5 s | 6.4–7.2 s |
+| L3, 1 week | 9 | 0.53 GB | 4.0–5.4 s | 18.4–18.6 s | 19.5–20.3 s |
+| L4, 1 day | 24 | 0.39 GB | 1.8–2.0 s | 10.9–12.1 s | 7.6–8.0 s |
+| L4, 1 week | 72 | 1.19 GB | 2.1–3.9 s | 25.4–27.3 s | 14.7–15.4 s |
+
+- **Level 4 reads and writes in a third to 40% less time**: a Level 4 file is only its
+  three 4.3 MB chunks, so each file's own sign request was much of its task.
+- **Level 3 gains nothing**: each file's 35.5 MB `.dmrpp` dominates its read. A week
+  was about 1 s (5%) slower, its 8 files one batch that all their reads wait for.
 
 ## Tests
 
 `tests/test_smap.py` and `tests/test_smap_l4.py` build stand-in files as in-memory
 zarr arrays, with the attributes VirtualiZarr gives the real ones (units, base64
 `_FillValue`). They patch `dmrpp.open_arrays` to return them, so the windows, fill
-values, flags and time steps run through each `load`. `tests/test_dmrpp.py` tests the
+values, flags, time steps and signing batches run through each `load`. `tests/test_dmrpp.py` tests the
 reader itself: the `.dmrpp` is fetched once with the token, the file signed once when
-its first chunk is read, each block fetched once, and the parser told to skip the
+its first chunk is read unless already signed, each block fetched once, and the parser told to skip the
 arrays not asked for. The parser with the real files is covered by
 `tests/test_online.py`, which stages a day of Level 3 and 6 hours of Level 4 (18 files
 with the padding, one variable) over the Columbia Basin from NSIDC (needs

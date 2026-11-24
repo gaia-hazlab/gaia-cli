@@ -66,17 +66,22 @@ def signed_url(href: str) -> str:
     return location
 
 
+def signed_urls(hrefs: Sequence[str]) -> dict[str, str]:
+    """:func:`signed_url` of each of *hrefs*, 16 requests at a time."""
+    token()  # a clear error before any request
+    with ThreadPoolExecutor(16) as pool:
+        return dict(zip(hrefs, pool.map(signed_url, hrefs), strict=True))
+
+
 def sign(items: Sequence[pystac.Item], assets: Sequence[str]) -> None:
     """Point *items*' *assets* at the CloudFront URLs their DAAC signs for them
     (:func:`signed_url`), so GDAL then reads anonymously, like Planetary
     Computer's SAS-signed hrefs (``stac.sign``). The store must be written
     within that hour.
     """
-    token()  # a clear error before any request
     # Assets may share a file (NISAR's HDF5): one request each
     hrefs = list(dict.fromkeys(it.assets[a].href for it in items for a in assets))
-    with ThreadPoolExecutor(16) as pool:
-        signed = dict(zip(hrefs, pool.map(signed_url, hrefs), strict=True))
+    signed = signed_urls(hrefs)
     for it in items:
         for a in assets:
             it.assets[a].href = signed[it.assets[a].href]
