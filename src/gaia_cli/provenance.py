@@ -36,6 +36,7 @@ STAC_EXTENSIONS = {
     "https://stac-extensions.github.io/version/v1.2.0/schema.json": "version",
     "https://stac-extensions.github.io/scientific/v1.0.0/schema.json": "sci:",
     "https://stac-extensions.github.io/xarray-assets/v1.0.0/schema.json": "xarray:",
+    "https://stac-extensions.github.io/timestamps/v1.1.0/schema.json": "expires",
 }
 # Fields and link relations copied from an upstream STAC collection
 COLLECTION_FIELDS = (
@@ -102,6 +103,12 @@ def cli_version() -> str:
 
 def _iso(t) -> str:
     return pd.Timestamp(t).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def expiry(created: str, days: int) -> str:
+    """STAC ``expires``: *days* after *created*, when a bucket's lifecycle rule
+    may first delete objects written then."""
+    return _iso(pd.Timestamp(created) + pd.Timedelta(days=days))
 
 
 def extensions(*field_sets: Iterable[str]) -> list[str]:
@@ -257,14 +264,18 @@ def config_asset(href: str) -> dict:
 
 
 def stac_item(
-    tree: xr.DataTree, store_name: str, assets: Mapping[str, dict] | None = None
+    tree: xr.DataTree,
+    store_name: str,
+    assets: Mapping[str, dict] | None = None,
+    expires: str | None = None,
 ) -> dict:
     """A STAC Item for the store *store_name*, written next to it.
 
     Properties are the root attributes; when the groups hold the provenance
     (``gaia stage``), their time ranges, providers and links are merged,
     and a single shared ``license`` is lifted to the Item. *assets* are
-    added after the ``data`` asset.
+    added after the ``data`` asset. *expires* (RFC 3339) is when the store
+    may be deleted, e.g. by a bucket's lifecycle rule.
     """
     groups = [node.attrs for node in tree.subtree]
     props = {
@@ -284,6 +295,8 @@ def stac_item(
     providers = [p for a in groups for p in a.get("providers", [])]
     if providers:
         props["providers"] = _unique(providers, lambda p: p["name"])
+    if expires:
+        props["expires"] = expires
 
     # The description's first words tell stores from `gaia align` apart in a catalog
     kind = "gaia aligned store" if "gaia_align" in props else "gaia store"

@@ -139,6 +139,10 @@ public stores are browsable in
 and on a map in
 [stac-map](https://developmentseed.org/stac-map/?href=https://s3.kopah.uw.edu/gaia-scratch/gaia-cli/catalog.json).
 
+`gaia-scratch` deletes objects 30 days after they are written. Each Item's `expires`
+property gives the date, and rerunning the command with `--overwrite` starts the 30 days
+again.
+
 (prism-cache)=
 ## `gaia prism fill`
 

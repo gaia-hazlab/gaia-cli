@@ -32,6 +32,7 @@ The Item is built from the store's provenance attributes (see
 | `properties` | Root attributes (`created`, `gaia:cli-version`, `gaia:command`, …), plus `start_datetime`/`end_datetime` spanning every group |
 | `properties.license` | The root's license, or the single license shared by every group. With several licenses it is omitted, and `gaia:license-note` explains why. |
 | `properties.providers` | Providers from every group, one entry per name |
+| `properties.expires` | S3 outputs only: `created` plus the shortest `Expiration.Days` of the bucket's enabled lifecycle rules that match the store's key ([timestamps](https://github.com/stac-extensions/timestamps) extension). Omitted when the rules can't be read. `--skip-existing` keeps the earlier date, since the store's first groups expire first. |
 | `links` | Every group's `license`, `about`, `via` and `derived_from` links, once each |
 | `assets.data` | `./<name>.zarr`, type `application/vnd+zarr`, with [xarray-assets](https://github.com/stac-extensions/xarray-assets) `xarray:open_kwargs` |
 | `assets.config` | `gaia stage` only: `./stage.yaml`, type `application/yaml`, role `metadata`, the resolved stage file that reproduces the store |
