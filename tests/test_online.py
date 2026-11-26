@@ -378,6 +378,59 @@ datasets:
 @pytest.mark.skipif(
     not os.environ.get("EARTHDATA_TOKEN"), reason="needs EARTHDATA_TOKEN"
 )
+def test_nisar_sme2_frames_over_odessa(tmp_path):
+    # One ascending pass over wheat fields near Odessa, WA, whose two frames
+    # overlap there: each its own time step, read remotely from the HDF5
+    import rasterio
+
+    from gaia_cli import earthdata
+    from gaia_cli.datasets import nisar_sme2
+
+    config = tmp_path / "stage.yaml"
+    config.write_text(
+        """
+name: odessa-sme2
+aoi: {latitude: 47.333, longitude: -118.688, radius_km: 3}
+window: 2026-10-17/2026-10-17
+datasets:
+  nisar-sme2: {relative_orbit: 77}
+"""
+    )
+    runner.stage(config=str(config), output_path=str(tmp_path / "out"))
+
+    tree = xr.open_datatree(tmp_path / "out" / "odessa-sme2.zarr", engine="zarr")
+    ds = tree["rasters/nisar-sme2"].to_dataset()
+    assert ds.frame.values.tolist() == [25, 26]
+    assert ds.rio.resolution() == pytest.approx((200.179, -200.179), abs=1e-3)
+    sm = ds.soilMoisture
+    assert sm.attrs["units"] == "m3 m-3"
+    assert 0.02 <= float(sm.min()) and float(sm.max()) <= 0.6
+    # The store's frame 26 is the file's, cell for cell
+    links = [x["href"] for x in ds.attrs["links"] if "/items/" in x["href"]]
+    name = next(h for h in links if "_026_" in h).rsplit("/", 1)[-1]
+    href = (
+        "https://nisar.asf.earthdatacloud.nasa.gov/NISAR/"
+        f"{nisar_sme2.COLLECTION}/{name}/{name}.h5"
+    )
+    signed = earthdata.signed_url(href)
+    with rasterio.open(nisar_sme2.subdataset(signed, "soilMoisture")) as src:
+        window = rasterio.windows.from_bounds(*ds.rio.bounds(), src.transform)
+        ref = src.read(1, window=window.round_offsets().round_lengths())
+    got = sm.sel(time=sm.time[ds.frame == 26]).squeeze().values
+    valid = ~np.isnan(got)
+    assert valid.sum() > 100
+    np.testing.assert_array_equal(got[valid], ref[valid])
+    token = os.environ["EARTHDATA_TOKEN"]
+    assert not any(
+        token in p.read_text(errors="ignore")
+        for p in (tmp_path / "out").rglob("*")
+        if p.is_file()
+    )
+
+
+@pytest.mark.skipif(
+    not os.environ.get("EARTHDATA_TOKEN"), reason="needs EARTHDATA_TOKEN"
+)
 def test_smap_days_over_the_columbia_basin(tmp_path):
     # Read remotely from each day's HDF5 through its DMR++ index; the token must
     # not reach the store. Over this AOI the 2025-08-31 morning pass and the

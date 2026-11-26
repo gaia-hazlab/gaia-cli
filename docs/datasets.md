@@ -17,6 +17,7 @@ title: Datasets
 | [`sentinel1-rtc`](#sentinel1-rtc) | Sentinel-1 radar backscatter | global, 2014-10 on | 10 m | each pass | `rasters/sentinel1-rtc` |
 | [`opera-rtc`](#opera-rtc) | OPERA Sentinel-1 radar backscatter (NASA Earthdata) | land north of 60° S, 2016-04 on | 30 m | each pass | `rasters/opera-rtc` |
 | [`nisar-gcov`](#nisar-gcov) | NISAR L-band radar backscatter (NASA Earthdata) | global, 2025-11 on | 10–20 m | each pass | `rasters/nisar-gcov` |
+| [`nisar-sme2`](#nisar-sme2) | NISAR soil moisture, provisional (NASA Earthdata) | global, 2025-11 on | 200 m | each frame | `rasters/nisar-sme2` |
 | [`smap`](#smap) | SMAP L-band brightness temperature and soil moisture (NASA Earthdata) | global to 85°, 2015-03-31 on | 9 km | daily, AM and PM passes | `rasters/smap` |
 | [`smap-l4`](#smap-l4) | SMAP Level-4 surface and root-zone soil moisture, model-assimilated (NASA Earthdata) | global to 85°, 2015-03-31 on | 9 km | 3-hourly means | `rasters/smap-l4` |
 | [`sentinel2`](#sentinel2) | Sentinel-2 surface reflectance | global, 2015-06 on | 10 m | each pass | `rasters/sentinel2` |
@@ -302,6 +303,41 @@ Needs `EARTHDATA_TOKEN`, as `opera-rtc` does.
 ```bash
 gaia stage nisar-gcov -i aoi.geojson -s 2026-10-21 -e 2026-11-08 -o out
 gaia stage nisar-gcov -i aoi.geojson -s 2026-07-01 -e 2026-10-20 -o out --maturity provisional --relative-orbit 172
+```
+
+(nisar-sme2)=
+## NISAR SME2
+
+Soil moisture retrieved from [NISAR](https://nisar-docs.asf.alaska.edu/sme2/)'s
+L-band backscatter time series: JPL's Level-3 product (SME2), 200 m on EASE-Grid 2.0
+Global (EPSG:6933), from ASF DAAC. Needs `EARTHDATA_TOKEN`, as `opera-rtc` does.
+
+- **Provisional only.** `NISAR_L3_SME2_PROVISIONAL_V1` is the only release so far. It
+  isn't fully calibrated, and a validated release is planned for 2027.
+- Default variables:
+  - `soilMoisture` (m³ m⁻³, 0.02–0.60) and `soilMoistureUncertainty`;
+  - `retrievalQualityFlag`: bit 0 set means the retrieval isn't recommended; bits 1–3
+    say which algorithms (PMI, TSR, DSG) contributed;
+  - `surfaceQualityFlag`: water, urban, precipitation, snow, frozen ground, terrain and
+    dense-vegetation bits.
+
+  `--variables` also takes the ancillary `landCover`, `localIncidenceAngle` and
+  `waterbodyFraction`.
+- **One time step per frame, not per pass.** A pass's frames overlap, and each frame's
+  retrieval differs in the overlap (by 0.03 m³ m⁻³ RMS over Odessa, WA), so they are
+  kept apart rather than mosaicked. The coordinates `platform`, `orbit_state`,
+  `relative_orbit`, `absolute_orbit` and `frame` are along `time`.
+- No quality masking: −9999 is NaN, and the flags (int16, −9999 where missing) are for
+  you to apply.
+- Soil moisture has the CF standard name `volume_fraction_of_condensed_water_in_soil`,
+  as `smap`'s, `era5`'s and `nrcs`'s do.
+- Each frame's grids are read remotely from its HDF5 file (about 100 MB), in 4
+  processes: a second or two per frame.
+- License: CC0-1.0 (NASA Earthdata data use policy).
+
+```bash
+gaia stage nisar-sme2 -i aoi.geojson -s 2026-09-01 -e 2026-10-31 -o out
+gaia stage nisar-sme2 -i aoi.geojson -s 2026-09-01 -e 2026-10-31 -o out --orbit-state ascending --variables soilMoisture --variables waterbodyFraction
 ```
 
 (smap)=
