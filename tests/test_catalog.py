@@ -154,12 +154,21 @@ def test_rebuild_links_live_items_only(tmp_path):
     io.save_datatree(xr.DataTree(_raster()), str(tmp_path / "gone.zarr"))
     shutil.rmtree(tmp_path / "gone.zarr")
     (tmp_path / "notes.json").write_text('{"not": "an item"}')
+    # Past its expires, a store may be partly deleted: its Item is dropped
+    for name, expires in (
+        ("old", "2026-01-01T00:00:00Z"),
+        ("fresh", "2999-01-01T00:00:00Z"),
+    ):
+        io.save_datatree(xr.DataTree(_raster()), str(tmp_path / f"{name}.zarr"))
+        item = _read(tmp_path / f"{name}.json")
+        item["properties"]["expires"] = expires
+        (tmp_path / f"{name}.json").write_text(json.dumps(item))
 
     catalog.rebuild(str(tmp_path))
 
     links = _read(tmp_path / "catalog.json")["links"]
     items = sorted(lk["href"] for lk in links if lk["rel"] == "item")
-    assert items == ["./a.json", "./event/b.json"]
+    assert items == ["./a.json", "./event/b.json", "./fresh.json"]
 
 
 def test_find_json_skips_zarr_stores(tmp_path):

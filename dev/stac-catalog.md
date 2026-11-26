@@ -51,7 +51,10 @@ The rebuild does four things:
    directories.
 2. Keeps the gaia-cli Items, skipping any other JSON.
 3. Drops Items whose store no longer has a `zarr.json`, for example scratch data
-   that was deleted.
+   that was deleted, and Items past their `expires`. A bucket's lifecycle rule deletes
+   objects one by one, oldest first. After an append, the root `zarr.json` is newer than
+   the first groups, so it outlives them and still lists their arrays, whose missing
+   chunks then read as fill values.
 4. Writes `catalog.json`.
 
 All hrefs are relative: the asset points at `./<name>.zarr` and the catalog

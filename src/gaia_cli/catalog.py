@@ -10,6 +10,7 @@ See dev/stac-catalog.md.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import logging
 import posixpath
@@ -74,6 +75,13 @@ def store_exists(store, key: str, item: dict) -> bool:
     return True
 
 
+def expired(item: dict, now: dt.datetime) -> bool:
+    """Whether the Item's ``expires`` has passed: from then the bucket may have
+    deleted part of its store, whose missing chunks would read as fill values."""
+    expires = item["properties"].get("expires")
+    return expires is not None and dt.datetime.fromisoformat(expires) <= now
+
+
 def build_catalog(items: dict[str, dict], prefix: str) -> dict:
     """A STAC Catalog linking *items* (``{key: item}``, keys relative to it)."""
     links = [{"rel": "root", "href": f"./{CATALOG_KEY}", "type": JSON}]
@@ -100,7 +108,8 @@ def rebuild(prefix: Annotated[str, Parameter(name=["--prefix", "-p"])]):
     """Write a STAC catalog of the gaia stores under PREFIX.
 
     Finds the Items that ``gaia stage``/``gaia align`` write next to their
-    stores, skips any whose store was deleted, and writes
+    stores, skips any whose store was deleted or whose ``expires`` has
+    passed, and writes
     ``PREFIX/catalog.json``. Requires AWS credentials for an ``s3://`` PREFIX.
 
     Parameters
@@ -118,6 +127,11 @@ def rebuild(prefix: Annotated[str, Parameter(name=["--prefix", "-p"])]):
     with ThreadPoolExecutor(max_workers=16) as pool:
         docs = dict(zip(keys, pool.map(partial(_read_json, store), keys), strict=True))
     items = {k: doc for k, doc in docs.items() if is_gaia_item(doc)}
+    now = dt.datetime.now(dt.UTC)
+    for key in [k for k, it in items.items() if expired(it, now)]:
+        log.info(
+            "skipping %s: expired %s", key, items.pop(key)["properties"]["expires"]
+        )
     live = {k: it for k, it in items.items() if store_exists(store, k, it)}
     for key in items.keys() - live.keys():
         log.info("skipping %s: its store no longer exists", key)

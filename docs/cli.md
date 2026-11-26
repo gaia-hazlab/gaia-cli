@@ -27,7 +27,8 @@ gaia stage dem   -i $AOI -o skagit --skip-existing               # static: no wi
   one extra day beyond each end, so that periods crossing the edges (such as the PRISM
   day) are complete.
 - `-o` is an output folder, local or `s3://`. The store is named after the folder.
-- `--skip-existing` adds a dataset to an existing store. `--overwrite` replaces it.
+- `--skip-existing` adds a dataset to an existing store, e.g. to retry one that failed.
+  `--overwrite` replaces the store.
   Run one `gaia stage` at a time per output folder: `--skip-existing` checks the store's
   groups when it starts, so a group another run writes in the meantime fails with
   `unexpected encoding parameters for zarr backend: ['coordinates']`.
@@ -141,7 +142,8 @@ and on a map in
 
 `gaia-scratch` deletes objects 30 days after they are written. Each Item's `expires`
 property gives the date, and rerunning the command with `--overwrite` starts the 30 days
-again.
+again. A store appended to with `--skip-existing` loses its first groups first, and their
+missing chunks would read as NaN, so the rebuild leaves out Items past their `expires`.
 
 (prism-cache)=
 ## `gaia prism fill`
