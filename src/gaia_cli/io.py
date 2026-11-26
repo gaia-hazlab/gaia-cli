@@ -17,6 +17,7 @@ import rioxarray
 import xarray as xr
 import xvec  # noqa: F401  registers the .xvec accessor
 import zarr
+from botocore.exceptions import BotoCoreError, ClientError
 from obstore.auth.boto3 import Boto3CredentialProvider
 from obstore.store import LocalStore, from_url
 from zarr.storage import ObjectStore
@@ -235,10 +236,52 @@ def item_path(output_path: str) -> str:
     return output_path.rstrip("/").removesuffix(".zarr") + ".json"
 
 
-def _write_item(output_path: str, tree: xr.DataTree, assets: dict | None = None):
+def expiration_days(output_path: str) -> int | None:
+    """Days after which the bucket's lifecycle rules delete objects written at
+    *output_path* (``s3://``), or None: a local path, no rule, or rules this
+    can't read (no permission, or a store without lifecycle support)."""
+    if not output_path.startswith("s3://"):
+        return None
+    bucket, _, key = output_path.removeprefix("s3://").partition("/")
+    try:
+        rules = (
+            boto3.Session()
+            .client("s3")
+            .get_bucket_lifecycle_configuration(Bucket=bucket)["Rules"]
+        )
+    except (BotoCoreError, ClientError) as e:
+        log.debug("no lifecycle rules read for %s: %s", bucket, e)
+        return None
+    days = []
+    for rule in rules:
+        filt = rule.get("Filter", {})
+        prefix = rule.get("Prefix", filt.get("Prefix", ""))
+        # Rules on tags or object size don't apply to every object written
+        if rule["Status"] != "Enabled" or set(filt) - {"Prefix"}:
+            continue
+        if "Days" in rule.get("Expiration", {}) and key.startswith(prefix):
+            days.append(rule["Expiration"]["Days"])
+    return min(days, default=None)
+
+
+def _write_item(
+    output_path: str,
+    tree: xr.DataTree,
+    assets: dict | None = None,
+    append: bool = False,
+):
+    path = item_path(output_path)
+    expires = None
+    if days := expiration_days(output_path):
+        expires = provenance.expiry(tree.attrs["created"], days)
+        # Groups kept from an earlier write expire first
+        if append and (old := read_text(path)):
+            expires = min(
+                expires, json.loads(old)["properties"].get("expires", expires)
+            )
     store_name = posixpath.basename(output_path.rstrip("/"))
-    write_json(item_path(output_path), provenance.stac_item(tree, store_name, assets))
-    log.info("Wrote STAC item %s", item_path(output_path))
+    write_json(path, provenance.stac_item(tree, store_name, assets, expires))
+    log.info("Wrote STAC item %s", path)
 
 
 def output_exists(output_path: str) -> bool:
@@ -499,7 +542,7 @@ def save_datatree(
         root.attrs.put({str(k): v for k, v in prepared.attrs.items()})
         zarr.consolidate_metadata(store)
     log.info("Saved %s", output_path)
-    _write_item(output_path, prepared, assets)
+    _write_item(output_path, prepared, assets, append)
 
 
 def remove_group(output_path: str, path: str) -> None:

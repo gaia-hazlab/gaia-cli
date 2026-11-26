@@ -320,7 +320,9 @@ def stage(
         Default False.
     skip_existing : bool
         Add to an existing store, skipping datasets whose group it already
-        has. Use it to retry the datasets that failed. Default False.
+        has. Use it to retry the datasets that failed, not to add data days
+        later: in a bucket with an expiry rule, the earlier groups are
+        deleted first. Default False.
 
     Examples
     --------

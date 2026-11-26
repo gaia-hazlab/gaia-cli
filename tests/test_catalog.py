@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
+from botocore.exceptions import ClientError
 
 from gaia_cli import catalog, io, provenance
 
@@ -70,6 +71,82 @@ def test_tree_item_merges_groups(tmp_path):
     }
 
 
+class _Lifecycle:
+    def __init__(self, rules=None, error=None):
+        self.rules, self.error = rules, error
+
+    def client(self, name):
+        return self
+
+    def get_bucket_lifecycle_configuration(self, Bucket):
+        if self.error:
+            raise self.error
+        return {"Rules": self.rules}
+
+
+def test_expiration_days_from_lifecycle_rules(monkeypatch):
+    rules = [
+        {"ID": "all", "Prefix": "", "Status": "Enabled", "Expiration": {"Days": 30}},
+        {
+            "ID": "tmp",
+            "Filter": {"Prefix": "gaia-cli/tmp/"},
+            "Status": "Enabled",
+            "Expiration": {"Days": 7},
+        },
+        {
+            "ID": "off",
+            "Filter": {"Prefix": ""},
+            "Status": "Disabled",
+            "Expiration": {"Days": 1},
+        },
+        {
+            "ID": "tagged",
+            "Filter": {"Tag": {"Key": "k", "Value": "v"}},
+            "Status": "Enabled",
+            "Expiration": {"Days": 2},
+        },
+        {
+            "ID": "uploads",
+            "Prefix": "",
+            "Status": "Enabled",
+            "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 3},
+        },
+    ]
+    monkeypatch.setattr(io.boto3, "Session", lambda: _Lifecycle(rules))
+    assert io.expiration_days("s3://b/gaia-cli/pioneer/pioneer.zarr") == 30
+    assert io.expiration_days("s3://b/gaia-cli/tmp/x/x.zarr") == 7
+    assert io.expiration_days("./pioneer/pioneer.zarr") is None
+
+    error = ClientError(
+        {"Error": {"Code": "NoSuchLifecycleConfiguration"}}, "GetLifecycle"
+    )
+    monkeypatch.setattr(io.boto3, "Session", lambda: _Lifecycle(error=error))
+    assert io.expiration_days("s3://b/gaia-cli/pioneer/pioneer.zarr") is None
+
+
+def test_item_expires_with_the_bucket_rule(tmp_path, monkeypatch):
+    store = str(tmp_path / "r.zarr")
+    io.save_datatree(xr.DataTree(_raster()), store)
+    assert "expires" not in _read(tmp_path / "r.json")["properties"]
+
+    monkeypatch.setattr(io, "expiration_days", lambda path: 30)
+    io.save_datatree(xr.DataTree(_raster()), store, overwrite=True)
+    item = _read(tmp_path / "r.json")
+    props = item["properties"]
+    assert pd.Timestamp(props["expires"]) - pd.Timestamp(props["created"]) == (
+        pd.Timedelta(days=30)
+    )
+    assert any("timestamps" in e for e in item["stac_extensions"])
+
+    # Appending keeps the earlier groups' expiry
+    first = "2026-01-01T00:00:00Z"
+    item["properties"]["expires"] = first
+    (tmp_path / "r.json").write_text(json.dumps(item))
+    tree = xr.DataTree.from_dict({"rasters/b": _raster()})
+    io.save_datatree(tree, store, append=True)
+    assert _read(tmp_path / "r.json")["properties"]["expires"] == first
+
+
 def test_rebuild_links_live_items_only(tmp_path):
     io.save_datatree(xr.DataTree(_raster()), str(tmp_path / "a.zarr"))
     (tmp_path / "event").mkdir()
@@ -77,12 +154,21 @@ def test_rebuild_links_live_items_only(tmp_path):
     io.save_datatree(xr.DataTree(_raster()), str(tmp_path / "gone.zarr"))
     shutil.rmtree(tmp_path / "gone.zarr")
     (tmp_path / "notes.json").write_text('{"not": "an item"}')
+    # Past its expires, a store may be partly deleted: its Item is dropped
+    for name, expires in (
+        ("old", "2026-01-01T00:00:00Z"),
+        ("fresh", "2999-01-01T00:00:00Z"),
+    ):
+        io.save_datatree(xr.DataTree(_raster()), str(tmp_path / f"{name}.zarr"))
+        item = _read(tmp_path / f"{name}.json")
+        item["properties"]["expires"] = expires
+        (tmp_path / f"{name}.json").write_text(json.dumps(item))
 
     catalog.rebuild(str(tmp_path))
 
     links = _read(tmp_path / "catalog.json")["links"]
     items = sorted(lk["href"] for lk in links if lk["rel"] == "item")
-    assert items == ["./a.json", "./event/b.json"]
+    assert items == ["./a.json", "./event/b.json", "./fresh.json"]
 
 
 def test_find_json_skips_zarr_stores(tmp_path):
